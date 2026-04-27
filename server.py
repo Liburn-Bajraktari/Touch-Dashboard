@@ -49,11 +49,17 @@ class AudioSystem:
         except: return ""
 
     @staticmethod
+    def get_state(target):
+        out = AudioSystem.run(['wpctl', 'get-volume', target])
+        if not out: return {"vol": 0, "muted": True}
+        try: vol = int(float(out.split()[1]) * 100)
+        except: vol = 0
+        return {"vol": vol, "muted": '[MUTED]' in out}
+
+    @staticmethod
     def poll_all():
         """Parses wpctl once to grab all sinks, active sink name, and spk/mic volume/mute states."""
         sinks = []
-        spk_state = {"vol": 0, "muted": True}
-        mic_state = {"vol": 0, "muted": True}
         active_sink_name = "NONE"
         
         try:
@@ -61,42 +67,33 @@ class AudioSystem:
             section = None
             for line in out.splitlines():
                 if 'Sinks:' in line: section = 'sinks'; continue
-                elif 'Sources:' in line: section = 'sources'; continue
-                elif any(x in line for x in ['Filters:', 'Streams:', 'Video:', 'Devices:']): 
-                    if section in ['sinks', 'sources']: section = None
+                elif any(x in line for x in ['Sources:', 'Filters:', 'Streams:', 'Video:', 'Devices:']): 
+                    if section == 'sinks': section = None
                     continue
                 
-                if section in ['sinks', 'sources']:
+                if section == 'sinks':
                     clean = line.replace('│', '').replace('├─', '').replace('└─', '').strip()
                     if not clean: continue
                     
-                    match = re.search(r'^(\*)?\s*(\d+)\.\s+([^\[]+)(?:\[vol:\s*([\d\.]+)\s*(MUTED)?\])?', clean)
+                    match = re.search(r'^(\*)?\s*(\d+)\.\s+([^\[]+)', clean)
                     if match:
                         is_active = bool(match.group(1))
                         dev_id = match.group(2)
                         raw_name = match.group(3).strip()
                         
-                        vol_str = match.group(4)
-                        vol = int(float(vol_str) * 100) if vol_str else 0
-                        is_muted = bool(match.group(5))
-                        
-                        if section == 'sinks':
-                            custom_names = config.get("audio_names", {})
-                            custom_name = custom_names.get(raw_name, "")
-                            display_name = custom_name[:10] if custom_name else raw_name[:5].upper()
-                            sinks.append({"id": dev_id, "name": display_name, "raw_name": raw_name, "custom_name": custom_name, "is_active": is_active})
-                            if is_active:
-                                active_sink_name = display_name
-                                spk_state = {"vol": vol, "muted": is_muted}
-                        elif section == 'sources' and is_active:
-                            mic_state = {"vol": vol, "muted": is_muted}
+                        custom_names = config.get("audio_names", {})
+                        custom_name = custom_names.get(raw_name, "")
+                        display_name = custom_name[:10] if custom_name else raw_name[:5].upper()
+                        sinks.append({"id": dev_id, "name": display_name, "raw_name": raw_name, "custom_name": custom_name, "is_active": is_active})
+                        if is_active:
+                            active_sink_name = display_name
         except Exception as e: print(f"Audio parse error: {e}")
         
         return {
             "sinks": sinks,
             "active_sink_name": active_sink_name if sinks else "NONE",
-            "spk": spk_state,
-            "mic": mic_state
+            "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'),
+            "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@')
         }
 
     @staticmethod
