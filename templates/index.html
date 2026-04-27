@@ -178,7 +178,7 @@
                     
                     <!-- Vertical Date Stack -->
                     <div style="display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 1.3rem; color: var(--text-muted); line-height: 1;">
-                        <div id="date-year" style="font-size: 0.8rem; color: var(--accent); margin-bottom: 0.3rem; letter-spacing: 2px;">----</div>
+                        <!-- <div id="date-year" style="font-size: 0.8rem; color: var(--accent); margin-bottom: 0.3rem; letter-spacing: 2px;">----</div> -->
                         <div id="date-month">-</div>
                         <div style="color: var(--border); font-size: 1rem; margin: 0.1rem 0;">/</div>
                         <div id="date-day">-</div>
@@ -593,7 +593,7 @@
             document.getElementById('time').innerText = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
             
             // Populate the vertical date stack
-            document.getElementById('date-year').innerText = d.getFullYear();
+            // document.getElementById('date-year').innerText = d.getFullYear();
             document.getElementById('date-month').innerText = d.getMonth() + 1;
             document.getElementById('date-day').innerText = d.getDate();
             document.getElementById('date-dayname').innerText = d.toLocaleDateString([], {weekday: 'short'}).toUpperCase();
