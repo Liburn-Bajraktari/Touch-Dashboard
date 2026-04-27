@@ -172,18 +172,24 @@
         <!-- Left Column -->
         <div class="col">
             <div class="glass panel panel-top" style="justify-content: center; align-items: center; display: flex; flex-direction: column; gap: 1.5rem;">
-                <div style="display: flex; align-items: center; justify-content: center; gap: 1.5rem;">
-                    <!-- 24H Clock -->
-                    <div id="time" style="font-size: clamp(4rem, 6vw, 5.5rem); font-weight: 700; letter-spacing: -2px; line-height: 1;">00:00</div>
+                <div style="display: flex; justify-content: center; align-items: center; width: 100%;">
                     
-                    <!-- Vertical Date Stack -->
-                    <div style="display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 1.3rem; color: var(--text-muted); line-height: 1;">
-                        <!-- <div id="date-year" style="font-size: 0.8rem; color: var(--accent); margin-bottom: 0.3rem; letter-spacing: 2px;">----</div> -->
-                        <div id="date-month">-</div>
-                        <div style="color: var(--border); font-size: 1rem; margin: 0.1rem 0;">/</div>
-                        <div id="date-day">-</div>
-                        <div id="date-dayname" style="background: var(--text-main); color: var(--bg-dark); padding: 0.15rem 0.6rem; border-radius: 1rem; font-size: 0.75rem; margin-top: 0.4rem; letter-spacing: 1px;">---</div>
+                    <!-- Wrapper to hold the center position -->
+                    <div style="position: relative;">
+                        
+                        <!-- 24H Clock (Perfectly Centered) -->
+                        <div id="time" style="font-size: clamp(4rem, 6vw, 5.5rem); font-weight: 700; letter-spacing: -2px; line-height: 1;">00:00</div>
+                        
+                        <!-- Vertical Date Stack (Pinned to the right edge) -->
+                        <div style="position: absolute; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 1.5rem; display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 1.3rem; color: var(--text-muted); line-height: 1;">
+                            <div id="date-month">-</div>
+                            <div style="color: var(--border); font-size: 1rem; margin: 0.1rem 0;">/</div>
+                            <div id="date-day">-</div>
+                            <div id="date-dayname" style="background: var(--text-main); color: var(--bg-dark); padding: 0.15rem 0.6rem; border-radius: 1rem; font-size: 0.75rem; margin-top: 0.4rem; letter-spacing: 1px;">---</div>
+                        </div>
+                        
                     </div>
+                    
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <i data-lucide="cloud" style="width: 3rem; height: 3rem; color: var(--accent);"></i>
