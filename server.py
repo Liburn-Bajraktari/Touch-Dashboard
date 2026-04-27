@@ -1,6 +1,10 @@
+import gevent.monkey
+gevent.monkey.patch_all()
+
 import os
 import json
 import time
+import logging
 import threading
 import subprocess
 import requests
@@ -20,6 +24,15 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
 SPOTIFY_CACHE_FILE = os.path.join(BASE_DIR, ".cache")
+
+# Setup Logging
+logging.basicConfig(
+    filename=os.path.join(BASE_DIR, 'server.log'),
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+logger.info("Starting Touch Dashboard Server...")
 
 DEFAULT_CONFIG = {
     "weather_api": "", "weather_city": "Pristina",
@@ -46,22 +59,28 @@ class AudioSystem:
     @staticmethod
     def run(cmd):
         try: return subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-        except: return ""
+        except Exception as e:
+            logger.debug(f"AudioSystem.run failed for cmd {cmd}: {e}")
+            return ""
 
     @staticmethod
     def get_state(target):
         out = AudioSystem.run(['wpctl', 'get-volume', target])
-        if not out: return {"vol": 0, "muted": True}
-        try: vol = int(float(out.split()[1]) * 100)
-        except: vol = 0
+        if not out:
+            logger.warning(f"wpctl get-volume returned empty for {target}. Defaulting to 0% [MUTED]")
+            return {"vol": 0, "muted": True}
+        try:
+            vol_str = out.split()[1]
+            vol = int(float(vol_str) * 100)
+        except Exception as e:
+            logger.error(f"Failed to parse volume output '{out}' for {target}: {e}")
+            vol = 0
         return {"vol": vol, "muted": '[MUTED]' in out}
 
     @staticmethod
     def poll_all():
-        """Parses wpctl once to grab all sinks, active sink name, and spk/mic volume/mute states."""
         sinks = []
         active_sink_name = "NONE"
-        
         try:
             out = AudioSystem.run(['wpctl', 'status'])
             section = None
@@ -87,7 +106,8 @@ class AudioSystem:
                         sinks.append({"id": dev_id, "name": display_name, "raw_name": raw_name, "custom_name": custom_name, "is_active": is_active})
                         if is_active:
                             active_sink_name = display_name
-        except Exception as e: print(f"Audio parse error: {e}")
+        except Exception as e:
+            logger.error(f"Audio parse error: {e}")
         
         return {
             "sinks": sinks,
@@ -135,6 +155,7 @@ class DiscordIPC:
         self.connected = False
         self.voice_state = {"mute": False, "deaf": False}
         self.running = False
+        self.warned_local = False
 
     def get_pipe_path(self):
         if os.name == 'nt': return r'\\.\pipe\discord-ipc-0'
@@ -148,7 +169,11 @@ class DiscordIPC:
 
     def connect(self):
         pipe_path = self.get_pipe_path()
-        if not pipe_path: return False
+        if not pipe_path:
+            if not self.warned_local:
+                logger.warning("Discord IPC pipe not found. Ensure Discord is running locally on the same machine/OS as this Python script!")
+                self.warned_local = True
+            return False
         try:
             if os.name == 'nt':
                 self.sock = open(pipe_path, 'w+b')
@@ -157,6 +182,7 @@ class DiscordIPC:
                 self.sock.connect(pipe_path)
                 self.sock.settimeout(2.0)
             
+            logger.info("Connected to local Discord IPC socket.")
             self.send(0, {"v": 1, "client_id": self.client_id})
             self.recv() # Handshake response
             
@@ -166,7 +192,7 @@ class DiscordIPC:
             self.connected = True
             return True
         except Exception as e:
-            print(f"Discord IPC Error: {e}")
+            logger.error(f"Discord IPC Connection Error: {e}")
             self.close()
             return False
 
@@ -203,7 +229,9 @@ class DiscordIPC:
         data = json.dumps(payload).encode('utf-8')
         header = struct.pack("<II", opcode, len(data))
         try: self.sock_send(header + data)
-        except: self.connected = False
+        except Exception as e:
+            logger.error(f"Discord IPC send failed: {e}")
+            self.connected = False
 
     def recv(self):
         try:
@@ -213,9 +241,12 @@ class DiscordIPC:
             data = self.sock_recv(length)
             return json.loads(data.decode('utf-8'))
         except socket.timeout: return None
-        except: return {}
+        except Exception as e:
+            logger.debug(f"Discord IPC recv empty/error: {e}")
+            return {}
 
     def authorize(self):
+        logger.info("Requesting Discord Authorization...")
         nonce = str(uuid.uuid4())
         self.send(1, {"cmd": "AUTHORIZE", "args": {"client_id": self.client_id, "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write"]}, "nonce": nonce})
         while True:
@@ -235,10 +266,15 @@ class DiscordIPC:
                 self.access_token = r.json().get("access_token")
                 config["disc_token"] = self.access_token
                 save_config()
+                logger.info("Successfully fetched and saved Discord access token.")
                 self.authenticate()
-        except Exception as e: print(f"Discord Token Error: {e}")
+            else:
+                logger.error(f"Failed to fetch Discord token: {r.status_code} {r.text}")
+        except Exception as e:
+            logger.error(f"Discord Token HTTP Error: {e}")
 
     def authenticate(self):
+        logger.info("Authenticating with Discord IPC...")
         nonce = str(uuid.uuid4())
         self.send(1, {"cmd": "AUTHENTICATE", "args": {"access_token": self.access_token}, "nonce": nonce})
         self.recv()
@@ -265,6 +301,7 @@ class DiscordIPC:
                     self.voice_state["mute"] = data.get("mute", False)
                     self.voice_state["deaf"] = data.get("deaf", False)
             except Exception as e:
+                logger.debug(f"Discord IPC Loop exception: {e}")
                 self.close()
                 socketio.sleep(2)
 
@@ -288,6 +325,8 @@ def restart_discord_ipc():
 
 # --- APP INITIALIZATION ---
 app = Flask(__name__)
+app.logger.disabled = True
+logging.getLogger('werkzeug').disabled = True
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 spotify_cache = None
 last_spotify_check = 0
@@ -305,12 +344,12 @@ def get_spotify_api_meta():
         curr = sp.current_playback()
         if curr and curr.get('is_playing'): return {"status": "Playing", "artist": curr['item']['artists'][0]['name'], "title": curr['item']['name']}
         elif curr: return {"status": "Paused", "artist": curr['item']['artists'][0]['name'], "title": curr['item']['name']}
-    except: pass 
+    except Exception as e:
+        logger.debug(f"Spotify API error: {e}")
     return None
 
 def get_local_mpris_meta():
     try:
-        # Optimization: playerctl metadata --format can output status and meta in 1 call to save CPU
         meta = AudioSystem.run(['playerctl', 'metadata', '--format', '{{status}}|||{{artist}}|||{{title}}'])
         if not meta: return {"status": "Stopped", "artist": "", "title": "Nothing Playing"}
         parts = meta.split('|||')
@@ -327,6 +366,7 @@ def hardware_loop():
     global last_spotify_check, spotify_cache, last_audio_devs
     last_gpu_check = 0
     gpu_cache = ""
+    logger.info("Hardware monitoring loop started.")
     while True:
         curr_time = time.time()
         
@@ -397,8 +437,14 @@ def do_fetch_weather():
     global last_weather_data
     if config.get("weather_api") and config.get("weather_city"):
         try:
-            url = f"http://api.openweathermap.org/data/2.5/weather?q={config['weather_city']}&appid={config['weather_api']}&units=metric"
-            res = requests.get(url, timeout=5).json()
+            logger.info(f"Fetching weather for {config['weather_city']}...")
+            url = "http://api.openweathermap.org/data/2.5/weather"
+            params = {
+                "q": config['weather_city'],
+                "appid": config['weather_api'],
+                "units": "metric"
+            }
+            res = requests.get(url, params=params, timeout=5).json()
             if "main" in res: 
                 last_weather_data = {
                     "temp": round(res["main"]["temp"]), 
@@ -407,10 +453,12 @@ def do_fetch_weather():
                 }
                 save_weather_cache(last_weather_data)
                 socketio.emit('weather_data', last_weather_data)
+                logger.info("Weather updated successfully.")
             else:
+                logger.warning(f"Weather API returned unexpected data: {res}")
                 last_weather_data["timestamp"] = time.time() # Prevent spamming on bad API key
         except Exception as e:
-            print(f"Weather error: {e}")
+            logger.error(f"Weather fetch error: {e}")
             last_weather_data["timestamp"] = time.time() # Prevent spamming on network error
     else:
         last_weather_data["timestamp"] = time.time() # Prevent spamming when not configured
@@ -456,6 +504,8 @@ def handle_config_save(data):
     old_weather_city = config.get("weather_city")
     config.update(data)
     save_config()
+    logger.info("Configuration updated via frontend settings.")
+    
     if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"):
         restart_discord_ipc()
     if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"):
@@ -475,7 +525,8 @@ def handle_action(action):
                 elif action == 'spot_next': sp.next_track()
                 elif action == 'spot_prev': sp.previous_track()
                 sp_success = True
-            except: pass
+            except Exception as e:
+                logger.error(f"Spotify action error: {e}")
         if not sp_success:
             if action == 'spot_play': AudioSystem.run(['playerctl', 'play-pause'])
             elif action == 'spot_next': AudioSystem.run(['playerctl', 'next'])
@@ -483,7 +534,7 @@ def handle_action(action):
 
     elif action.startswith('sp_play_'):
         sp_id = action.split('sp_play_')[1]
-        AudioSystem.run(['soundux', '--play', sp_id]) # Adjust as needed for specific linux soundpad alternative
+        AudioSystem.run(['soundux', '--play', sp_id])
 
     elif action == 'disc_mute':
         if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(mute=not disc_ipc_instance.voice_state["mute"])
@@ -491,8 +542,8 @@ def handle_action(action):
     elif action == 'disc_deaf':
         if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(deaf=not disc_ipc_instance.voice_state["deaf"])
         else: AudioSystem.run(['ydotool', 'key', '29:1', '42:1', '32:1', '32:0', '42:0', '29:0'])
-    elif action == 'disc_cam': pass # Implement specific ydotool sequence if desired
-    elif action == 'disc_screen': pass # Implement specific ydotool sequence if desired
+    elif action == 'disc_cam': pass
+    elif action == 'disc_screen': pass
     elif action == 'app_term': AudioSystem.run(['alacritty']) 
     elif action == 'app_web': AudioSystem.run(['brave'])
     elif action == 'app_task': AudioSystem.run(['gnome-system-monitor']) 
@@ -511,13 +562,19 @@ def handle_volume(data):
 def handle_speedtest():
     def test():
         try:
+            logger.info("Running speedtest...")
             st = speedtest.Speedtest()
             st.get_best_server()
-            socketio.emit('speedtest_result', {'down': round(st.download() / 1_000_000, 1), 'up': round(st.upload() / 1_000_000, 1)})
-        except: socketio.emit('speedtest_result', {'down': 'ERR', 'up': 'ERR'})
+            res = {'down': round(st.download() / 1_000_000, 1), 'up': round(st.upload() / 1_000_000, 1)}
+            socketio.emit('speedtest_result', res)
+            logger.info(f"Speedtest complete: {res}")
+        except Exception as e:
+            logger.error(f"Speedtest failed: {e}")
+            socketio.emit('speedtest_result', {'down': 'ERR', 'up': 'ERR'})
     socketio.start_background_task(test)
 
 if __name__ == '__main__':
+    logger.info("Server starting on 0.0.0.0:5000")
     restart_discord_ipc()
     socketio.start_background_task(hardware_loop)
     socketio.start_background_task(fetch_weather)
