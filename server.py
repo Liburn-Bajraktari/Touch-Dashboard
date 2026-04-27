@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import threading
 import subprocess
@@ -6,71 +7,137 @@ import requests
 import psutil
 import speedtest
 import spotipy
+import re
 from spotipy.oauth2 import SpotifyOAuth
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO
 
-app = Flask(__name__)
-# Using gevent to avoid Eventlet deprecation warnings
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
-
-config = {
-    "weather_api": "",
-    "weather_city": "Pristina",
-    "mouse_batt_file": "/tmp/g502_battery.txt",
-    "spot_id": "",
-    "spot_secret": ""
+# --- CONFIGURATION MANAGER ---
+CONFIG_FILE = "config.json"
+DEFAULT_CONFIG = {
+    "weather_api": "", "weather_city": "Pristina",
+    "spot_id": "", "spot_secret": "",
+    "audio_slot_1": {"id": "", "name": "DEV 1"},
+    "audio_slot_2": {"id": "", "name": "DEV 2"},
+    "active_audio_slot": 1
 }
 
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f: return {**DEFAULT_CONFIG, **json.load(f)}
+        except: return DEFAULT_CONFIG
+    return DEFAULT_CONFIG
+
+def save_config():
+    with open(CONFIG_FILE, "w") as f: json.dump(config, f, indent=4)
+
+config = load_config()
+
+# --- AUDIO SYSTEM (PipeWire/WirePlumber Wrapper) ---
+class AudioSystem:
+    @staticmethod
+    def run(cmd):
+        try: return subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+        except: return ""
+
+    @staticmethod
+    def get_hardware_sinks():
+        """Parses wpctl to auto-discover all connected audio outputs."""
+        devices = []
+        try:
+            out = AudioSystem.run(['wpctl', 'status'])
+            capture = False
+            for line in out.splitlines():
+                if re.search(r'^\s*Sinks:', line): capture = True; continue
+                if capture and re.search(r'^\s*(Sources|Filters|Streams|Video):', line): break
+                if capture:
+                    # Regex to grab the Node ID and Name from the wpctl tree
+                    match = re.search(r'(?:\*|\s)\s+(\d+)\.\s+([^\[]+)', line)
+                    if match: devices.append({"id": match.group(1), "name": match.group(2).strip()})
+        except Exception as e: print(f"Audio parse error: {e}")
+        return devices
+
+    @staticmethod
+    def get_state(target):
+        out = AudioSystem.run(['wpctl', 'get-volume', target])
+        if not out: return {"vol": 0, "muted": True}
+        try: vol = int(float(out.split()[1]) * 100)
+        except: vol = 0
+        return {"vol": vol, "muted": '[MUTED]' in out}
+
+    @staticmethod
+    def set_vol(target, val): AudioSystem.run(['wpctl', 'set-volume', target, f"{val}%"])
+    
+    @staticmethod
+    def toggle_mute(target): AudioSystem.run(['wpctl', 'set-mute', target, 'toggle'])
+
+    @staticmethod
+    def cycle_device():
+        config["active_audio_slot"] = 2 if config["active_audio_slot"] == 1 else 1
+        slot_key = f"audio_slot_{config['active_audio_slot']}"
+        
+        if config[slot_key]["id"]:
+            AudioSystem.run(['wpctl', 'set-default', config[slot_key]["id"]])
+            save_config()
+        return config[slot_key]["name"]
+
+    @staticmethod
+    def get_active_name():
+        return config[f"audio_slot_{config['active_audio_slot']}"]["name"]
+
+# --- APP INITIALIZATION ---
+app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 spotify_cache = None
 last_spotify_check = 0
 
-def run_cmd(cmd_list):
-    try: subprocess.Popen(cmd_list, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception: pass
-
+# --- MEDIA ENGINES ---
 def get_spotify_api_meta():
     if not config.get("spot_id") or not config.get("spot_secret"): return None
     try:
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", scope="user-read-playback-state user-modify-playback-state", open_browser=False))
-        current = sp.current_playback()
-        if current and current.get('is_playing'):
-            return {"status": "Playing", "artist": current['item']['artists'][0]['name'], "title": current['item']['name'], "source": "spotify"}
-        elif current:
-            return {"status": "Paused", "artist": current['item']['artists'][0]['name'], "title": current['item']['name'], "source": "spotify"}
-    except Exception: pass
+        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False))
+        curr = sp.current_playback()
+        if curr and curr.get('is_playing'): return {"status": "Playing", "artist": curr['item']['artists'][0]['name'], "title": curr['item']['name']}
+        elif curr: return {"status": "Paused", "artist": curr['item']['artists'][0]['name'], "title": curr['item']['name']}
+    except: pass 
     return None
 
 def get_local_mpris_meta():
     try:
-        status = subprocess.check_output(['playerctl', 'status'], stderr=subprocess.DEVNULL, timeout=1).decode().strip()
-        artist = subprocess.check_output(['playerctl', 'metadata', 'artist'], stderr=subprocess.DEVNULL, timeout=1).decode().strip()
-        title = subprocess.check_output(['playerctl', 'metadata', 'title'], stderr=subprocess.DEVNULL, timeout=1).decode().strip()
-        return {"status": status, "artist": artist or "Unknown", "title": title, "source": "local"}
-    except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "source": "none"}
+        status = AudioSystem.run(['playerctl', 'status'])
+        artist = AudioSystem.run(['playerctl', 'metadata', 'artist'])
+        title = AudioSystem.run(['playerctl', 'metadata', 'title'])
+        return {"status": status, "artist": artist or "Unknown", "title": title}
+    except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing"}
 
+# --- CORE SYSTEM LOOP ---
 def hardware_loop():
     global last_spotify_check, spotify_cache
     while True:
-        current_time = time.time()
-        if current_time - last_spotify_check > 3.0:
+        curr_time = time.time()
+        if curr_time - last_spotify_check > 3.0:
             spotify_cache = get_spotify_api_meta()
-            last_spotify_check = current_time
+            last_spotify_check = curr_time
 
-        media_data = spotify_cache
-        if not media_data or media_data['status'] != 'Playing':
+        media = spotify_cache
+        if not media or media['status'] != 'Playing':
             local_media = get_local_mpris_meta()
-            if local_media['status'] == 'Playing' or not media_data:
-                media_data = local_media
+            if local_media['status'] == 'Playing' or not media: media = local_media
 
         data = {
             "cpu": psutil.cpu_percent(interval=None),
             "ram": psutil.virtual_memory().percent,
-            "spotify": media_data
+            "spotify": media,
+            "audio": {
+                "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'),
+                "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@'),
+                "active_dev": AudioSystem.get_active_name()
+            }
         }
-
+        
         try:
-            with open(config["mouse_batt_file"], "r") as f: data["mouse_batt"] = f.read().strip()
+            with open("/tmp/g502_battery.txt", "r") as f: data["mouse_batt"] = f.read().strip()
         except: data["mouse_batt"] = "--"
 
         socketio.emit('sys_data', data)
@@ -79,70 +146,75 @@ def hardware_loop():
 def fetch_weather():
     while True:
         if config.get("weather_api") and config.get("weather_city"):
-            url = f"http://api.openweathermap.org/data/2.5/weather?q={config['weather_city']}&appid={config['weather_api']}&units=metric"
             try:
+                url = f"http://api.openweathermap.org/data/2.5/weather?q={config['weather_city']}&appid={config['weather_api']}&units=metric"
                 res = requests.get(url, timeout=5).json()
                 if "main" in res: socketio.emit('weather_data', {"temp": round(res["main"]["temp"]), "desc": res["weather"][0]["description"].title()})
             except: pass
         time.sleep(600)
 
+# --- ROUTES & SOCKETS ---
 @app.route('/')
-def index():
-    return render_template('index.html')
+def index(): return render_template('index.html')
 
-# --- THIS FIXES THE BROWSER INSTALL/FULLSCREEN ISSUE ---
 @app.route('/manifest.json')
 def manifest():
     return jsonify({
-        "name": "Command Center",
-        "short_name": "Dash",
-        "display": "fullscreen",
-        "orientation": "landscape",
-        "background_color": "#090e17",
-        "theme_color": "#090e17",
+        "name": "Command Center", "short_name": "Dash", "display": "fullscreen", "orientation": "landscape",
+        "background_color": "#090e17", "theme_color": "#090e17",
         "icons": [{"src": "https://upload.wikimedia.org/wikipedia/commons/4/49/A_black_image.jpg", "sizes": "192x192", "type": "image/jpeg"}]
     })
 
+@socketio.on('connect')
+def handle_connect():
+    # Push config AND live hardware list to UI on load
+    socketio.emit('config_sync', {"cfg": config, "hw": AudioSystem.get_hardware_sinks()})
+
+@socketio.on('request_hw_scan')
+def handle_hw_scan():
+    socketio.emit('hw_scan_results', AudioSystem.get_hardware_sinks())
+
 @socketio.on('save_config')
-def handle_config(data):
+def handle_config_save(data):
     global config
     config.update(data)
+    save_config()
 
 @socketio.on('action')
 def handle_action(action):
     if action.startswith('spot_'):
         sp_success = False
-        if config.get("spot_id") and config.get("spot_secret"):
+        if config.get("spot_id"):
             try:
-                sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", scope="user-read-playback-state user-modify-playback-state", open_browser=False))
+                sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False))
                 if action == 'spot_play':
-                    playback = sp.current_playback()
-                    if playback and playback['is_playing']: sp.pause_playback()
+                    c = sp.current_playback()
+                    if c and c['is_playing']: sp.pause_playback()
                     else: sp.start_playback()
                 elif action == 'spot_next': sp.next_track()
                 elif action == 'spot_prev': sp.previous_track()
                 sp_success = True
             except: pass
         if not sp_success:
-            if action == 'spot_play': run_cmd(['playerctl', 'play-pause'])
-            elif action == 'spot_next': run_cmd(['playerctl', 'next'])
-            elif action == 'spot_prev': run_cmd(['playerctl', 'previous'])
-    elif action == 'disc_mute': run_cmd(['ydotool', 'key', '29:1', '42:1', '50:1', '50:0', '42:0', '29:0'])
-    elif action == 'disc_deaf': run_cmd(['ydotool', 'key', '29:1', '42:1', '32:1', '32:0', '42:0', '29:0'])
-    elif action == 'app_term': run_cmd(['alacritty'])
-    elif action == 'app_web': run_cmd(['brave'])
-    elif action == 'app_task': run_cmd(['gnome-system-monitor'])
-    elif action == 'app_clip': run_cmd(['ydotool', 'key', '119:1', '119:0'])
-    elif action == 'app_soundpad': run_cmd(['soundux'])
-    elif action == 'audio_xonar': run_cmd(['wpctl', 'set-default', '50'])
-    elif action == 'audio_mobius': run_cmd(['wpctl', 'set-default', '51'])
-    elif action == 'audio_mute_spk': run_cmd(['wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle'])
-    elif action == 'audio_mute_mic': run_cmd(['wpctl', 'set-mute', '@DEFAULT_AUDIO_SOURCE@', 'toggle'])
+            if action == 'spot_play': AudioSystem.run(['playerctl', 'play-pause'])
+            elif action == 'spot_next': AudioSystem.run(['playerctl', 'next'])
+            elif action == 'spot_prev': AudioSystem.run(['playerctl', 'previous'])
+
+    elif action == 'disc_mute': AudioSystem.run(['ydotool', 'key', '29:1', '42:1', '50:1', '50:0', '42:0', '29:0']) 
+    elif action == 'disc_deaf': AudioSystem.run(['ydotool', 'key', '29:1', '42:1', '32:1', '32:0', '42:0', '29:0'])
+    elif action == 'app_term': AudioSystem.run(['alacritty']) 
+    elif action == 'app_web': AudioSystem.run(['brave'])
+    elif action == 'app_task': AudioSystem.run(['gnome-system-monitor']) 
+    elif action == 'app_clip': AudioSystem.run(['ydotool', 'key', '119:1', '119:0'])
+    elif action == 'app_soundpad': AudioSystem.run(['soundux']) 
+    elif action == 'audio_cycle': AudioSystem.cycle_device()
+    elif action == 'audio_mute_spk': AudioSystem.toggle_mute('@DEFAULT_AUDIO_SINK@')
+    elif action == 'audio_mute_mic': AudioSystem.toggle_mute('@DEFAULT_AUDIO_SOURCE@')
 
 @socketio.on('set_volume')
 def handle_volume(data):
     target = '@DEFAULT_AUDIO_SINK@' if data['type'] == 'speaker' else '@DEFAULT_AUDIO_SOURCE@'
-    run_cmd(['wpctl', 'set-volume', target, f"{data['val']}%"])
+    AudioSystem.set_vol(target, data['val'])
 
 @socketio.on('run_speedtest')
 def handle_speedtest():
