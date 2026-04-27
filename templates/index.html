@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dashboard</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href='data:application/manifest+json,{"name":"Command Center","short_name":"Dash","display":"standalone","background_color":"#0f172a","theme_color":"#0f172a"}'>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --bg-dark: #090e17;
+            --panel-bg: rgba(15, 23, 42, 0.4);
+            --border: rgba(255, 255, 255, 0.08);
+            --accent: #0ea5e9;
+            --accent-glow: rgba(14, 165, 233, 0.4);
+            --text-main: #f8fafc;
+            --text-muted: #64748b;
+        }
+
+        * { box-sizing: border-box; user-select: none; -webkit-user-drag: none; }
+
+        body {
+            margin: 0;
+            padding: 2vh 2vw;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, #111827 100%);
+            color: var(--text-main);
+            font-family: system-ui, -apple-system, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 2vh;
+        }
+
+        /* --- Glass Panels --- */
+        .glass {
+            background: var(--panel-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 1.5rem;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        /* --- Top Bar --- */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5vh 3vw;
+            height: 10vh;
+        }
+
+        .section { display: flex; align-items: center; gap: 1.5rem; }
+        .batt { color: var(--accent); font-weight: 600; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;}
+
+        .speed-data { text-align: right; font-size: 0.9rem; color: var(--text-muted); line-height: 1.2;}
+        .speed-data span { color: var(--text-main); font-weight: 600; }
+
+        /* --- Main Layout Grid --- */
+        .grid-container {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr 0.8fr;
+            gap: 1.5vw;
+            height: 84vh;
+        }
+
+        .panel { padding: 2vh 2vw; display: flex; flex-direction: column; gap: 2vh; }
+
+        /* --- Buttons --- */
+        .btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 1rem;
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            height: 100%;
+            min-height: 4rem;
+        }
+        .btn:active {
+            transform: scale(0.92);
+            background: var(--accent);
+            box-shadow: 0 0 15px var(--accent-glow);
+            color: #000;
+        }
+
+        .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1vw; height: 12vh; }
+        .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1vw; height: 16vh;}
+
+        /* --- Left: Time & Weather --- */
+        .header-widget {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 1vw; height: 18vh;
+        }
+        .widget-box {
+            background: rgba(0,0,0,0.2); border-radius: 1rem;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        #time { font-size: 3.5rem; font-weight: 700; letter-spacing: -2px; }
+        #date { color: var(--accent); font-weight: 500; font-size: 1.2rem; }
+
+        /* --- Left: Spotify --- */
+        .spotify { margin-top: auto; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 1rem; }
+        #spot-title { font-size: 1.4rem; font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #spot-artist { color: var(--text-muted); font-size: 1.1rem; }
+        .spot-ctrl { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 1rem; margin-top: 1.5rem; height: 4rem; }
+
+        /* --- Center: Sliders --- */
+        .slider-section {
+            display: flex; justify-content: space-between; align-items: flex-end;
+            height: 100%; padding: 2vh 1vw 0 1vw;
+        }
+        .slider-wrap {
+            display: flex; flex-direction: column; align-items: center; gap: 1.5rem; height: 100%; justify-content: flex-end;
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 40vh; /* Scaled to screen height */
+            height: 1.5rem;
+            background: rgba(0,0,0,0.4);
+            border-radius: 1rem;
+            outline: none;
+            transform: rotate(-90deg);
+            transform-origin: 20vh 20vh;
+            margin-bottom: 25vh; /* Spacing correction for rotation */
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 2.5rem; height: 2.5rem;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        .audio-switch { display: flex; flex-direction: column; justify-content: flex-end; gap: 1vh; height: 100%; width: 30%; }
+
+        /* --- Right: Stats --- */
+        .stat-row { display: flex; align-items: center; gap: 1rem; font-size: 1.5rem; margin-top: 1rem;}
+        .stat-row i { color: var(--accent); width: 2rem; height: 2rem; }
+        .stat-val { font-weight: 700; margin-left: auto; }
+
+        /* --- Settings Modal --- */
+        #modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); z-index: 999;
+            justify-content: center; align-items: center;
+        }
+        .modal-card { background: #0f172a; padding: 3rem; border-radius: 1.5rem; width: 40vw; border: 1px solid var(--border); }
+        .modal-card input { width: 100%; padding: 1rem; margin: 0.5rem 0 2rem; border-radius: 0.5rem; border: none; background: #1e293b; color: white; font-size: 1.2rem;}
+        .modal-card h2 { margin-top: 0; color: var(--accent); }
+    </style>
+</head>
+<body id="body">
+
+    <div id="modal">
+        <div class="modal-card">
+            <h2>Configuration</h2>
+            <label>OpenWeather API Key</label>
+            <input type="text" id="cfg-weather" placeholder="Enter API Key...">
+            <label>City</label>
+            <input type="text" id="cfg-city" placeholder="Pristina">
+            <button class="btn" style="width: 100%; background: var(--accent); color: #000; font-weight: bold;" onclick="saveConfig()">Save Settings</button>
+        </div>
+    </div>
+
+    <!-- Top Bar -->
+    <div class="top-bar glass">
+        <div class="section batt">
+            <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
+        </div>
+        <div class="section" style="letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted);">
+            COMMAND CENTER
+        </div>
+        <div class="section">
+            <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
+            <button class="btn" style="width: 4rem;" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
+            <button class="btn" style="width: 4rem;"><i data-lucide="lock"></i></button>
+            <button class="btn" style="width: 4rem; color: #ef4444;"><i data-lucide="power"></i></button>
+        </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid-container">
+
+        <!-- Left Column -->
+        <div class="panel glass">
+            <div class="header-widget">
+                <div class="widget-box">
+                    <div id="time">00:00</div>
+                    <div id="date">--</div>
+                </div>
+                <div class="widget-box">
+                    <i data-lucide="cloud" style="width: 3rem; height: 3rem; color: var(--accent);"></i>
+                    <div id="w-temp" style="font-size: 2rem; font-weight: bold; margin-top: 0.5rem;">--°</div>
+                    <div id="w-desc" style="color: var(--text-muted);">--</div>
+                </div>
+            </div>
+
+            <div class="btn-row">
+                <button class="btn" onclick="act('disc_mute')"><i data-lucide="mic-off"></i></button>
+                <button class="btn" onclick="act('disc_deaf')"><i data-lucide="headphones"></i></button>
+                <button class="btn" onclick="act('disc_cam')"><i data-lucide="video"></i></button>
+                <button class="btn" onclick="act('disc_screen')"><i data-lucide="monitor-up"></i></button>
+            </div>
+
+            <div class="spotify">
+                <span id="spot-title">Nothing Playing</span>
+                <span id="spot-artist">--</span>
+                <div class="spot-ctrl">
+                    <button class="btn" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
+                    <button class="btn" onclick="act('spot_play')"><i data-lucide="play"></i></button>
+                    <button class="btn" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Column -->
+        <div class="panel glass">
+            <div class="btn-grid">
+                <button class="btn" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
+                <button class="btn" onclick="act('app_soundpad')"><i data-lucide="music"></i></button>
+                <button class="btn" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
+                <button class="btn" onclick="act('app_web')"><i data-lucide="globe"></i></button>
+                <button class="btn" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
+                <button class="btn" style="opacity: 0.1; cursor: default;"></button>
+            </div>
+
+            <div class="slider-section">
+                <div class="slider-wrap">
+                    <input type="range" id="vol-slider" min="0" max="100" value="50" oninput="setVol('speaker', this.value)">
+                    <button class="btn" style="width: 100%; height: 4rem;" onclick="act('audio_mute_spk')"><i data-lucide="volume-2"></i></button>
+                </div>
+
+                <div class="audio-switch">
+                    <button class="btn" style="height: 6rem; font-weight: bold;" onclick="act('audio_xonar')">XONAR</button>
+                    <button class="btn" style="height: 6rem; font-weight: bold;" onclick="act('audio_mobius')">MOBIUS</button>
+                </div>
+
+                <div class="slider-wrap">
+                    <input type="range" id="mic-slider" min="0" max="100" value="80" oninput="setVol('mic', this.value)">
+                    <button class="btn" style="width: 100%; height: 4rem;" onclick="act('audio_mute_mic')"><i data-lucide="mic"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column -->
+        <div class="panel glass">
+            <h3 style="color: var(--text-muted); margin-top: 0;">Hardware Monitor</h3>
+            <div class="stat-row"><i data-lucide="cpu"></i> CPU <span class="stat-val" id="sys-cpu">0%</span></div>
+            <div class="stat-row"><i data-lucide="memory-stick"></i> RAM <span class="stat-val" id="sys-ram">0%</span></div>
+        </div>
+
+    </div>
+
+    <script>
+        lucide.createIcons();
+        const socket = io();
+
+        // Time logic
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('time').innerText = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            document.getElementById('date').innerText = now.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'});
+        }, 1000);
+
+        // Double Tap Logic
+        let lastTap = 0;
+        document.getElementById('body').addEventListener('touchend', (e) => {
+            const currentTime = new Date().getTime();
+            if (currentTime - lastTap < 300 && currentTime - lastTap > 0) {
+                document.getElementById('modal').style.display = 'flex';
+                loadConfig();
+            }
+            lastTap = currentTime;
+        });
+
+        function loadConfig() {
+            document.getElementById('cfg-weather').value = localStorage.getItem('w_api') || '';
+            document.getElementById('cfg-city').value = localStorage.getItem('w_city') || 'Pristina';
+        }
+
+        function saveConfig() {
+            const data = {
+                weather_api: document.getElementById('cfg-weather').value,
+                weather_city: document.getElementById('cfg-city').value
+            };
+            localStorage.setItem('w_api', data.weather_api);
+            localStorage.setItem('w_city', data.weather_city);
+            socket.emit('save_config', data);
+            document.getElementById('modal').style.display = 'none';
+        }
+
+        window.onload = () => { socket.emit('save_config', { weather_api: localStorage.getItem('w_api'), weather_city: localStorage.getItem('w_city') }); }
+
+        // Socket Emitters
+        function act(action) { socket.emit('action', action); }
+        function setVol(type, val) { socket.emit('set_volume', {type: type, val: val}); }
+        function runSpeedtest() {
+            document.getElementById('s-dl').innerText = "...";
+            document.getElementById('s-ul').innerText = "...";
+            socket.emit('run_speedtest');
+        }
+
+        // Socket Listeners
+        socket.on('sys_data', (data) => {
+            document.getElementById('sys-cpu').innerText = data.cpu + '%';
+            document.getElementById('sys-ram').innerText = data.ram + '%';
+            document.getElementById('mouse-batt').innerText = data.mouse_batt + '%';
+            document.getElementById('spot-title').innerText = data.spotify.title;
+            document.getElementById('spot-artist').innerText = data.spotify.artist;
+        });
+
+        socket.on('weather_data', (data) => {
+            document.getElementById('w-temp').innerText = data.temp + '°';
+            document.getElementById('w-desc').innerText = data.desc;
+        });
+
+        socket.on('speedtest_result', (data) => {
+            document.getElementById('s-dl').innerText = data.down;
+            document.getElementById('s-ul').innerText = data.up;
+        });
+    </script>
+</body>
+</html>
