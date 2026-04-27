@@ -15,6 +15,8 @@ import re
 import socket
 import struct
 import uuid
+import base64
+import urllib.parse
 from spotipy.oauth2 import SpotifyOAuth
 from flask import Flask, render_template, jsonify, redirect, request
 from flask_socketio import SocketIO
@@ -338,33 +340,59 @@ last_spotify_check = 0
 last_audio_devs = []
 
 # --- MEDIA ENGINES ---
+# --- MEDIA ENGINES ---
 def get_spotify_api_meta():
     if not config.get("spot_id") or not config.get("spot_secret"): return None
     try:
         sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
         token_info = sp_oauth.get_cached_token()
-        if not token_info: return {"status": "Auth_Required", "artist": "", "title": "Spotify Not Authorized"}
+        if not token_info: return {"status": "Auth_Required", "artist": "", "title": "Spotify Not Authorized", "art_url": ""}
         
         sp = spotipy.Spotify(auth=token_info['access_token'])
         curr = sp.current_playback()
-        if curr and curr.get('is_playing'): return {"status": "Playing", "artist": curr['item']['artists'][0]['name'], "title": curr['item']['name']}
-        elif curr: return {"status": "Paused", "artist": curr['item']['artists'][0]['name'], "title": curr['item']['name']}
+        if curr and curr.get('item'):
+            is_playing = curr.get('is_playing')
+            artist = curr['item']['artists'][0]['name'] if curr['item']['artists'] else "Unknown"
+            title = curr['item']['name']
+            
+            art_url = ""
+            if curr['item'].get('album') and curr['item']['album'].get('images'):
+                art_url = curr['item']['album']['images'][0]['url'] # Grabs highest res image
+                
+            status = "Playing" if is_playing else "Paused"
+            return {"status": status, "artist": artist, "title": title, "art_url": art_url}
     except Exception as e:
         logger.debug(f"Spotify API error: {e}")
     return None
 
 def get_local_mpris_meta():
     try:
-        meta = AudioSystem.run(['playerctl', 'metadata', '--format', '{{status}}|||{{artist}}|||{{title}}'])
-        if not meta: return {"status": "Stopped", "artist": "", "title": "Nothing Playing"}
+        # Added mpris:artUrl to the format string
+        meta = AudioSystem.run(['playerctl', 'metadata', '--format', '{{status}}|||{{artist}}|||{{title}}|||{{mpris:artUrl}}'])
+        if not meta: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
         parts = meta.split('|||')
         status = parts[0].strip() if len(parts) > 0 else "Stopped"
-        if status not in ['Playing', 'Paused']: return {"status": "Stopped", "artist": "", "title": "Nothing Playing"}
+        if status not in ['Playing', 'Paused']: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
         
         artist = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "Unknown"
         title = parts[2].strip() if len(parts) > 2 and parts[2].strip() else "Unknown"
-        return {"status": status, "artist": artist, "title": title}
-    except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing"}
+        art_url = parts[3].strip() if len(parts) > 3 else ""
+
+        # Base64 encode local hard drive files so the tablet can render them over the network
+        if art_url.startswith('file://'):
+            path = urllib.parse.unquote(art_url.replace('file://', ''))
+            try:
+                with open(path, 'rb') as img_f:
+                    b64 = base64.b64encode(img_f.read()).decode('utf-8')
+                    ext = path.split('.')[-1].lower()
+                    mime = f"image/{ext}" if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp'] else "image/jpeg"
+                    art_url = f"data:{mime};base64,{b64}"
+            except Exception as e:
+                logger.debug(f"Failed to read local art: {e}")
+                art_url = ""
+
+        return {"status": status, "artist": artist, "title": title, "art_url": art_url}
+    except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
 
 # --- CORE SYSTEM LOOP ---
 def hardware_loop():
@@ -489,14 +517,22 @@ def index(): return render_template('index.html')
 @app.route('/spotify_login')
 def spotify_login():
     if not config.get("spot_id") or not config.get("spot_secret"): return jsonify({"error": "No credentials"})
-    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+    
+    # MAGIC FIX: Dynamically grabs whatever IP the tablet/PC used to connect
+    dynamic_uri = f"http://{request.host}/callback"
+    
+    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=dynamic_uri, scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
     auth_url = sp_oauth.get_authorize_url()
     return redirect(auth_url)
 
 @app.route('/callback')
 def callback():
     if not config.get("spot_id") or not config.get("spot_secret"): return redirect('/')
-    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+    
+    # Matches the dynamic URI so Spotify accepts the token
+    dynamic_uri = f"http://{request.host}/callback"
+    
+    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=dynamic_uri, scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
     code = request.args.get('code')
     if code:
         try: sp_oauth.get_access_token(code)
