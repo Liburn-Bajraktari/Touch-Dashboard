@@ -607,39 +607,44 @@
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
         const upMic = initSlider('slide-mic', 'fill-mic', 'val-mic', 'mic', (v) => { if(v!==undefined) isDraggingMic = v; return isDraggingMic; });
 
-       // --- Dashboard Gestures ---
+       // --- Refined Dashboard Gestures ---
         let lastSingleFingerTime = 0;
         let lastTwoFingerTime = 0;
+        let gestureTimeout = null; // Delay gate to prevent 1-finger logic on 2-finger taps
 
         document.getElementById('body').addEventListener('touchstart', (e) => {
-            // Ignore if tapping a button or input
             if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
             
             const now = Date.now();
+            const numFingers = e.touches.length;
 
-            // Handle 1-Finger Double Tap (Fullscreen)
-            if (e.touches.length === 1) {
-                const tapGap = now - lastSingleFingerTime;
-                if (tapGap < 350 && tapGap > 0) {
-                    e.preventDefault(); // STOP the browser from sending a phantom 'dblclick'
-                    toggleFullscreen();
-                }
-                lastSingleFingerTime = now;
-            } 
-            // Handle 2-Finger Double Tap (Settings)
-            else if (e.touches.length === 2) {
+            if (numFingers === 2) {
+                // ABORT Fullscreen: A second finger has arrived!
+                if (gestureTimeout) clearTimeout(gestureTimeout);
+                
                 const tapGap = now - lastTwoFingerTime;
                 if (tapGap < 450 && tapGap > 0) {
-                    e.preventDefault(); // STOP the browser from sending a phantom 'dblclick'
+                    e.preventDefault();
                     document.getElementById('modal').style.display = 'flex';
                 }
                 lastTwoFingerTime = now;
+            } 
+            else if (numFingers === 1) {
+                const tapGap = now - lastSingleFingerTime;
+                if (tapGap < 350 && tapGap > 0) {
+                    e.preventDefault();
+                    // Wait 60ms to ensure a second finger isn't about to land
+                    gestureTimeout = setTimeout(() => {
+                        toggleFullscreen();
+                    }, 60);
+                }
+                lastSingleFingerTime = now;
             }
-        }, { passive: false }); // 'passive: false' is required for preventDefault() to work
+        }, { passive: false });
 
-        // Keep standard double-click for PC Mouse support ONLY
+        // PC-ONLY: Double-click for settings
         document.getElementById('body').addEventListener('dblclick', (e) => {
-            // If the device is a touchscreen, this event is redundant/ghosted, so ignore it
+            // Ignore if event came from a finger or if we are on a touchscreen
             if (e.pointerType === 'touch' || window.matchMedia("(pointer: coarse)").matches) return;
             
             if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
