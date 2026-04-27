@@ -166,7 +166,7 @@
         <div class="section" style="justify-content: flex-end;">
             <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
             <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
-            <button class="btn btn-top" onclick="toggleFullscreen()"><i data-lucide="maximize"></i></button>
+            <!-- <button class="btn btn-top" onclick="toggleFullscreen()"><i data-lucide="maximize"></i></button> -->
             <button class="btn btn-top" style="color: #ef4444;"><i data-lucide="power"></i></button>
         </div>
     </div>
@@ -607,22 +607,39 @@
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
         const upMic = initSlider('slide-mic', 'fill-mic', 'val-mic', 'mic', (v) => { if(v!==undefined) isDraggingMic = v; return isDraggingMic; });
 
-        // --- Settings Gesture: 2-Finger Double Tap ---
+        // --- Dashboard Gestures ---
+        let lastSingleFingerTime = 0;
         let lastTwoFingerTime = 0;
+
         document.getElementById('body').addEventListener('touchstart', (e) => {
             // Ignore if tapping a button or input
             if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
             
-            // STRICT CHECK: Only proceed if exactly 2 fingers hit the glass
-            if (e.touches.length === 2) {
-                const now = Date.now();
+            const now = Date.now();
+
+            // Handle 1-Finger Double Tap (Fullscreen)
+            if (e.touches.length === 1) {
+                const tapGap = now - lastSingleFingerTime;
+                if (tapGap < 350 && tapGap > 0) {
+                    toggleFullscreen();
+                }
+                lastSingleFingerTime = now;
+            } 
+            // Handle 2-Finger Double Tap (Settings)
+            else if (e.touches.length === 2) {
                 const tapGap = now - lastTwoFingerTime;
-                
                 if (tapGap < 450 && tapGap > 0) {
                     document.getElementById('modal').style.display = 'flex';
                 }
                 lastTwoFingerTime = now;
             }
+        });
+
+        // Keep standard double-click for PC Mouse support (Settings only)
+        document.getElementById('body').addEventListener('dblclick', (e) => {
+            if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
+            if (e.pointerType === 'touch') return;
+            document.getElementById('modal').style.display = 'flex';
         });
         
         // Standard Double-Click (For ThinkPad Mouse/Trackpad only)
@@ -637,7 +654,7 @@
 
             document.getElementById('modal').style.display = 'flex';
         });
-        
+
         function act(a) { sendSocket('action', a); }
         function runSpeedtest() { document.getElementById('s-dl').innerText = "..."; document.getElementById('s-ul').innerText = "..."; sendSocket('run_speedtest'); }
 
