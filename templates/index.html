@@ -338,6 +338,17 @@
         lucide.createIcons();
         const socket = io();
 
+        // --- Auto-Refresh on Server Restart ---
+        let hasDisconnected = false;
+        socket.on('disconnect', () => { 
+            hasDisconnected = true; 
+            document.getElementById('top-title').innerText = "RECONNECTING...";
+            document.getElementById('top-title').style.color = "var(--danger)";
+        });
+        socket.on('connect', () => { 
+            if (hasDisconnected) window.location.reload(); 
+        });
+
        // --- View Toggling & Top Bar Morphing ---
         function toggleSoundpad(show) {
             // Toggle Views
