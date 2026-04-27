@@ -156,9 +156,9 @@
     </div>
 
     <!-- Top Bar Core -->
-    <div class="top-bar glass">
+    <div class="top-bar glass" style="position: relative;">
         <div class="section batt"><i data-lucide="mouse"></i> <span id="mouse-batt">--%</span></div>
-        <div class="section" style="letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted);">COMMAND CENTER</div>
+        <div class="section" style="position: absolute; left: 50%; transform: translateX(-50%); letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted);">COMMAND CENTER</div>
         <div class="section">
             <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
             <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
@@ -432,19 +432,34 @@
 
         function initSlider(sId, fId, vId, type, dCheck) {
             const s = document.getElementById(sId), f = document.getElementById(fId), v = document.getElementById(vId);
-            function set(pct) { f.style.height = pct + '%'; v.innerText = pct + '%'; }
+            let lastEmit = 0; let currentPct = 0;
+            function set(pct) { currentPct = pct; f.style.height = pct + '%'; v.innerText = pct + '%'; }
             function drag(e) {
                 const r = s.getBoundingClientRect();
-                let pct = 100 - ((((e.touches ? e.touches[0].clientY : e.clientY) - r.top) / r.height) * 100);
+                let clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+                if (clientY === undefined) return;
+                let pct = 100 - (((clientY - r.top) / r.height) * 100);
                 pct = Math.max(0, Math.min(100, Math.round(pct)));
-                set(pct); socket.emit('set_volume', {type: type, val: pct});
+                set(pct); 
+                const now = Date.now();
+                if (now - lastEmit > 60) {
+                    socket.emit('set_volume', {type: type, val: pct});
+                    lastEmit = now;
+                }
+            }
+            function endDrag() {
+                if (dCheck()) {
+                    dCheck(false);
+                    socket.emit('set_volume', {type: type, val: currentPct});
+                }
             }
             s.addEventListener('mousedown', (e) => { dCheck(true); drag(e); });
             document.addEventListener('mousemove', (e) => { if(dCheck()) drag(e); });
-            document.addEventListener('mouseup', () => dCheck(false));
+            document.addEventListener('mouseup', endDrag);
             s.addEventListener('touchstart', (e) => { e.preventDefault(); dCheck(true); drag(e); }, {passive: false});
-            s.addEventListener('touchmove', (e) => { e.preventDefault(); drag(e); }, {passive: false});
-            s.addEventListener('touchend', () => dCheck(false));
+            s.addEventListener('touchmove', (e) => { e.preventDefault(); if(dCheck()) drag(e); }, {passive: false});
+            document.addEventListener('touchend', endDrag);
+            document.addEventListener('touchcancel', endDrag);
             return (ext) => { if(!dCheck()) set(ext); };
         }
 

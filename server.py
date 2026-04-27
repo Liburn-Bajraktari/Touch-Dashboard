@@ -16,7 +16,11 @@ from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO
 
 # --- CONFIGURATION MANAGER ---
-CONFIG_FILE = "config.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
+SPOTIFY_CACHE_FILE = os.path.join(BASE_DIR, ".cache")
+
 DEFAULT_CONFIG = {
     "weather_api": "", "weather_city": "Pristina",
     "spot_id": "", "spot_secret": "",
@@ -45,43 +49,66 @@ class AudioSystem:
         except: return ""
 
     @staticmethod
-    def get_hardware_sinks():
-        """Parses wpctl to auto-discover all connected audio outputs."""
-        devices = []
+    def poll_all():
+        """Parses wpctl once to grab all sinks, active sink name, and spk/mic volume/mute states."""
+        sinks = []
+        spk_state = {"vol": 0, "muted": True}
+        mic_state = {"vol": 0, "muted": True}
+        active_sink_name = "NONE"
+        
         try:
             out = AudioSystem.run(['wpctl', 'status'])
-            capture = False
+            section = None
             for line in out.splitlines():
-                if 'Sinks:' in line: capture = True; continue
-                if capture and any(x in line for x in ['Sources:', 'Filters:', 'Streams:', 'Video:']): break
-                if capture:
+                if 'Sinks:' in line: section = 'sinks'; continue
+                elif 'Sources:' in line: section = 'sources'; continue
+                elif any(x in line for x in ['Filters:', 'Streams:', 'Video:', 'Devices:']): 
+                    if section in ['sinks', 'sources']: section = None
+                    continue
+                
+                if section in ['sinks', 'sources']:
                     clean = line.replace('│', '').replace('├─', '').replace('└─', '').strip()
                     if not clean: continue
-                    match = re.search(r'^(\*)?\s*(\d+)\.\s+([^\[]+)', clean)
+                    
+                    match = re.search(r'^(\*)?\s*(\d+)\.\s+([^\[]+)(?:\[vol:\s*([\d\.]+)\s*(MUTED)?\])?', clean)
                     if match:
                         is_active = bool(match.group(1))
                         dev_id = match.group(2)
-                        dev_name = match.group(3).strip()
-                        custom_names = config.get("audio_names", {})
-                        custom_name = custom_names.get(dev_name, "")
-                        display_name = custom_name[:10] if custom_name else dev_name[:5].upper()
-                        devices.append({"id": dev_id, "name": display_name, "raw_name": dev_name, "custom_name": custom_name, "is_active": is_active})
+                        raw_name = match.group(3).strip()
+                        
+                        vol_str = match.group(4)
+                        vol = int(float(vol_str) * 100) if vol_str else 0
+                        is_muted = bool(match.group(5))
+                        
+                        if section == 'sinks':
+                            custom_names = config.get("audio_names", {})
+                            custom_name = custom_names.get(raw_name, "")
+                            display_name = custom_name[:10] if custom_name else raw_name[:5].upper()
+                            sinks.append({"id": dev_id, "name": display_name, "raw_name": raw_name, "custom_name": custom_name, "is_active": is_active})
+                            if is_active:
+                                active_sink_name = display_name
+                                spk_state = {"vol": vol, "muted": is_muted}
+                        elif section == 'sources' and is_active:
+                            mic_state = {"vol": vol, "muted": is_muted}
         except Exception as e: print(f"Audio parse error: {e}")
-        return devices
+        
+        return {
+            "sinks": sinks,
+            "active_sink_name": active_sink_name if sinks else "NONE",
+            "spk": spk_state,
+            "mic": mic_state
+        }
 
     @staticmethod
-    def get_active_sink_id():
-        for s in AudioSystem.get_hardware_sinks():
+    def get_hardware_sinks():
+        return AudioSystem.poll_all()['sinks']
+
+    @staticmethod
+    def get_active_sink_id(sinks=None):
+        if sinks is None: sinks = AudioSystem.poll_all()['sinks']
+        for s in sinks:
             if s.get('is_active'): return s['id']
         return None
-
-    @staticmethod
-    def get_state(target):
-        out = AudioSystem.run(['wpctl', 'get-volume', target])
-        if not out: return {"vol": 0, "muted": True}
-        try: vol = int(float(out.split()[1]) * 100)
-        except: vol = 0
-        return {"vol": vol, "muted": '[MUTED]' in out}
 
     @staticmethod
     def set_vol(target, val): AudioSystem.run(['wpctl', 'set-volume', target, f"{val}%"])
@@ -91,9 +118,9 @@ class AudioSystem:
 
     @staticmethod
     def cycle_device():
-        sinks = AudioSystem.get_hardware_sinks()
+        sinks = AudioSystem.poll_all()['sinks']
         if not sinks: return
-        active_id = AudioSystem.get_active_sink_id()
+        active_id = AudioSystem.get_active_sink_id(sinks)
         next_sink = sinks[0]
         if active_id:
             for i, s in enumerate(sinks):
@@ -101,14 +128,6 @@ class AudioSystem:
                     next_sink = sinks[(i + 1) % len(sinks)]
                     break
         AudioSystem.run(['wpctl', 'set-default', next_sink['id']])
-
-    @staticmethod
-    def get_active_name():
-        sinks = AudioSystem.get_hardware_sinks()
-        active_id = AudioSystem.get_active_sink_id()
-        for s in sinks:
-            if s['id'] == active_id: return s['name']
-        return sinks[0]['name'] if sinks else "NONE"
 
 class DiscordIPC:
     def __init__(self, client_id, client_secret):
@@ -234,7 +253,7 @@ class DiscordIPC:
         while self.running:
             if not self.connected:
                 if not self.connect():
-                    time.sleep(5)
+                    socketio.sleep(5)
                     continue
             try:
                 if os.name != 'nt': self.sock.settimeout(5.0)
@@ -250,7 +269,7 @@ class DiscordIPC:
                     self.voice_state["deaf"] = data.get("deaf", False)
             except Exception as e:
                 self.close()
-                time.sleep(2)
+                socketio.sleep(2)
 
     def set_voice(self, mute=None, deaf=None):
         if not self.connected: return
@@ -268,7 +287,7 @@ def restart_discord_ipc():
         disc_ipc_instance = None
     if config.get("disc_id") and config.get("disc_secret"):
         disc_ipc_instance = DiscordIPC(config["disc_id"], config["disc_secret"])
-        threading.Thread(target=disc_ipc_instance.loop, daemon=True).start()
+        socketio.start_background_task(disc_ipc_instance.loop)
 
 # --- APP INITIALIZATION ---
 app = Flask(__name__)
@@ -281,7 +300,11 @@ last_audio_devs = []
 def get_spotify_api_meta():
     if not config.get("spot_id") or not config.get("spot_secret"): return None
     try:
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False))
+        sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+        token_info = sp_oauth.get_cached_token()
+        if not token_info: return None # Fail silently to prevent terminal input blocking
+        
+        sp = spotipy.Spotify(auth=token_info['access_token'])
         curr = sp.current_playback()
         if curr and curr.get('is_playing'): return {"status": "Playing", "artist": curr['item']['artists'][0]['name'], "title": curr['item']['name']}
         elif curr: return {"status": "Paused", "artist": curr['item']['artists'][0]['name'], "title": curr['item']['name']}
@@ -290,15 +313,23 @@ def get_spotify_api_meta():
 
 def get_local_mpris_meta():
     try:
-        status = AudioSystem.run(['playerctl', 'status'])
-        artist = AudioSystem.run(['playerctl', 'metadata', 'artist'])
-        title = AudioSystem.run(['playerctl', 'metadata', 'title'])
-        return {"status": status, "artist": artist or "Unknown", "title": title}
+        # Optimization: playerctl metadata --format can output status and meta in 1 call to save CPU
+        meta = AudioSystem.run(['playerctl', 'metadata', '--format', '{{status}}|||{{artist}}|||{{title}}'])
+        if not meta: return {"status": "Stopped", "artist": "", "title": "Nothing Playing"}
+        parts = meta.split('|||')
+        status = parts[0].strip() if len(parts) > 0 else "Stopped"
+        if status not in ['Playing', 'Paused']: return {"status": "Stopped", "artist": "", "title": "Nothing Playing"}
+        
+        artist = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "Unknown"
+        title = parts[2].strip() if len(parts) > 2 and parts[2].strip() else "Unknown"
+        return {"status": status, "artist": artist, "title": title}
     except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing"}
 
 # --- CORE SYSTEM LOOP ---
 def hardware_loop():
     global last_spotify_check, spotify_cache, last_audio_devs
+    last_gpu_check = 0
+    gpu_cache = ""
     while True:
         curr_time = time.time()
         
@@ -321,20 +352,22 @@ def hardware_loop():
             local_media = get_local_mpris_meta()
             if local_media['status'] == 'Playing' or not media: media = local_media
 
-        
-        try: gpu = AudioSystem.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'])
-        except: gpu = ""
+        # GPU Polling (2s limit, heavy process)
+        if curr_time - last_gpu_check > 2.0:
+            try: gpu_cache = AudioSystem.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'])
+            except: gpu_cache = ""
+            last_gpu_check = curr_time
 
         data = {
             "cpu": psutil.cpu_percent(interval=None),
             "ram": psutil.virtual_memory().percent,
-            "gpu": gpu if gpu else None,
+            "gpu": gpu_cache if gpu_cache else None,
             "spotify": media,
             "discord": disc_ipc_instance.voice_state if disc_ipc_instance and disc_ipc_instance.connected else {"mute": False, "deaf": False},
             "audio": {
                 "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'),
                 "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@'),
-                "active_dev": AudioSystem.get_active_name()
+                "active_dev": AudioSystem.get_active_name(curr_sinks)
             }
         }
         
@@ -343,17 +376,60 @@ def hardware_loop():
         except: data["mouse_batt"] = "--"
 
         socketio.emit('sys_data', data)
-        time.sleep(0.5)
+        socketio.sleep(0.5)
+
+WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
+
+def load_weather_cache():
+    if os.path.exists(WEATHER_CACHE_FILE):
+        try:
+            with open(WEATHER_CACHE_FILE, "r") as f: return json.load(f)
+        except: pass
+    return {"temp": "--", "desc": "--", "timestamp": 0}
+
+def save_weather_cache(data):
+    try:
+        with open(WEATHER_CACHE_FILE, "w") as f: json.dump(data, f)
+    except: pass
+
+last_weather_data = load_weather_cache()
+weather_force_update = False
+
+def do_fetch_weather():
+    global last_weather_data
+    if config.get("weather_api") and config.get("weather_city"):
+        try:
+            url = f"http://api.openweathermap.org/data/2.5/weather?q={config['weather_city']}&appid={config['weather_api']}&units=metric"
+            res = requests.get(url, timeout=5).json()
+            if "main" in res: 
+                last_weather_data = {
+                    "temp": round(res["main"]["temp"]), 
+                    "desc": res["weather"][0]["description"].title(),
+                    "timestamp": time.time()
+                }
+                save_weather_cache(last_weather_data)
+                socketio.emit('weather_data', last_weather_data)
+            else:
+                last_weather_data["timestamp"] = time.time() # Prevent spamming on bad API key
+        except Exception as e:
+            print(f"Weather error: {e}")
+            last_weather_data["timestamp"] = time.time() # Prevent spamming on network error
+    else:
+        last_weather_data["timestamp"] = time.time() # Prevent spamming when not configured
 
 def fetch_weather():
+    global last_weather_data, weather_force_update
+    if time.time() - last_weather_data.get("timestamp", 0) > 1800:
+        do_fetch_weather()
+
     while True:
-        if config.get("weather_api") and config.get("weather_city"):
-            try:
-                url = f"http://api.openweathermap.org/data/2.5/weather?q={config['weather_city']}&appid={config['weather_api']}&units=metric"
-                res = requests.get(url, timeout=5).json()
-                if "main" in res: socketio.emit('weather_data', {"temp": round(res["main"]["temp"]), "desc": res["weather"][0]["description"].title()})
-            except: pass
-        time.sleep(600)
+        # Sleep cooperatively for up to 30 mins, but check flag every 1s
+        for _ in range(1800):
+            if weather_force_update:
+                weather_force_update = False
+                break
+            socketio.sleep(1)
+        do_fetch_weather()
 
 # --- ROUTES & SOCKETS ---
 @app.route('/')
@@ -370,16 +446,22 @@ def manifest():
 @socketio.on('connect')
 def handle_connect():
     socketio.emit('config_sync', {"cfg": config, "hw": AudioSystem.get_hardware_sinks()})
+    if last_weather_data.get("temp") != "--":
+        socketio.emit('weather_data', last_weather_data)
 
 @socketio.on('save_config')
 def handle_config_save(data):
-    global config
+    global config, weather_force_update
     old_id = config.get("disc_id")
     old_secret = config.get("disc_secret")
+    old_weather_api = config.get("weather_api")
+    old_weather_city = config.get("weather_city")
     config.update(data)
     save_config()
     if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"):
         restart_discord_ipc()
+    if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"):
+        weather_force_update = True
 
 @socketio.on('action')
 def handle_action(action):
@@ -435,10 +517,10 @@ def handle_speedtest():
             st.get_best_server()
             socketio.emit('speedtest_result', {'down': round(st.download() / 1_000_000, 1), 'up': round(st.upload() / 1_000_000, 1)})
         except: socketio.emit('speedtest_result', {'down': 'ERR', 'up': 'ERR'})
-    threading.Thread(target=test, daemon=True).start()
+    socketio.start_background_task(test)
 
 if __name__ == '__main__':
     restart_discord_ipc()
-    threading.Thread(target=hardware_loop, daemon=True).start()
-    threading.Thread(target=fetch_weather, daemon=True).start()
+    socketio.start_background_task(hardware_loop)
+    socketio.start_background_task(fetch_weather)
     socketio.run(app, host='0.0.0.0', port=5000)
