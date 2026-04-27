@@ -607,14 +607,26 @@
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
         const upMic = initSlider('slide-mic', 'fill-mic', 'val-mic', 'mic', (v) => { if(v!==undefined) isDraggingMic = v; return isDraggingMic; });
 
+        // --- 2-Finger Double Tap for Settings ---
         let lastTap = 0;
-        document.getElementById('body').addEventListener('touchend', (e) => {
+        document.getElementById('body').addEventListener('touchstart', (e) => {
+            // Ignore touches on interactive elements
             if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
-            const cur = new Date().getTime();
-            if (cur - lastTap < 300 && cur - lastTap > 0) document.getElementById('modal').style.display = 'flex';
-            lastTap = cur;
+            
+            // Check if exactly two fingers are touching the screen
+            if (e.touches.length === 2) {
+                const cur = new Date().getTime();
+                const tapLen = cur - lastTap;
+                
+                // If the time between two-finger touches is less than 400ms, open settings
+                if (tapLen < 400 && tapLen > 0) {
+                    document.getElementById('modal').style.display = 'flex';
+                }
+                lastTap = cur;
+            }
         });
         
+        // Keep standard double-click for PC/Mouse support
         document.getElementById('body').addEventListener('dblclick', (e) => {
             if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
             document.getElementById('modal').style.display = 'flex';
