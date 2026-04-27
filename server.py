@@ -381,16 +381,28 @@ async def hardware_loop():
 
 async def fetch_weather():
     global last_weather_data, weather_force_update
-    def do_fetch():
+    
+    async def do_fetch():
         global last_weather_data
         if config.get("weather_api") and config.get("weather_city"):
             try:
-                res = requests.get("http://api.openweathermap.org/data/2.5/weather", params={"q": config['weather_city'], "appid": config['weather_api'], "units": "metric"}, timeout=5).json()
-                if "main" in res:
-                    last_weather_data = {"temp": round(res["main"]["temp"]), "desc": res["weather"][0]["description"].title(), "timestamp": time.time()}
+                # Push only the blocking HTTP request to the background thread
+                res = await asyncio.to_thread(
+                    requests.get, 
+                    "http://api.openweathermap.org/data/2.5/weather", 
+                    params={"q": config['weather_city'], "appid": config['weather_api'], "units": "metric"}, 
+                    timeout=5
+                )
+                res_data = res.json()
+                if "main" in res_data:
+                    last_weather_data = {"temp": round(res_data["main"]["temp"]), "desc": res_data["weather"][0]["description"].title(), "timestamp": time.time()}
                     with open(WEATHER_CACHE_FILE, "w") as f: json.dump(last_weather_data, f)
-                    asyncio.run_coroutine_threadsafe(ws_manager.broadcast({"type": "weather_data", "data": last_weather_data}), asyncio.get_running_loop())
-            except: pass
+                    
+                    # We can now safely broadcast natively in the async loop
+                    await ws_manager.broadcast({"type": "weather_data", "data": last_weather_data})
+            except Exception as e:
+                logger.debug(f"Weather fetch error: {e}")
+                
         last_weather_data["timestamp"] = time.time()
 
     if os.path.exists(WEATHER_CACHE_FILE):
@@ -398,7 +410,8 @@ async def fetch_weather():
             with open(WEATHER_CACHE_FILE, "r") as f: last_weather_data = json.load(f)
         except: pass
 
-    if time.time() - last_weather_data.get("timestamp", 0) > 1800: await asyncio.to_thread(do_fetch)
+    if time.time() - last_weather_data.get("timestamp", 0) > 1800: 
+        await do_fetch()
 
     while True:
         for _ in range(1800):
@@ -406,7 +419,7 @@ async def fetch_weather():
                 weather_force_update = False
                 break
             await asyncio.sleep(1)
-        await asyncio.to_thread(do_fetch)
+        await do_fetch()
 
 # --- FASTAPI APP & ROUTES ---
 @asynccontextmanager
