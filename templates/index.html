@@ -607,31 +607,37 @@
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
         const upMic = initSlider('slide-mic', 'fill-mic', 'val-mic', 'mic', (v) => { if(v!==undefined) isDraggingMic = v; return isDraggingMic; });
 
-        // --- 2-Finger Double Tap for Settings ---
-        let lastTap = 0;
+        // --- Settings Gesture: 2-Finger Double Tap ---
+        let lastTwoFingerTime = 0;
         document.getElementById('body').addEventListener('touchstart', (e) => {
-            // Ignore touches on interactive elements
-            if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+            // Ignore if tapping a button or input
+            if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
             
-            // Check if exactly two fingers are touching the screen
+            // STRICT CHECK: Only proceed if exactly 2 fingers hit the glass
             if (e.touches.length === 2) {
-                const cur = new Date().getTime();
-                const tapLen = cur - lastTap;
+                const now = Date.now();
+                const tapGap = now - lastTwoFingerTime;
                 
-                // If the time between two-finger touches is less than 400ms, open settings
-                if (tapLen < 400 && tapLen > 0) {
+                if (tapGap < 450 && tapGap > 0) {
                     document.getElementById('modal').style.display = 'flex';
                 }
-                lastTap = cur;
+                lastTwoFingerTime = now;
             }
         });
         
-        // Keep standard double-click for PC/Mouse support
+        // Standard Double-Click (For ThinkPad Mouse/Trackpad only)
         document.getElementById('body').addEventListener('dblclick', (e) => {
-            if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+            if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
+            
+            // BLOCKER: Ignore this event if it was triggered by a touch/finger
+            if (e.pointerType === 'touch') return;
+
+            // SECONDARY CHECK: If the device is primarily a touchscreen, ignore dblclick
+            if (window.matchMedia("(pointer: coarse)").matches && e.pointerType !== 'mouse') return;
+
             document.getElementById('modal').style.display = 'flex';
         });
-
+        
         function act(a) { sendSocket('action', a); }
         function runSpeedtest() { document.getElementById('s-dl').innerText = "..."; document.getElementById('s-ul').innerText = "..."; sendSocket('run_speedtest'); }
 
