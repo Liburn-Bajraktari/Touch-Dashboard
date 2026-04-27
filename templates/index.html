@@ -157,8 +157,13 @@
 
     <!-- Top Bar Core -->
     <div class="top-bar glass">
-        <div class="section batt"><i data-lucide="mouse"></i> <span id="mouse-batt">--%</span></div>
-        <div class="section" style="justify-content: center; letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted);">COMMAND CENTER</div>
+        <div class="section batt" style="gap: 1rem;">
+            <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="display: none; width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
+            </div>
+        </div>
+        <div class="section" id="top-title" style="justify-content: center; letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted); transition: all 0.3s ease; text-align: center;">COMMAND CENTER</div>
         <div class="section" style="justify-content: flex-end;">
             <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
             <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
@@ -276,13 +281,37 @@
         <div class="col">
             <div class="glass panel" style="flex: 1;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">MACROS & APPS</h3>
-                <div class="btn-grid" style="grid-template-columns: repeat(3, 1fr); gap: 1.5rem; flex: 1;">
-                    <button class="btn" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
-                    <button class="btn" onclick="toggleSoundpad(true)" style="border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
-                    <button class="btn" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
-                    <button class="btn" onclick="act('app_web')"><i data-lucide="globe"></i></button>
-                    <button class="btn" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
-                    <button class="btn" style="opacity: 0.1; cursor: default;"></button>
+                <div class="btn-grid" style="grid-template-columns: repeat(3, 1fr); grid-auto-rows: 6rem; gap: 1.5rem; flex: 1;">
+                    <!-- Macro 1 -->
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
+                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
+                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">CLIP</span>
+                    </div>
+                    <!-- Macro 2 -->
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
+                        <button class="btn" onclick="toggleSoundpad(true)" style="flex: 1; height: auto; border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
+                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--accent); letter-spacing: 1px;">SOUNDPAD</span>
+                    </div>
+                    <!-- Macro 3 -->
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
+                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
+                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">TERM</span>
+                    </div>
+                    <!-- Macro 4 -->
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
+                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_web')"><i data-lucide="globe"></i></button>
+                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">BROWSER</span>
+                    </div>
+                    <!-- Macro 5 -->
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
+                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
+                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">TASK MGR</span>
+                    </div>
+                    <!-- Placeholder -->
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
+                        <button class="btn" style="flex: 1; height: auto; opacity: 0.1; cursor: default;"></button>
+                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: transparent; letter-spacing: 1px;">NONE</span>
+                    </div>
                 </div>
             </div>
             <div class="glass panel" style="flex: 0 0 auto; display: flex; flex-direction: column;">
@@ -297,12 +326,8 @@
     </div>
 
     <!-- Soundpad View Overlay -->
-    <div id="soundpad-view" style="display: none; flex: 1; flex-direction: column; gap: 1.5rem; min-height: 0;">
-        <div class="glass" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; flex: 0 0 5rem;">
-            <h2 style="margin: 0; letter-spacing: 2px;">SOUNDPAD</h2>
-            <button class="btn" style="width: 8rem; height: 3.5rem; font-weight: bold;" onclick="toggleSoundpad(false)"><i data-lucide="arrow-left" style="margin-right: 0.5rem;"></i> BACK</button>
-        </div>
-        <div class="glass" style="flex: 1; padding: 1.5rem; overflow-y: auto;">
+    <div id="soundpad-view" style="display: none; flex: 1; min-height: 0;">
+        <div class="glass" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%;">
             <div id="sp-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.5rem; align-content: start;">
                 <!-- Buttons filled by JS -->
             </div>
@@ -313,10 +338,20 @@
         lucide.createIcons();
         const socket = io();
 
-        // --- View Toggling ---
+       // --- View Toggling & Top Bar Morphing ---
         function toggleSoundpad(show) {
+            // Toggle Views
             document.getElementById('main-view').style.display = show ? 'none' : 'grid';
             document.getElementById('soundpad-view').style.display = show ? 'flex' : 'none';
+            
+            // Toggle Top Bar Button
+            document.getElementById('btn-back').style.display = show ? 'flex' : 'none';
+            
+            // Morph the Top Bar Title
+            const title = document.getElementById('top-title');
+            title.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
+            title.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
+            title.style.fontWeight = show ? '800' : '300';
         }
 
         // --- Tabs Logic ---
