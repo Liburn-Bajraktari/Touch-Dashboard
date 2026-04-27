@@ -395,10 +395,11 @@ def get_local_mpris_meta():
     except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
 
 force_media_update = False
+current_media_source = "local" # Tracks who owns the dashboard
 
 # --- CORE SYSTEM LOOP ---
 def hardware_loop():
-    global last_spotify_check, spotify_cache, last_audio_devs, force_media_update
+    global last_spotify_check, spotify_cache, last_audio_devs, force_media_update, current_media_source
     last_gpu_check = 0
     gpu_cache = ""
     logger.info("Hardware monitoring loop started.")
@@ -417,16 +418,23 @@ def hardware_loop():
 
         # Spotify Polling (3s limit, overridden by button presses)
         if curr_time - last_spotify_check > 3.0 or force_media_update:
-            if force_media_update:
-                socketio.sleep(0.4) # Give Spotify's servers 400ms to register the track change
+            if force_media_update: socketio.sleep(0.4)
             spotify_cache = get_spotify_api_meta()
             last_spotify_check = time.time()
             force_media_update = False
 
+        # Context-Aware Media Routing
         media = spotify_cache
         if not media or media['status'] != 'Playing':
             local_media = get_local_mpris_meta()
-            if local_media['status'] == 'Playing' or not media: media = local_media
+            # Surrender the screen to VLC only if VLC is playing
+            if local_media['status'] == 'Playing' or not media: 
+                media = local_media
+                current_media_source = "local"
+            else:
+                current_media_source = "spotify"
+        else:
+            current_media_source = "spotify"
 
         # GPU Polling (2s limit, heavy process)
         if curr_time - last_gpu_check > 2.0:
@@ -576,11 +584,13 @@ def handle_config_save(data):
 
 @socketio.on('action')
 def handle_action(action):
-    global config, force_media_update
+    global config, force_media_update, current_media_source
     
     if action.startswith('spot_'):
-        sp_success = False
-        if config.get("spot_id"):
+        routed_to_spotify = False
+        
+        # Only send commands to Spotify if it currently owns the screen
+        if current_media_source == "spotify" and config.get("spot_id"):
             try:
                 sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{request.host}/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
                 token_info = sp_oauth.get_cached_token()
@@ -592,17 +602,17 @@ def handle_action(action):
                         else: sp.start_playback()
                     elif action == 'spot_next': sp.next_track()
                     elif action == 'spot_prev': sp.previous_track()
-                    sp_success = True
-                    force_media_update = True # Trigger instant UI refresh
+                    routed_to_spotify = True
+                    force_media_update = True
             except Exception as e:
                 logger.error(f"Spotify action error: {e}")
                 
-        # Local Playerctl fallback (VLC, Browsers, Linux Spotify)
-        if not sp_success:
+        # Send commands to VLC/Local if it owns the screen (or if Spotify failed)
+        if not routed_to_spotify:
             if action == 'spot_play': AudioSystem.run(['playerctl', 'play-pause'])
             elif action == 'spot_next': AudioSystem.run(['playerctl', 'next'])
             elif action == 'spot_prev': AudioSystem.run(['playerctl', 'previous'])
-            force_media_update = True # Trigger instant UI refresh
+            force_media_update = True
 
     elif action.startswith('sp_play_'):
         sp_id = action.split('sp_play_')[1]
