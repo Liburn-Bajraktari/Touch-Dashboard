@@ -449,6 +449,9 @@ async def callback(request: Request, code: str = None):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    # MAGIC FIX: Move all global declarations to the absolute top of the function scope
+    global config, weather_force_update, force_media_update, current_media_source
+    
     await ws_manager.connect(websocket)
     await websocket.send_json({"type": "config_sync", "data": {"cfg": config, "hw": AudioSystem.get_hardware_sinks()}})
     if last_weather_data.get("temp") != "--":
@@ -461,7 +464,6 @@ async def websocket_endpoint(websocket: WebSocket):
             msg_type, data = msg.get("type"), msg.get("data")
             
             if msg_type == 'save_config':
-                global config, weather_force_update
                 old_id, old_secret = config.get("disc_id"), config.get("disc_secret")
                 old_weather_api, old_weather_city = config.get("weather_api"), config.get("weather_city")
                 config.update(data)
@@ -470,7 +472,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"): weather_force_update = True
 
             elif msg_type == 'action':
-                global force_media_update
                 action = data
                 if action.startswith('spot_'):
                     routed_to_spot = False
