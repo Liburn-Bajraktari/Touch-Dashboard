@@ -1,6 +1,4 @@
-import gevent.monkey
-gevent.monkey.patch_all()
-
+import asyncio
 import os
 import json
 import time
@@ -18,8 +16,10 @@ import uuid
 import base64
 import urllib.parse
 from spotipy.oauth2 import SpotifyOAuth
-from flask import Flask, render_template, jsonify, redirect, request
-from flask_socketio import SocketIO
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from contextlib import asynccontextmanager
+import uvicorn
 
 # --- CONFIGURATION MANAGER ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,14 +27,12 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
 SPOTIFY_CACHE_FILE = os.path.join(BASE_DIR, ".cache")
 
-# Setup Logging
 logging.basicConfig(
     filename=os.path.join(BASE_DIR, 'server.log'),
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-logger.info("Starting Touch Dashboard Server...")
 
 DEFAULT_CONFIG = {
     "weather_api": "", "weather_city": "Pristina",
@@ -60,9 +58,7 @@ config = load_config()
 class AudioSystem:
     @staticmethod
     def run(cmd):
-        try: 
-            # Added a strict 2-second timeout to prevent infinite freezes
-            return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2).decode().strip()
+        try: return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2).decode().strip()
         except Exception as e:
             logger.debug(f"AudioSystem.run failed for cmd {cmd}: {e}")
             return ""
@@ -70,20 +66,11 @@ class AudioSystem:
     @staticmethod
     def get_state(target):
         out = AudioSystem.run(['wpctl', 'get-volume', target])
-        logger.info(f"wpctl get-volume {target} returned: '{out}'")
-        if not out:
-            logger.warning(f"wpctl get-volume returned empty for {target}. Defaulting to 0% [MUTED]")
-            return {"vol": 0, "muted": True}
+        if not out: return {"vol": 0, "muted": True}
         try:
             parts = out.split()
-            if len(parts) > 1:
-                vol_str = parts[1]
-                vol = int(float(vol_str) * 100)
-            else:
-                vol = 0
-        except Exception as e:
-            logger.error(f"Failed to parse volume output '{out}' for {target}: {e}")
-            vol = 0
+            vol = int(float(parts[1]) * 100) if len(parts) > 1 else 0
+        except Exception: vol = 0
         return {"vol": vol, "muted": '[MUTED]' in out}
 
     @staticmethod
@@ -102,46 +89,32 @@ class AudioSystem:
                 if section == 'sinks':
                     clean = line.replace('│', '').replace('├─', '').replace('└─', '').strip()
                     if not clean: continue
-                    
                     match = re.search(r'^(\*)?\s*(\d+)\.\s+([^\[]+)', clean)
                     if match:
-                        is_active = bool(match.group(1))
-                        dev_id = match.group(2)
-                        raw_name = match.group(3).strip()
-                        
-                        custom_names = config.get("audio_names", {})
-                        custom_name = custom_names.get(raw_name, "")
+                        is_active, dev_id, raw_name = bool(match.group(1)), match.group(2), match.group(3).strip()
+                        custom_name = config.get("audio_names", {}).get(raw_name, "")
                         display_name = custom_name[:10] if custom_name else raw_name[:5].upper()
                         sinks.append({"id": dev_id, "name": display_name, "raw_name": raw_name, "custom_name": custom_name, "is_active": is_active})
-                        if is_active:
-                            active_sink_name = display_name
-        except Exception as e:
-            logger.error(f"Audio parse error: {e}")
+                        if is_active: active_sink_name = display_name
+        except Exception as e: logger.error(f"Audio parse error: {e}")
         
         return {
-            "sinks": sinks,
-            "active_sink_name": active_sink_name if sinks else "NONE",
-            "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'),
-            "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@')
+            "sinks": sinks, "active_sink_name": active_sink_name if sinks else "NONE",
+            "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'), "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@')
         }
 
     @staticmethod
-    def get_hardware_sinks():
-        return AudioSystem.poll_all()['sinks']
-
+    def get_hardware_sinks(): return AudioSystem.poll_all()['sinks']
     @staticmethod
     def get_active_sink_id(sinks=None):
         if sinks is None: sinks = AudioSystem.poll_all()['sinks']
         for s in sinks:
             if s.get('is_active'): return s['id']
         return None
-
     @staticmethod
     def set_vol(target, val): AudioSystem.run(['wpctl', 'set-volume', target, f"{val}%"])
-    
     @staticmethod
     def toggle_mute(target): AudioSystem.run(['wpctl', 'set-mute', target, 'toggle'])
-
     @staticmethod
     def cycle_device():
         sinks = AudioSystem.poll_all()['sinks']
@@ -157,14 +130,10 @@ class AudioSystem:
 
 class DiscordIPC:
     def __init__(self, client_id, client_secret):
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.sock = None
-        self.access_token = config.get("disc_token", "")
-        self.connected = False
+        self.client_id, self.client_secret = client_id, client_secret
+        self.sock, self.access_token = None, config.get("disc_token", "")
+        self.connected, self.running, self.warned_local = False, False, False
         self.voice_state = {"mute": False, "deaf": False}
-        self.running = False
-        self.warned_local = False
 
     def get_pipe_path(self):
         if os.name == 'nt': return r'\\.\pipe\discord-ipc-0'
@@ -178,30 +147,20 @@ class DiscordIPC:
 
     def connect(self):
         pipe_path = self.get_pipe_path()
-        if not pipe_path:
-            if not self.warned_local:
-                logger.warning("Discord IPC pipe not found. Ensure Discord is running locally on the same machine/OS as this Python script!")
-                self.warned_local = True
-            return False
+        if not pipe_path: return False
         try:
-            if os.name == 'nt':
-                self.sock = open(pipe_path, 'w+b')
+            if os.name == 'nt': self.sock = open(pipe_path, 'w+b')
             else:
                 self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 self.sock.connect(pipe_path)
                 self.sock.settimeout(2.0)
-            
-            logger.info("Connected to local Discord IPC socket.")
             self.send(0, {"v": 1, "client_id": self.client_id})
-            self.recv() # Handshake response
-            
+            self.recv()
             if not self.access_token: self.authorize()
             else: self.authenticate()
-            
             self.connected = True
             return True
-        except Exception as e:
-            logger.error(f"Discord IPC Connection Error: {e}")
+        except Exception:
             self.close()
             return False
 
@@ -219,73 +178,48 @@ class DiscordIPC:
         else: self.sock.sendall(data)
 
     def sock_recv(self, length):
-        if os.name == 'nt':
-            data = b""
-            while len(data) < length:
-                chunk = self.sock.read(length - len(data))
-                if not chunk: return b""
-                data += chunk
-            return data
-        else:
-            data = b""
-            while len(data) < length:
-                chunk = self.sock.recv(length - len(data))
-                if not chunk: return b""
-                data += chunk
-            return data
+        data = b""
+        while len(data) < length:
+            chunk = self.sock.read(length - len(data)) if os.name == 'nt' else self.sock.recv(length - len(data))
+            if not chunk: return b""
+            data += chunk
+        return data
 
     def send(self, opcode, payload):
         data = json.dumps(payload).encode('utf-8')
-        header = struct.pack("<II", opcode, len(data))
-        try: self.sock_send(header + data)
-        except Exception as e:
-            logger.error(f"Discord IPC send failed: {e}")
-            self.connected = False
+        try: self.sock_send(struct.pack("<II", opcode, len(data)) + data)
+        except Exception: self.connected = False
 
     def recv(self):
         try:
             header = self.sock_recv(8)
             if len(header) < 8: return {}
             opcode, length = struct.unpack("<II", header)
-            data = self.sock_recv(length)
-            return json.loads(data.decode('utf-8'))
-        except socket.timeout: return None
-        except Exception as e:
-            logger.debug(f"Discord IPC recv empty/error: {e}")
-            return {}
+            return json.loads(self.sock_recv(length).decode('utf-8'))
+        except: return {}
 
     def authorize(self):
-        logger.info("Requesting Discord Authorization...")
         nonce = str(uuid.uuid4())
         self.send(1, {"cmd": "AUTHORIZE", "args": {"client_id": self.client_id, "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write"]}, "nonce": nonce})
         while True:
             res = self.recv()
-            if res is None: continue
             if not res: break
             if res.get("cmd") == "AUTHORIZE" and res.get("nonce") == nonce:
-                code = res.get("data", {}).get("code")
-                if code: self.exchange_code(code)
+                if code := res.get("data", {}).get("code"): self.exchange_code(code)
                 break
 
     def exchange_code(self, code):
-        data = {"client_id": self.client_id, "client_secret": self.client_secret, "grant_type": "authorization_code", "code": code, "redirect_uri": "http://127.0.0.1"}
         try:
-            r = requests.post("https://discord.com/api/oauth2/token", data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=5)
+            r = requests.post("https://discord.com/api/oauth2/token", data={"client_id": self.client_id, "client_secret": self.client_secret, "grant_type": "authorization_code", "code": code, "redirect_uri": "http://127.0.0.1"}, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=5)
             if r.status_code == 200:
                 self.access_token = r.json().get("access_token")
                 config["disc_token"] = self.access_token
                 save_config()
-                logger.info("Successfully fetched and saved Discord access token.")
                 self.authenticate()
-            else:
-                logger.error(f"Failed to fetch Discord token: {r.status_code} {r.text}")
-        except Exception as e:
-            logger.error(f"Discord Token HTTP Error: {e}")
+        except: pass
 
     def authenticate(self):
-        logger.info("Authenticating with Discord IPC...")
-        nonce = str(uuid.uuid4())
-        self.send(1, {"cmd": "AUTHENTICATE", "args": {"access_token": self.access_token}, "nonce": nonce})
+        self.send(1, {"cmd": "AUTHENTICATE", "args": {"access_token": self.access_token}, "nonce": str(uuid.uuid4())})
         self.recv()
         self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_SETTINGS_UPDATE", "nonce": str(uuid.uuid4())})
         self.send(1, {"cmd": "GET_VOICE_SETTINGS", "nonce": "GET_VOICE"})
@@ -295,24 +229,21 @@ class DiscordIPC:
         while self.running:
             if not self.connected:
                 if not self.connect():
-                    socketio.sleep(5)
+                    time.sleep(5)
                     continue
             try:
                 if os.name != 'nt': self.sock.settimeout(5.0)
                 res = self.recv()
-                if res is None: continue 
                 if not res: 
                     self.close()
                     continue
-                evt = res.get("evt")
-                if evt == "VOICE_SETTINGS_UPDATE" or res.get("nonce") == "GET_VOICE":
+                if res.get("evt") == "VOICE_SETTINGS_UPDATE" or res.get("nonce") == "GET_VOICE":
                     data = res.get("data", {})
                     self.voice_state["mute"] = data.get("mute", False)
                     self.voice_state["deaf"] = data.get("deaf", False)
-            except Exception as e:
-                logger.debug(f"Discord IPC Loop exception: {e}")
+            except:
                 self.close()
-                socketio.sleep(2)
+                time.sleep(2)
 
     def set_voice(self, mute=None, deaf=None):
         if not self.connected: return
@@ -327,60 +258,41 @@ def restart_discord_ipc():
     if disc_ipc_instance:
         disc_ipc_instance.running = False
         disc_ipc_instance.close()
-        disc_ipc_instance = None
     if config.get("disc_id") and config.get("disc_secret"):
         disc_ipc_instance = DiscordIPC(config["disc_id"], config["disc_secret"])
-        socketio.start_background_task(disc_ipc_instance.loop)
-
-# --- APP INITIALIZATION ---
-app = Flask(__name__)
-app.logger.disabled = True
-logging.getLogger('werkzeug').disabled = True
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
-spotify_cache = None
-last_spotify_check = 0
-last_audio_devs = []
+        threading.Thread(target=disc_ipc_instance.loop, daemon=True).start()
 
 # --- MEDIA ENGINES ---
-def get_spotify_api_meta():
+def get_spotify_api_meta(host_url):
     if not config.get("spot_id") or not config.get("spot_secret"): return None
     try:
-        sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{request.host}/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+        sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{host_url}/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
         token_info = sp_oauth.get_cached_token()
         if not token_info: return {"status": "Auth_Required", "artist": "", "title": "Spotify Not Authorized", "art_url": ""}
         
-        # Enforce a strict 3-second network timeout 
         sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3)
         curr = sp.current_playback()
         if curr and curr.get('item'):
-            is_playing = curr.get('is_playing')
-            artist = curr['item']['artists'][0]['name'] if curr.get('item', {}).get('artists') else "Unknown"
-            title = curr['item'].get('name', 'Unknown')
-            
-            art_url = ""
-            if curr['item'].get('album') and curr['item']['album'].get('images'):
-                art_url = curr['item']['album']['images'][0]['url'] 
-                
-            status = "Playing" if is_playing else "Paused"
-            return {"status": status, "artist": artist, "title": title, "art_url": art_url}
-    except Exception as e:
-        logger.debug(f"Spotify API error: {e}")
+            art_url = curr['item']['album']['images'][0]['url'] if curr['item'].get('album') and curr['item']['album'].get('images') else ""
+            return {
+                "status": "Playing" if curr.get('is_playing') else "Paused",
+                "artist": curr['item']['artists'][0]['name'] if curr.get('item', {}).get('artists') else "Unknown",
+                "title": curr['item'].get('name', 'Unknown'),
+                "art_url": art_url
+            }
+    except Exception as e: logger.debug(f"Spotify API error: {e}")
     return None
 
 def get_local_mpris_meta():
     try:
-        # Added mpris:artUrl to the format string
         meta = AudioSystem.run(['playerctl', 'metadata', '--format', '{{status}}|||{{artist}}|||{{title}}|||{{mpris:artUrl}}'])
         if not meta: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
         parts = meta.split('|||')
         status = parts[0].strip() if len(parts) > 0 else "Stopped"
         if status not in ['Playing', 'Paused']: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
         
-        artist = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "Unknown"
-        title = parts[2].strip() if len(parts) > 2 and parts[2].strip() else "Unknown"
-        art_url = parts[3].strip() if len(parts) > 3 else ""
+        artist, title, art_url = (parts[1].strip() if len(parts) > 1 else "Unknown"), (parts[2].strip() if len(parts) > 2 else "Unknown"), (parts[3].strip() if len(parts) > 3 else "")
 
-        # Base64 encode local hard drive files so the tablet can render them over the network
         if art_url.startswith('file://'):
             path = urllib.parse.unquote(art_url.replace('file://', ''))
             try:
@@ -389,277 +301,230 @@ def get_local_mpris_meta():
                     ext = path.split('.')[-1].lower()
                     mime = f"image/{ext}" if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp'] else "image/jpeg"
                     art_url = f"data:{mime};base64,{b64}"
-            except Exception as e:
-                logger.debug(f"Failed to read local art: {e}")
-                art_url = ""
+            except: art_url = ""
 
         return {"status": status, "artist": artist, "title": title, "art_url": art_url}
     except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
 
-force_media_update = False
-current_media_source = "local" # Tracks who owns the dashboard
+# --- STATE MANAGERS & FASTAPI WEBSOCKET MANAGER ---
+force_media_update, current_media_source = False, "local"
+spotify_cache, last_spotify_check, last_audio_devs = None, 0, []
+last_weather_data = {"temp": "--", "desc": "--", "timestamp": 0}
+weather_force_update = False
+last_host_url = "127.0.0.1:5000"
 
-# --- CORE SYSTEM LOOP ---
-def hardware_loop():
-    global last_spotify_check, spotify_cache, last_audio_devs, force_media_update, current_media_source
-    last_gpu_check = 0
-    gpu_cache = ""
-    logger.info("Hardware monitoring loop started.")
+class ConnectionManager:
+    def __init__(self): self.active_connections: list[WebSocket] = []
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections: self.active_connections.remove(websocket)
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try: await connection.send_json(message)
+            except: pass
+
+ws_manager = ConnectionManager()
+
+# --- BACKGROUND ASYNC TASKS ---
+async def hardware_loop():
+    global last_spotify_check, spotify_cache, last_audio_devs, force_media_update, current_media_source, last_host_url
+    last_gpu_check, gpu_cache = 0, ""
+    
     while True:
         curr_time = time.time()
         
-        # Audio Device Auto-Scan & State Polling
-        audio_data = AudioSystem.poll_all()
+        # Audio Polling (Run blocking subprocess in thread)
+        audio_data = await asyncio.to_thread(AudioSystem.poll_all)
         curr_sinks = audio_data['sinks']
-        curr_names = [s['raw_name'] for s in curr_sinks]
-        last_names = [s['raw_name'] for s in last_audio_devs]
-        
-        if curr_names != last_names:
+        if [s['raw_name'] for s in curr_sinks] != [s['raw_name'] for s in last_audio_devs]:
             last_audio_devs = curr_sinks
-            socketio.emit('hw_scan_results', curr_sinks)
+            await ws_manager.broadcast({"type": "hw_scan_results", "data": curr_sinks})
 
-        # Spotify Polling (3s limit, overridden by button presses)
+        # Spotify Polling
         if curr_time - last_spotify_check > 3.0 or force_media_update:
-            if force_media_update: socketio.sleep(0.4)
-            spotify_cache = get_spotify_api_meta()
+            if force_media_update: await asyncio.sleep(0.4)
+            spotify_cache = await asyncio.to_thread(get_spotify_api_meta, last_host_url)
             last_spotify_check = time.time()
             force_media_update = False
 
-        # Context-Aware Media Routing
+        # Context Routing
         media = spotify_cache
         if not media or media['status'] != 'Playing':
-            local_media = get_local_mpris_meta()
-            # Surrender the screen to VLC only if VLC is playing
+            local_media = await asyncio.to_thread(get_local_mpris_meta)
             if local_media['status'] == 'Playing' or not media: 
-                media = local_media
-                current_media_source = "local"
-            else:
-                current_media_source = "spotify"
-        else:
-            current_media_source = "spotify"
+                media, current_media_source = local_media, "local"
+            else: current_media_source = "spotify"
+        else: current_media_source = "spotify"
 
-        # GPU Polling (2s limit, heavy process)
+        # GPU Polling
         if curr_time - last_gpu_check > 2.0:
-            try: gpu_cache = AudioSystem.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'])
+            try: gpu_cache = await asyncio.to_thread(AudioSystem.run, ['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'])
             except: gpu_cache = ""
             last_gpu_check = curr_time
 
-        data = {
-            "cpu": psutil.cpu_percent(interval=None),
-            "ram": psutil.virtual_memory().percent,
-            "gpu": gpu_cache if gpu_cache else None,
-            "spotify": media,
-            "discord": disc_ipc_instance.voice_state if disc_ipc_instance and disc_ipc_instance.connected else {"mute": False, "deaf": False},
-            "audio": {
-                "spk": audio_data['spk'],
-                "mic": audio_data['mic'],
-                "active_dev": audio_data['active_sink_name']
-            }
-        }
-        
         try:
-            with open("/tmp/g502_battery.txt", "r") as f: data["mouse_batt"] = f.read().strip()
-        except: data["mouse_batt"] = "--"
+            with open("/tmp/g502_battery.txt", "r") as f: mouse_batt = f.read().strip()
+        except: mouse_batt = "--"
 
-        socketio.emit('sys_data', data)
-        socketio.sleep(0.5)
+        await ws_manager.broadcast({
+            "type": "sys_data",
+            "data": {
+                "cpu": psutil.cpu_percent(interval=None), "ram": psutil.virtual_memory().percent,
+                "gpu": gpu_cache if gpu_cache else None, "mouse_batt": mouse_batt, "spotify": media,
+                "discord": disc_ipc_instance.voice_state if disc_ipc_instance and disc_ipc_instance.connected else {"mute": False, "deaf": False},
+                "audio": {"spk": audio_data['spk'], "mic": audio_data['mic'], "active_dev": audio_data['active_sink_name']}
+            }
+        })
+        await asyncio.sleep(0.5)
 
-WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
+async def fetch_weather():
+    global last_weather_data, weather_force_update
+    def do_fetch():
+        global last_weather_data
+        if config.get("weather_api") and config.get("weather_city"):
+            try:
+                res = requests.get("http://api.openweathermap.org/data/2.5/weather", params={"q": config['weather_city'], "appid": config['weather_api'], "units": "metric"}, timeout=5).json()
+                if "main" in res:
+                    last_weather_data = {"temp": round(res["main"]["temp"]), "desc": res["weather"][0]["description"].title(), "timestamp": time.time()}
+                    with open(WEATHER_CACHE_FILE, "w") as f: json.dump(last_weather_data, f)
+                    asyncio.run_coroutine_threadsafe(ws_manager.broadcast({"type": "weather_data", "data": last_weather_data}), asyncio.get_running_loop())
+            except: pass
+        last_weather_data["timestamp"] = time.time()
 
-def load_weather_cache():
     if os.path.exists(WEATHER_CACHE_FILE):
         try:
-            with open(WEATHER_CACHE_FILE, "r") as f: return json.load(f)
+            with open(WEATHER_CACHE_FILE, "r") as f: last_weather_data = json.load(f)
         except: pass
-    return {"temp": "--", "desc": "--", "timestamp": 0}
 
-def save_weather_cache(data):
-    try:
-        with open(WEATHER_CACHE_FILE, "w") as f: json.dump(data, f)
-    except: pass
-
-last_weather_data = load_weather_cache()
-weather_force_update = False
-
-def do_fetch_weather():
-    global last_weather_data
-    if config.get("weather_api") and config.get("weather_city"):
-        try:
-            logger.info(f"Fetching weather for {config['weather_city']}...")
-            url = "http://api.openweathermap.org/data/2.5/weather"
-            params = {
-                "q": config['weather_city'],
-                "appid": config['weather_api'],
-                "units": "metric"
-            }
-            res = requests.get(url, params=params, timeout=5).json()
-            if "main" in res: 
-                last_weather_data = {
-                    "temp": round(res["main"]["temp"]), 
-                    "desc": res["weather"][0]["description"].title(),
-                    "timestamp": time.time()
-                }
-                save_weather_cache(last_weather_data)
-                socketio.emit('weather_data', last_weather_data)
-                logger.info("Weather updated successfully.")
-            else:
-                logger.warning(f"Weather API returned unexpected data: {res}")
-                last_weather_data["timestamp"] = time.time() # Prevent spamming on bad API key
-        except Exception as e:
-            logger.error(f"Weather fetch error: {e}")
-            last_weather_data["timestamp"] = time.time() # Prevent spamming on network error
-    else:
-        last_weather_data["timestamp"] = time.time() # Prevent spamming when not configured
-
-def fetch_weather():
-    global last_weather_data, weather_force_update
-    if time.time() - last_weather_data.get("timestamp", 0) > 1800:
-        do_fetch_weather()
+    if time.time() - last_weather_data.get("timestamp", 0) > 1800: await asyncio.to_thread(do_fetch)
 
     while True:
-        # Sleep cooperatively for up to 30 mins, but check flag every 1s
         for _ in range(1800):
             if weather_force_update:
                 weather_force_update = False
                 break
-            socketio.sleep(1)
-        do_fetch_weather()
+            await asyncio.sleep(1)
+        await asyncio.to_thread(do_fetch)
 
-# --- ROUTES & SOCKETS ---
-@app.route('/')
-def index(): return render_template('index.html')
+# --- FASTAPI APP & ROUTES ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    restart_discord_ipc()
+    asyncio.create_task(hardware_loop())
+    asyncio.create_task(fetch_weather())
+    yield
+    if disc_ipc_instance: disc_ipc_instance.close()
 
-@app.route('/spotify_login')
-def spotify_login():
-    if not config.get("spot_id") or not config.get("spot_secret"): return jsonify({"error": "No credentials"})
-    
-    # MAGIC FIX: Dynamically grabs whatever IP the tablet/PC used to connect
-    dynamic_uri = f"http://{request.host}/callback"
-    
-    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=dynamic_uri, scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
-    auth_url = sp_oauth.get_authorize_url()
-    return redirect(auth_url)
+app = FastAPI(lifespan=lifespan)
 
-@app.route('/callback')
-def callback():
-    if not config.get("spot_id") or not config.get("spot_secret"): return redirect('/')
-    
-    # Matches the dynamic URI so Spotify accepts the token
-    dynamic_uri = f"http://{request.host}/callback"
-    
-    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=dynamic_uri, scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
-    code = request.args.get('code')
-    if code:
-        try: sp_oauth.get_access_token(code)
-        except Exception as e: logger.error(f"Spotify auth error: {e}")
-    return redirect('/')
+@app.get('/')
+async def index(request: Request):
+    global last_host_url
+    last_host_url = request.url.netloc
+    return FileResponse(os.path.join(BASE_DIR, "index.html"))
 
-@app.route('/manifest.json')
-def manifest():
-    return jsonify({
+@app.get('/manifest.json')
+async def manifest():
+    return JSONResponse({
         "name": "Command Center", "short_name": "Dash", "display": "fullscreen", "orientation": "landscape",
         "background_color": "#090e17", "theme_color": "#090e17",
         "icons": [{"src": "https://upload.wikimedia.org/wikipedia/commons/4/49/A_black_image.jpg", "sizes": "192x192", "type": "image/jpeg"}]
     })
 
-@socketio.on('connect')
-def handle_connect():
-    socketio.emit('config_sync', {"cfg": config, "hw": AudioSystem.get_hardware_sinks()})
+@app.get('/spotify_login')
+async def spotify_login(request: Request):
+    if not config.get("spot_id") or not config.get("spot_secret"): return JSONResponse({"error": "No credentials"})
+    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{request.url.netloc}/callback", scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+    return RedirectResponse(sp_oauth.get_authorize_url())
+
+@app.get('/callback')
+async def callback(request: Request, code: str = None):
+    if not config.get("spot_id") or not config.get("spot_secret") or not code: return RedirectResponse('/')
+    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{request.url.netloc}/callback", scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+    try: await asyncio.to_thread(sp_oauth.get_access_token, code)
+    except: pass
+    return RedirectResponse('/')
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    await websocket.send_json({"type": "config_sync", "data": {"cfg": config, "hw": AudioSystem.get_hardware_sinks()}})
     if last_weather_data.get("temp") != "--":
-        socketio.emit('weather_data', last_weather_data)
-
-@socketio.on('save_config')
-def handle_config_save(data):
-    global config, weather_force_update
-    old_id = config.get("disc_id")
-    old_secret = config.get("disc_secret")
-    old_weather_api = config.get("weather_api")
-    old_weather_city = config.get("weather_city")
-    config.update(data)
-    save_config()
-    logger.info("Configuration updated via frontend settings.")
+        await websocket.send_json({"type": "weather_data", "data": last_weather_data})
     
-    if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"):
-        restart_discord_ipc()
-    if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"):
-        weather_force_update = True
+    try:
+        while True:
+            text = await websocket.receive_text()
+            msg = json.loads(text)
+            msg_type, data = msg.get("type"), msg.get("data")
+            
+            if msg_type == 'save_config':
+                global config, weather_force_update
+                old_id, old_secret = config.get("disc_id"), config.get("disc_secret")
+                old_weather_api, old_weather_city = config.get("weather_api"), config.get("weather_city")
+                config.update(data)
+                await asyncio.to_thread(save_config)
+                if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"): restart_discord_ipc()
+                if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"): weather_force_update = True
 
-@socketio.on('action')
-def handle_action(action):
-    global config, force_media_update, current_media_source
-    
-    if action.startswith('spot_'):
-        routed_to_spotify = False
-        
-        if current_media_source == "spotify" and config.get("spot_id"):
-            try:
-                sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{request.host}/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
-                token_info = sp_oauth.get_cached_token()
-                if token_info:
-                    # Enforce the strict network timeout here too
-                    sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3)
-                    if action == 'spot_play':
-                        c = sp.current_playback()
-                        # Use .get() safely in case 'is_playing' is missing due to a dead session
-                        if c and c.get('is_playing'): sp.pause_playback()
-                        else: sp.start_playback()
-                    elif action == 'spot_next': sp.next_track()
-                    elif action == 'spot_prev': sp.previous_track()
-                    routed_to_spotify = True
-                    force_media_update = True
-            except Exception as e:
-                logger.error(f"Spotify action error: {e}")
+            elif msg_type == 'action':
+                global force_media_update
+                action = data
+                if action.startswith('spot_'):
+                    routed_to_spot = False
+                    if current_media_source == "spotify" and config.get("spot_id"):
+                        try:
+                            sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{last_host_url}/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+                            token_info = await asyncio.to_thread(sp_oauth.get_cached_token)
+                            if token_info:
+                                sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3)
+                                if action == 'spot_play':
+                                    c = await asyncio.to_thread(sp.current_playback)
+                                    if c and c.get('is_playing'): await asyncio.to_thread(sp.pause_playback)
+                                    else: await asyncio.to_thread(sp.start_playback)
+                                elif action == 'spot_next': await asyncio.to_thread(sp.next_track)
+                                elif action == 'spot_prev': await asyncio.to_thread(sp.previous_track)
+                                routed_to_spot, force_media_update = True, True
+                        except: pass
+                    if not routed_to_spot:
+                        if action == 'spot_play': await asyncio.to_thread(AudioSystem.run, ['playerctl', 'play-pause'])
+                        elif action == 'spot_next': await asyncio.to_thread(AudioSystem.run, ['playerctl', 'next'])
+                        elif action == 'spot_prev': await asyncio.to_thread(AudioSystem.run, ['playerctl', 'previous'])
+                        force_media_update = True
                 
-        # Send commands to VLC/Local if it owns the screen (or if Spotify failed)
-        if not routed_to_spotify:
-            if action == 'spot_play': AudioSystem.run(['playerctl', 'play-pause'])
-            elif action == 'spot_next': AudioSystem.run(['playerctl', 'next'])
-            elif action == 'spot_prev': AudioSystem.run(['playerctl', 'previous'])
-            force_media_update = True
+                elif action.startswith('sp_play_'): await asyncio.to_thread(AudioSystem.run, ['soundux', '--play', action.split('sp_play_')[1]])
+                elif action == 'disc_mute':
+                    if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(mute=not disc_ipc_instance.voice_state["mute"])
+                    else: await asyncio.to_thread(AudioSystem.run, ['ydotool', 'key', '29:1', '42:1', '50:1', '50:0', '42:0', '29:0']) 
+                elif action == 'disc_deaf':
+                    if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(deaf=not disc_ipc_instance.voice_state["deaf"])
+                    else: await asyncio.to_thread(AudioSystem.run, ['ydotool', 'key', '29:1', '42:1', '32:1', '32:0', '42:0', '29:0'])
+                elif action == 'app_term': await asyncio.to_thread(AudioSystem.run, ['alacritty']) 
+                elif action == 'app_web': await asyncio.to_thread(AudioSystem.run, ['brave'])
+                elif action == 'app_task': await asyncio.to_thread(AudioSystem.run, ['gnome-system-monitor']) 
+                elif action == 'app_clip': await asyncio.to_thread(AudioSystem.run, ['ydotool', 'key', '119:1', '119:0'])
+                elif action == 'app_soundpad': await asyncio.to_thread(AudioSystem.run, ['soundux']) 
+                elif action == 'audio_cycle': await asyncio.to_thread(AudioSystem.cycle_device)
+                elif action == 'audio_mute_spk': await asyncio.to_thread(AudioSystem.toggle_mute, '@DEFAULT_AUDIO_SINK@')
+                elif action == 'audio_mute_mic': await asyncio.to_thread(AudioSystem.toggle_mute, '@DEFAULT_AUDIO_SOURCE@')
 
-    elif action.startswith('sp_play_'):
-        sp_id = action.split('sp_play_')[1]
-        AudioSystem.run(['soundux', '--play', sp_id])
+            elif msg_type == 'set_volume':
+                target = '@DEFAULT_AUDIO_SINK@' if data['type'] == 'speaker' else '@DEFAULT_AUDIO_SOURCE@'
+                await asyncio.to_thread(AudioSystem.set_vol, target, data['val'])
 
-    elif action == 'disc_mute':
-        if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(mute=not disc_ipc_instance.voice_state["mute"])
-        else: AudioSystem.run(['ydotool', 'key', '29:1', '42:1', '50:1', '50:0', '42:0', '29:0']) 
-    elif action == 'disc_deaf':
-        if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(deaf=not disc_ipc_instance.voice_state["deaf"])
-        else: AudioSystem.run(['ydotool', 'key', '29:1', '42:1', '32:1', '32:0', '42:0', '29:0'])
-    elif action == 'disc_cam': pass
-    elif action == 'disc_screen': pass
-    elif action == 'app_term': AudioSystem.run(['alacritty']) 
-    elif action == 'app_web': AudioSystem.run(['brave'])
-    elif action == 'app_task': AudioSystem.run(['gnome-system-monitor']) 
-    elif action == 'app_clip': AudioSystem.run(['ydotool', 'key', '119:1', '119:0'])
-    elif action == 'app_soundpad': AudioSystem.run(['soundux']) 
-    elif action == 'audio_cycle': AudioSystem.cycle_device()
-    elif action == 'audio_mute_spk': AudioSystem.toggle_mute('@DEFAULT_AUDIO_SINK@')
-    elif action == 'audio_mute_mic': AudioSystem.toggle_mute('@DEFAULT_AUDIO_SOURCE@')
-@socketio.on('set_volume')
-def handle_volume(data):
-    target = '@DEFAULT_AUDIO_SINK@' if data['type'] == 'speaker' else '@DEFAULT_AUDIO_SOURCE@'
-    AudioSystem.set_vol(target, data['val'])
+            elif msg_type == 'run_speedtest':
+                async def run_st():
+                    try:
+                        st = speedtest.Speedtest()
+                        await asyncio.to_thread(st.get_best_server)
+                        down, up = await asyncio.to_thread(st.download), await asyncio.to_thread(st.upload)
+                        await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': round(down / 1_000_000, 1), 'up': round(up / 1_000_000, 1)}})
+                    except: await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': 'ERR', 'up': 'ERR'}})
+                asyncio.create_task(run_st())
 
-@socketio.on('run_speedtest')
-def handle_speedtest():
-    def test():
-        try:
-            logger.info("Running speedtest...")
-            st = speedtest.Speedtest()
-            st.get_best_server()
-            res = {'down': round(st.download() / 1_000_000, 1), 'up': round(st.upload() / 1_000_000, 1)}
-            socketio.emit('speedtest_result', res)
-            logger.info(f"Speedtest complete: {res}")
-        except Exception as e:
-            logger.error(f"Speedtest failed: {e}")
-            socketio.emit('speedtest_result', {'down': 'ERR', 'up': 'ERR'})
-    socketio.start_background_task(test)
+    except WebSocketDisconnect: ws_manager.disconnect(websocket)
 
 if __name__ == '__main__':
-    logger.info("Server starting on 0.0.0.0:5000")
-    restart_discord_ipc()
-    socketio.start_background_task(hardware_loop)
-    socketio.start_background_task(fetch_weather)
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    uvicorn.run("server:app", host='0.0.0.0', port=5000, reload=True)

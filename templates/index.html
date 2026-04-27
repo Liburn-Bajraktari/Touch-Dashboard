@@ -6,7 +6,6 @@
     <title>Dashboard</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
@@ -336,36 +335,135 @@
 
     <script>
         lucide.createIcons();
-        const socket = io();
-
-        // --- Auto-Refresh on Server Restart ---
+        
+        // --- NATIVE WEBSOCKET REFACTOR ---
+        const socket = new WebSocket(`ws://${location.host}/ws`);
         let hasDisconnected = false;
-        socket.on('disconnect', () => { 
+
+        socket.onclose = () => { 
             hasDisconnected = true; 
             document.getElementById('top-title').innerText = "RECONNECTING...";
             document.getElementById('top-title').style.color = "var(--danger)";
-        });
-        socket.on('connect', () => { 
+            setTimeout(() => { window.location.reload(); }, 2000); // Polls to refresh when server restarts
+        };
+
+        socket.onopen = () => { 
             if (hasDisconnected) window.location.reload(); 
-        });
+        };
+
+        // Helper to send JSON actions
+        function sendSocket(type, data = null) {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: type, data: data }));
+            }
+        }
+
+        socket.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            const d = msg.data;
+
+            if (msg.type === 'config_sync') {
+                currentHwDevices = d.hw;
+                populateAudioTab(d.hw, d.cfg.audio_names);
+                const c = d.cfg;
+                document.getElementById('cfg-weather').value = c.weather_api || '';
+                document.getElementById('cfg-city').value = c.weather_city || '';
+                document.getElementById('cfg-spot-id').value = c.spot_id || '';
+                document.getElementById('cfg-spot-secret').value = c.spot_secret || '';
+                document.getElementById('cfg-disc-id').value = c.disc_id || '';
+                document.getElementById('cfg-disc-secret').value = c.disc_secret || '';
+                spBtns = c.soundpad_buttons || [];
+                renderSpGrid();
+            } 
+            else if (msg.type === 'hw_scan_results') {
+                currentHwDevices = d;
+                populateAudioTab(d, null);
+            } 
+            else if (msg.type === 'weather_data') {
+                document.getElementById('w-temp').innerText = d.temp + '°'; 
+                document.getElementById('w-desc').innerText = d.desc;
+            } 
+            else if (msg.type === 'speedtest_result') {
+                document.getElementById('s-dl').innerText = d.down; 
+                document.getElementById('s-ul').innerText = d.up;
+            } 
+            else if (msg.type === 'sys_data') {
+                document.getElementById('sys-cpu').innerText = d.cpu + '%';
+                document.getElementById('sys-ram').innerText = d.ram + '%';
+                document.getElementById('mouse-batt').innerText = d.mouse_batt + '%';
+                
+                const gpuRow = document.getElementById('sys-gpu-row');
+                if (d.gpu !== null && d.gpu !== "") {
+                    gpuRow.style.display = 'flex';
+                    document.getElementById('sys-gpu').innerText = d.gpu + '%';
+                } else {
+                    gpuRow.style.display = 'none';
+                }
+                
+                const spotInfo = document.getElementById('spot-info');
+                const spotEmpty = document.getElementById('spot-empty');
+                const spotAuth = document.getElementById('spot-auth');
+                
+                if (d.spotify && d.spotify.status === 'Auth_Required') {
+                    if(spotEmpty) spotEmpty.style.display = 'none';
+                    if(spotInfo) spotInfo.style.display = 'none';
+                    if(spotAuth) spotAuth.style.display = 'flex';
+                } else if (d.spotify && (d.spotify.status === 'Playing' || d.spotify.status === 'Paused')) {
+                    if(spotEmpty) spotEmpty.style.display = 'none';
+                    if(spotAuth) spotAuth.style.display = 'none';
+                    if(spotInfo) spotInfo.style.display = 'flex';
+                    document.getElementById('spot-title').innerText = d.spotify.title;
+                    document.getElementById('spot-artist').innerText = d.spotify.artist;
+                    
+                    const artImg = document.getElementById('spot-art');
+                    if (d.spotify.art_url) {
+                        artImg.src = d.spotify.art_url;
+                        artImg.style.display = 'block';
+                    } else {
+                        artImg.style.display = 'none';
+                    }
+                } else {
+                    if(spotEmpty) spotEmpty.style.display = 'flex';
+                    if(spotAuth) spotAuth.style.display = 'none';
+                    if(spotInfo) spotInfo.style.display = 'none';
+                }
+
+                const playBtn = document.getElementById('btn-spot-play');
+                if (playBtn) {
+                    const isPlaying = d.spotify && d.spotify.status === 'Playing';
+                    const targetIcon = isPlaying ? 'pause' : 'play';
+                    if (!playBtn.querySelector('.lucide-' + targetIcon)) {
+                        playBtn.innerHTML = `<i data-lucide="${targetIcon}"></i>`;
+                        lucide.createIcons();
+                    }
+                }
+                
+                upSpk(d.audio.spk.vol); upMic(d.audio.mic.vol);
+                document.getElementById('icon-spk').classList.toggle('muted', d.audio.spk.muted);
+                document.getElementById('icon-mic').classList.toggle('muted', d.audio.mic.muted);
+                document.getElementById('btn-audio-cycle').innerText = d.audio.active_dev;
+                
+                if (d.discord) {
+                    const bMute = document.getElementById('btn-disc-mute');
+                    const bDeaf = document.getElementById('btn-disc-deaf');
+                    if (bMute) bMute.classList.toggle('muted', d.discord.mute);
+                    if (bDeaf) bDeaf.classList.toggle('muted', d.discord.deaf);
+                }
+            }
+        };
 
        // --- View Toggling & Top Bar Morphing ---
         function toggleSoundpad(show) {
-            // Toggle Views
             document.getElementById('main-view').style.display = show ? 'none' : 'grid';
             document.getElementById('soundpad-view').style.display = show ? 'flex' : 'none';
-            
-            // Toggle Top Bar Button
             document.getElementById('btn-back').style.display = show ? 'flex' : 'none';
             
-            // Morph the Top Bar Title
             const title = document.getElementById('top-title');
             title.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
             title.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
             title.style.fontWeight = show ? '800' : '300';
         }
 
-        // --- Tabs Logic ---
         function switchTab(tabId) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -373,7 +471,6 @@
             document.getElementById(tabId).classList.add('active');
         }
 
-        // --- State Management ---
         let spBtns = [];
         let currentHwDevices = [];
 
@@ -391,27 +488,6 @@
             });
         }
 
-        socket.on('config_sync', (data) => {
-            currentHwDevices = data.hw;
-            populateAudioTab(data.hw, data.cfg.audio_names);
-            
-            const c = data.cfg;
-            document.getElementById('cfg-weather').value = c.weather_api || '';
-            document.getElementById('cfg-city').value = c.weather_city || '';
-            document.getElementById('cfg-spot-id').value = c.spot_id || '';
-            document.getElementById('cfg-spot-secret').value = c.spot_secret || '';
-            document.getElementById('cfg-disc-id').value = c.disc_id || '';
-            document.getElementById('cfg-disc-secret').value = c.disc_secret || '';
-            
-            spBtns = c.soundpad_buttons || [];
-            renderSpGrid();
-        });
-
-        socket.on('hw_scan_results', (devices) => {
-            currentHwDevices = devices;
-            populateAudioTab(devices, null);
-        });
-
         function saveConfig() {
             const audio_names = {};
             document.querySelectorAll('.audio-name-input').forEach(input => {
@@ -420,7 +496,7 @@
                 }
             });
 
-            socket.emit('save_config', {
+            sendSocket('save_config', {
                 weather_api: document.getElementById('cfg-weather').value,
                 weather_city: document.getElementById('cfg-city').value,
                 spot_id: document.getElementById('cfg-spot-id').value,
@@ -433,7 +509,6 @@
             document.getElementById('modal').style.display = 'none';
         }
 
-        // --- Soundpad Logic ---
         let editingSpIdx = -1;
         let spTimer = null;
         let spCancel = false;
@@ -459,22 +534,9 @@
             lucide.createIcons();
         }
 
-        function spLeave(idx) {
-            if (spTimer) { clearTimeout(spTimer); spTimer = null; spCancel = true; }
-        }
-        function spDown(idx) {
-            spCancel = false;
-            spTimer = setTimeout(() => {
-                spTimer = null; spCancel = true; 
-                openSpModal(idx);
-            }, 600);
-        }
-        function spUp(idx) {
-            if (spTimer) {
-                clearTimeout(spTimer); spTimer = null;
-                if (!spCancel) socket.emit('action', 'sp_play_' + spBtns[idx].id);
-            }
-        }
+        function spLeave(idx) { if (spTimer) { clearTimeout(spTimer); spTimer = null; spCancel = true; } }
+        function spDown(idx) { spCancel = false; spTimer = setTimeout(() => { spTimer = null; spCancel = true; openSpModal(idx); }, 600); }
+        function spUp(idx) { if (spTimer) { clearTimeout(spTimer); spTimer = null; if (!spCancel) sendSocket('action', 'sp_play_' + spBtns[idx].id); } }
         function spTouchStart(e, idx) { spDown(idx); }
         function spTouchEnd(e, idx) { if(e.cancelable) e.preventDefault(); spUp(idx); }
 
@@ -489,15 +551,12 @@
         }
 
         function closeSpModal() { document.getElementById('sp-modal').style.display = 'none'; }
-
         function saveSpBtn() {
             const id = document.getElementById('sp-id-input').value.trim();
             const name = document.getElementById('sp-name-input').value.trim();
             if (!id || !name) return alert("ID and Name are required.");
-            
             if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = {id, name};
             else spBtns.push({id, name});
-            
             closeSpModal(); renderSpGrid(); saveConfig();
         }
 
@@ -506,11 +565,9 @@
             closeSpModal(); renderSpGrid(); saveConfig();
         }
 
-        // Modal outer click dismissal
         document.getElementById('modal').addEventListener('click', (e) => { if(e.target.id === 'modal') document.getElementById('modal').style.display = 'none'; });
         document.getElementById('sp-modal').addEventListener('click', (e) => { if(e.target.id === 'sp-modal') closeSpModal(); });
 
-        // --- Standard UI Logic ---
         let isDraggingSpk = false; let isDraggingMic = false;
         function toggleFullscreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>e); else if (document.exitFullscreen) document.exitFullscreen(); }
 
@@ -527,14 +584,14 @@
                 set(pct); 
                 const now = Date.now();
                 if (now - lastEmit > 60) {
-                    socket.emit('set_volume', {type: type, val: pct});
+                    sendSocket('set_volume', {type: type, val: pct});
                     lastEmit = now;
                 }
             }
             function endDrag() {
                 if (dCheck()) {
                     dCheck(false);
-                    socket.emit('set_volume', {type: type, val: currentPct});
+                    sendSocket('set_volume', {type: type, val: currentPct});
                 }
             }
             s.addEventListener('mousedown', (e) => { dCheck(true); drag(e); });
@@ -558,94 +615,17 @@
             lastTap = cur;
         });
         
-        // PC Support: Double click to open settings
         document.getElementById('body').addEventListener('dblclick', (e) => {
             if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
             document.getElementById('modal').style.display = 'flex';
         });
 
-        function act(a) { socket.emit('action', a); }
-        function runSpeedtest() { document.getElementById('s-dl').innerText = "..."; document.getElementById('s-ul').innerText = "..."; socket.emit('run_speedtest'); }
-
-        socket.on('sys_data', (d) => {
-            document.getElementById('sys-cpu').innerText = d.cpu + '%';
-            document.getElementById('sys-ram').innerText = d.ram + '%';
-            document.getElementById('mouse-batt').innerText = d.mouse_batt + '%';
-            
-            const gpuRow = document.getElementById('sys-gpu-row');
-            if (d.gpu !== null && d.gpu !== "") {
-                gpuRow.style.display = 'flex';
-                document.getElementById('sys-gpu').innerText = d.gpu + '%';
-            } else {
-                gpuRow.style.display = 'none';
-            }
-            
-            const spotInfo = document.getElementById('spot-info');
-            const spotEmpty = document.getElementById('spot-empty');
-            const spotAuth = document.getElementById('spot-auth');
-            
-            if (d.spotify && d.spotify.status === 'Auth_Required') {
-                if(spotEmpty) spotEmpty.style.display = 'none';
-                if(spotInfo) spotInfo.style.display = 'none';
-                if(spotAuth) spotAuth.style.display = 'flex';
-            } else if (d.spotify && (d.spotify.status === 'Playing' || d.spotify.status === 'Paused')) {
-                // Now displays the UI even when paused
-                if(spotEmpty) spotEmpty.style.display = 'none';
-                if(spotAuth) spotAuth.style.display = 'none';
-                if(spotInfo) spotInfo.style.display = 'flex';
-                document.getElementById('spot-title').innerText = d.spotify.title;
-                document.getElementById('spot-artist').innerText = d.spotify.artist;
-                
-                const artImg = document.getElementById('spot-art');
-                if (d.spotify.art_url) {
-                    artImg.src = d.spotify.art_url;
-                    artImg.style.display = 'block';
-                } else {
-                    artImg.style.display = 'none';
-                }
-            } else {
-                if(spotEmpty) spotEmpty.style.display = 'flex';
-                if(spotAuth) spotAuth.style.display = 'none';
-                if(spotInfo) spotInfo.style.display = 'none';
-            }
-
-            // Dynamic Play/Pause Icon Toggle
-            const playBtn = document.getElementById('btn-spot-play');
-            if (playBtn) {
-                const isPlaying = d.spotify && d.spotify.status === 'Playing';
-                const targetIcon = isPlaying ? 'pause' : 'play';
-                
-                // Only rewrite the innerHTML and re-render if the state actually changed
-                if (!playBtn.querySelector('.lucide-' + targetIcon)) {
-                    playBtn.innerHTML = `<i data-lucide="${targetIcon}"></i>`;
-                    lucide.createIcons();
-                }
-            }
-            
-            upSpk(d.audio.spk.vol); upMic(d.audio.mic.vol);
-            document.getElementById('icon-spk').classList.toggle('muted', d.audio.spk.muted);
-            document.getElementById('icon-mic').classList.toggle('muted', d.audio.mic.muted);
-            document.getElementById('btn-audio-cycle').innerText = d.audio.active_dev;
-            
-            if (d.discord) {
-                const bMute = document.getElementById('btn-disc-mute');
-                const bDeaf = document.getElementById('btn-disc-deaf');
-                if (bMute) bMute.classList.toggle('muted', d.discord.mute);
-                if (bDeaf) bDeaf.classList.toggle('muted', d.discord.deaf);
-            }
-        });
-
-        socket.on('weather_data', (d) => { document.getElementById('w-temp').innerText = d.temp + '°'; document.getElementById('w-desc').innerText = d.desc; });
-        socket.on('speedtest_result', (d) => { document.getElementById('s-dl').innerText = d.down; document.getElementById('s-ul').innerText = d.up; });
+        function act(a) { sendSocket('action', a); }
+        function runSpeedtest() { document.getElementById('s-dl').innerText = "..."; document.getElementById('s-ul').innerText = "..."; sendSocket('run_speedtest'); }
 
         setInterval(() => {
             const d = new Date();
-            
-            // Force 24-hour format
             document.getElementById('time').innerText = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
-            
-            // Populate the vertical date stack
-            // document.getElementById('date-year').innerText = d.getFullYear();
             document.getElementById('date-month').innerText = d.getMonth() + 1;
             document.getElementById('date-day').innerText = d.getDate();
             document.getElementById('date-dayname').innerText = d.toLocaleDateString([], {weekday: 'short'}).toUpperCase();
