@@ -662,4 +662,4 @@ if __name__ == '__main__':
     restart_discord_ipc()
     socketio.start_background_task(hardware_loop)
     socketio.start_background_task(fetch_weather)
-    socketio.run(app, host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
