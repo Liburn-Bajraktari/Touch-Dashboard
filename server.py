@@ -547,4 +547,11 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect: ws_manager.disconnect(websocket)
 
 if __name__ == '__main__':
-    uvicorn.run("server:app", host='0.0.0.0', port=5000, reload=True)
+    # We tell uvicorn to explicitly watch the current directory and the templates folder
+    uvicorn.run(
+        "server:app", 
+        host='0.0.0.0', 
+        port=5000, 
+        reload=True, 
+        reload_dirs=[BASE_DIR, os.path.join(BASE_DIR, "templates")]
+    )
