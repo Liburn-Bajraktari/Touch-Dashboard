@@ -321,9 +321,14 @@ def hardware_loop():
             local_media = get_local_mpris_meta()
             if local_media['status'] == 'Playing' or not media: media = local_media
 
+        
+        try: gpu = AudioSystem.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'])
+        except: gpu = ""
+
         data = {
             "cpu": psutil.cpu_percent(interval=None),
             "ram": psutil.virtual_memory().percent,
+            "gpu": gpu if gpu else None,
             "spotify": media,
             "discord": disc_ipc_instance.voice_state if disc_ipc_instance and disc_ipc_instance.connected else {"mute": False, "deaf": False},
             "audio": {

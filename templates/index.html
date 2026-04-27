@@ -60,7 +60,7 @@
         .spot-ctrl { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 1rem; margin-top: 1.5rem; height: 4rem; width: 100%; }
 
         /* Sliders */
-        .slider-section { display: flex; justify-content: space-around; align-items: stretch; flex: 1; }
+        .slider-section { display: flex; flex-direction: row; justify-content: space-around; align-items: stretch; flex: 1; }
         .pro-slider {
             position: relative; flex: 0 0 5.5rem; height: 100%; background: rgba(0,0,0,0.4); border-radius: 1.5rem;
             overflow: hidden; cursor: pointer; box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
@@ -236,7 +236,7 @@
 
         <!-- Right Column -->
         <div class="col">
-            <div class="glass panel panel-top">
+            <div class="glass panel" style="flex: 1;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">MACROS & APPS</h3>
                 <div class="btn-grid" style="grid-template-columns: repeat(3, 1fr); gap: 1.5rem; flex: 1;">
                     <button class="btn" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
@@ -247,11 +247,12 @@
                     <button class="btn" style="opacity: 0.1; cursor: default;"></button>
                 </div>
             </div>
-            <div class="glass panel panel-bottom" style="display: flex; flex-direction: column;">
+            <div class="glass panel" style="flex: 0 0 auto; display: flex; flex-direction: column;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1rem 0; font-size: 1rem; letter-spacing: 2px;">SYSTEM MONITOR</h3>
-                <div style="display: flex; flex-direction: column; gap: 1rem; flex: 1; justify-content: center;">
+                <div style="display: flex; flex-direction: column; gap: 1rem; justify-content: center;">
                     <div class="stat-row" style="margin: 0;"><i data-lucide="cpu"></i> CPU <span class="stat-val" id="sys-cpu">0%</span></div>
                     <div class="stat-row" style="margin: 0;"><i data-lucide="memory-stick"></i> RAM <span class="stat-val" id="sys-ram">0%</span></div>
+                    <div class="stat-row" id="sys-gpu-row" style="margin: 0; display: none;"><i data-lucide="monitor"></i> GPU <span class="stat-val" id="sys-gpu">0%</span></div>
                 </div>
             </div>
         </div>
@@ -465,6 +466,14 @@
             document.getElementById('sys-cpu').innerText = d.cpu + '%';
             document.getElementById('sys-ram').innerText = d.ram + '%';
             document.getElementById('mouse-batt').innerText = d.mouse_batt + '%';
+            
+            const gpuRow = document.getElementById('sys-gpu-row');
+            if (d.gpu !== null && d.gpu !== "") {
+                gpuRow.style.display = 'flex';
+                document.getElementById('sys-gpu').innerText = d.gpu + '%';
+            } else {
+                gpuRow.style.display = 'none';
+            }
             
             const spotInfo = document.getElementById('spot-info');
             const spotEmpty = document.getElementById('spot-empty');
