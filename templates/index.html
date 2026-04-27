@@ -458,6 +458,12 @@
             if (cur - lastTap < 300 && cur - lastTap > 0) document.getElementById('modal').style.display = 'flex';
             lastTap = cur;
         });
+        
+        // PC Support: Double click to open settings
+        document.getElementById('body').addEventListener('dblclick', (e) => {
+            if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+            document.getElementById('modal').style.display = 'flex';
+        });
 
         function act(a) { socket.emit('action', a); }
         function runSpeedtest() { document.getElementById('s-dl').innerText = "..."; document.getElementById('s-ul').innerText = "..."; socket.emit('run_speedtest'); }
