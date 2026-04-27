@@ -436,7 +436,13 @@ app = FastAPI(lifespan=lifespan)
 async def index(request: Request):
     global last_host_url
     last_host_url = request.url.netloc
-    return FileResponse(os.path.join(BASE_DIR, "index.html"))
+    # FIX: Explicitly point to the 'templates' folder as shown in your screenshot
+    return FileResponse(os.path.join(BASE_DIR, "templates", "index.html"))
+
+@app.get('/favicon.ico')
+async def favicon():
+    # Silences the 404 error in your terminal
+    return JSONResponse({})
 
 @app.get('/manifest.json')
 async def manifest():
