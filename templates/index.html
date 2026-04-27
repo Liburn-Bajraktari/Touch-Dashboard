@@ -607,7 +607,7 @@
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
         const upMic = initSlider('slide-mic', 'fill-mic', 'val-mic', 'mic', (v) => { if(v!==undefined) isDraggingMic = v; return isDraggingMic; });
 
-        // --- Dashboard Gestures ---
+       // --- Dashboard Gestures ---
         let lastSingleFingerTime = 0;
         let lastTwoFingerTime = 0;
 
@@ -621,6 +621,7 @@
             if (e.touches.length === 1) {
                 const tapGap = now - lastSingleFingerTime;
                 if (tapGap < 350 && tapGap > 0) {
+                    e.preventDefault(); // STOP the browser from sending a phantom 'dblclick'
                     toggleFullscreen();
                 }
                 lastSingleFingerTime = now;
@@ -629,34 +630,28 @@
             else if (e.touches.length === 2) {
                 const tapGap = now - lastTwoFingerTime;
                 if (tapGap < 450 && tapGap > 0) {
+                    e.preventDefault(); // STOP the browser from sending a phantom 'dblclick'
                     document.getElementById('modal').style.display = 'flex';
                 }
                 lastTwoFingerTime = now;
             }
-        });
+        }, { passive: false }); // 'passive: false' is required for preventDefault() to work
 
-        // Keep standard double-click for PC Mouse support (Settings only)
+        // Keep standard double-click for PC Mouse support ONLY
         document.getElementById('body').addEventListener('dblclick', (e) => {
-            if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
-            if (e.pointerType === 'touch') return;
-            document.getElementById('modal').style.display = 'flex';
-        });
-        
-        // Standard Double-Click (For ThinkPad Mouse/Trackpad only)
-        document.getElementById('body').addEventListener('dblclick', (e) => {
-            if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
+            // If the device is a touchscreen, this event is redundant/ghosted, so ignore it
+            if (e.pointerType === 'touch' || window.matchMedia("(pointer: coarse)").matches) return;
             
-            // BLOCKER: Ignore this event if it was triggered by a touch/finger
-            if (e.pointerType === 'touch') return;
-
-            // SECONDARY CHECK: If the device is primarily a touchscreen, ignore dblclick
-            if (window.matchMedia("(pointer: coarse)").matches && e.pointerType !== 'mouse') return;
-
+            if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
             document.getElementById('modal').style.display = 'flex';
         });
 
         function act(a) { sendSocket('action', a); }
-        function runSpeedtest() { document.getElementById('s-dl').innerText = "..."; document.getElementById('s-ul').innerText = "..."; sendSocket('run_speedtest'); }
+        function runSpeedtest() { 
+            document.getElementById('s-dl').innerText = "..."; 
+            document.getElementById('s-ul').innerText = "..."; 
+            sendSocket('run_speedtest'); 
+        }
 
         setInterval(() => {
             const d = new Date();
