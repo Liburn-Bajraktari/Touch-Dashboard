@@ -172,9 +172,18 @@
         <!-- Left Column -->
         <div class="col">
             <div class="glass panel panel-top" style="justify-content: center; align-items: center; display: flex; flex-direction: column; gap: 1.5rem;">
-                <div style="display: flex; flex-direction: column; align-items: center;">
-                    <div id="time" style="font-size: clamp(3.5rem, 5vw, 5rem); font-weight: 700; letter-spacing: -2px; line-height: 1;">00:00</div>
-                    <div id="date" style="color: var(--accent); font-weight: 500; font-size: 1.2rem; margin-top: 0.5rem;">--</div>
+                <div style="display: flex; align-items: center; justify-content: center; gap: 1.5rem;">
+                    <!-- 24H Clock -->
+                    <div id="time" style="font-size: clamp(4rem, 6vw, 5.5rem); font-weight: 700; letter-spacing: -2px; line-height: 1;">00:00</div>
+                    
+                    <!-- Vertical Date Stack -->
+                    <div style="display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 1.3rem; color: var(--text-muted); line-height: 1;">
+                        <div id="date-year" style="font-size: 0.8rem; color: var(--accent); margin-bottom: 0.3rem; letter-spacing: 2px;">----</div>
+                        <div id="date-month">-</div>
+                        <div style="color: var(--border); font-size: 1rem; margin: 0.1rem 0;">/</div>
+                        <div id="date-day">-</div>
+                        <div id="date-dayname" style="background: var(--text-main); color: var(--bg-dark); padding: 0.15rem 0.6rem; border-radius: 1rem; font-size: 0.75rem; margin-top: 0.4rem; letter-spacing: 1px;">---</div>
+                    </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <i data-lucide="cloud" style="width: 3rem; height: 3rem; color: var(--accent);"></i>
@@ -579,8 +588,15 @@
 
         setInterval(() => {
             const d = new Date();
-            document.getElementById('time').innerText = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            document.getElementById('date').innerText = d.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'});
+            
+            // Force 24-hour format
+            document.getElementById('time').innerText = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+            
+            // Populate the vertical date stack
+            document.getElementById('date-year').innerText = d.getFullYear();
+            document.getElementById('date-month').innerText = d.getMonth() + 1;
+            document.getElementById('date-day').innerText = d.getDate();
+            document.getElementById('date-dayname').innerText = d.toLocaleDateString([], {weekday: 'short'}).toUpperCase();
         }, 1000);
     </script>
 </body>
