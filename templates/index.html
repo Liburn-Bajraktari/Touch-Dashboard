@@ -18,7 +18,7 @@
         }
 
         * { box-sizing: border-box; user-select: none; -webkit-user-drag: none; }
-        html { font-size: clamp(12px, 1.2vw, 18px); }
+        html { font-size: clamp(14px, 2vw, 24px); }
 
         body {
             margin: 0; padding: 1.5rem;
@@ -44,6 +44,7 @@
             cursor: pointer; transition: all 0.15s ease; height: 100%; outline: none;
         }
         .btn:active { transform: scale(0.92); background: var(--accent); box-shadow: 0 0 15px var(--accent-glow); color: #000; }
+        .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
         .btn-top { width: 4rem; height: 3.5rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
         .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; flex: 0 0 10rem;}
@@ -206,8 +207,8 @@
             <div class="glass panel panel-top" style="justify-content: center; align-items: center;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">DISCORD INTEGRATION</h3>
                 <div class="btn-row" style="width: 100%; gap: 1.5rem;">
-                    <button class="btn" onclick="act('disc_mute')"><i data-lucide="mic-off" style="width: 1.8rem; height: 1.8rem;"></i></button>
-                    <button class="btn" onclick="act('disc_deaf')"><i data-lucide="headphones" style="width: 1.8rem; height: 1.8rem;"></i></button>
+                    <button class="btn" id="btn-disc-mute" onclick="act('disc_mute')"><i data-lucide="mic-off" style="width: 1.8rem; height: 1.8rem;"></i></button>
+                    <button class="btn" id="btn-disc-deaf" onclick="act('disc_deaf')"><i data-lucide="headphones" style="width: 1.8rem; height: 1.8rem;"></i></button>
                     <button class="btn" onclick="act('disc_cam')"><i data-lucide="video" style="width: 1.8rem; height: 1.8rem;"></i></button>
                     <button class="btn" onclick="act('disc_screen')"><i data-lucide="monitor-up" style="width: 1.8rem; height: 1.8rem;"></i></button>
                 </div>
@@ -480,6 +481,13 @@
             document.getElementById('icon-spk').classList.toggle('muted', d.audio.spk.muted);
             document.getElementById('icon-mic').classList.toggle('muted', d.audio.mic.muted);
             document.getElementById('btn-audio-cycle').innerText = d.audio.active_dev;
+            
+            if (d.discord) {
+                const bMute = document.getElementById('btn-disc-mute');
+                const bDeaf = document.getElementById('btn-disc-deaf');
+                if (bMute) bMute.classList.toggle('muted', d.discord.mute);
+                if (bDeaf) bDeaf.classList.toggle('muted', d.discord.deaf);
+            }
         });
 
         socket.on('weather_data', (d) => { document.getElementById('w-temp').innerText = d.temp + '°'; document.getElementById('w-desc').innerText = d.desc; });
