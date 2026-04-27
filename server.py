@@ -60,7 +60,9 @@ config = load_config()
 class AudioSystem:
     @staticmethod
     def run(cmd):
-        try: return subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+        try: 
+            # Added a strict 2-second timeout to prevent infinite freezes
+            return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2).decode().strip()
         except Exception as e:
             logger.debug(f"AudioSystem.run failed for cmd {cmd}: {e}")
             return ""
@@ -340,24 +342,24 @@ last_spotify_check = 0
 last_audio_devs = []
 
 # --- MEDIA ENGINES ---
-# --- MEDIA ENGINES ---
 def get_spotify_api_meta():
     if not config.get("spot_id") or not config.get("spot_secret"): return None
     try:
-        sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+        sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{request.host}/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
         token_info = sp_oauth.get_cached_token()
         if not token_info: return {"status": "Auth_Required", "artist": "", "title": "Spotify Not Authorized", "art_url": ""}
         
-        sp = spotipy.Spotify(auth=token_info['access_token'])
+        # Enforce a strict 3-second network timeout 
+        sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3)
         curr = sp.current_playback()
         if curr and curr.get('item'):
             is_playing = curr.get('is_playing')
-            artist = curr['item']['artists'][0]['name'] if curr['item']['artists'] else "Unknown"
-            title = curr['item']['name']
+            artist = curr['item']['artists'][0]['name'] if curr.get('item', {}).get('artists') else "Unknown"
+            title = curr['item'].get('name', 'Unknown')
             
             art_url = ""
             if curr['item'].get('album') and curr['item']['album'].get('images'):
-                art_url = curr['item']['album']['images'][0]['url'] # Grabs highest res image
+                art_url = curr['item']['album']['images'][0]['url'] 
                 
             status = "Playing" if is_playing else "Paused"
             return {"status": status, "artist": artist, "title": title, "art_url": art_url}
@@ -589,16 +591,17 @@ def handle_action(action):
     if action.startswith('spot_'):
         routed_to_spotify = False
         
-        # Only send commands to Spotify if it currently owns the screen
         if current_media_source == "spotify" and config.get("spot_id"):
             try:
                 sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri=f"http://{request.host}/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
                 token_info = sp_oauth.get_cached_token()
                 if token_info:
-                    sp = spotipy.Spotify(auth=token_info['access_token'])
+                    # Enforce the strict network timeout here too
+                    sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3)
                     if action == 'spot_play':
                         c = sp.current_playback()
-                        if c and c['is_playing']: sp.pause_playback()
+                        # Use .get() safely in case 'is_playing' is missing due to a dead session
+                        if c and c.get('is_playing'): sp.pause_playback()
                         else: sp.start_playback()
                     elif action == 'spot_next': sp.next_track()
                     elif action == 'spot_prev': sp.previous_track()
