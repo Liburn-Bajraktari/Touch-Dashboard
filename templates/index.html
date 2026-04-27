@@ -208,12 +208,19 @@
                     </button>
                 </div>
 
-                <div id="spot-info" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 0; gap: 1.5rem; margin-top: 1rem;">
-                    <img id="spot-art" src="" style="width: 100%; max-width: 16rem; aspect-ratio: 1/1; border-radius: 0.5rem; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;">
-                    <div style="width: 100%; text-align: center;">
+                <div id="spot-info" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: space-between; width: 100%; min-height: 0; margin-top: 1rem;">
+                    
+                    <!-- Dynamic Image Bounding Box -->
+                    <div style="flex: 1; width: 100%; min-height: 0; display: flex; justify-content: center; align-items: center;">
+                        <img id="spot-art" src="" style="max-height: 100%; max-width: 100%; aspect-ratio: 1/1; border-radius: 0.75rem; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;">
+                    </div>
+                    
+                    <!-- Protected Text Wrapper -->
+                    <div style="width: 100%; text-align: center; margin-top: 1rem; flex-shrink: 0;">
                         <span id="spot-title" style="font-size: 1.4rem; font-weight: 800; color: #ffffff; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
                         <span id="spot-artist" style="color: #64748b; font-size: 1rem; font-weight: 500; margin-top: 0.4rem; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
                     </div>
+
                 </div>
                 
                 <div class="spot-ctrl" style="margin-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 3.5rem;">
