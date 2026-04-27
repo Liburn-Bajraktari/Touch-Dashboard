@@ -333,8 +333,9 @@ def hardware_loop():
     while True:
         curr_time = time.time()
         
-        # Audio Device Auto-Scan
-        curr_sinks = AudioSystem.get_hardware_sinks()
+        # Audio Device Auto-Scan & State Polling
+        audio_data = AudioSystem.poll_all()
+        curr_sinks = audio_data['sinks']
         curr_names = [s['raw_name'] for s in curr_sinks]
         last_names = [s['raw_name'] for s in last_audio_devs]
         
@@ -365,9 +366,9 @@ def hardware_loop():
             "spotify": media,
             "discord": disc_ipc_instance.voice_state if disc_ipc_instance and disc_ipc_instance.connected else {"mute": False, "deaf": False},
             "audio": {
-                "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'),
-                "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@'),
-                "active_dev": AudioSystem.get_active_name(curr_sinks)
+                "spk": audio_data['spk'],
+                "mic": audio_data['mic'],
+                "active_dev": audio_data['active_sink_name']
             }
         }
         
