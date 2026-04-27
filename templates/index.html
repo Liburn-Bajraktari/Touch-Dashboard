@@ -47,7 +47,7 @@
         .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
         .btn-top { width: 4rem; height: 3.5rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
-        .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 5rem; gap: 1.5rem; flex: 1; align-content: start;}
+        .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: 1.5rem; flex: 1; align-content: start;}
 
         .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }
         .col { display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; }
@@ -156,10 +156,10 @@
     </div>
 
     <!-- Top Bar Core -->
-    <div class="top-bar glass" style="position: relative;">
+    <div class="top-bar glass">
         <div class="section batt"><i data-lucide="mouse"></i> <span id="mouse-batt">--%</span></div>
-        <div class="section" style="position: absolute; left: 50%; transform: translateX(-50%); letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted);">COMMAND CENTER</div>
-        <div class="section">
+        <div class="section" style="justify-content: center; letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted);">COMMAND CENTER</div>
+        <div class="section" style="justify-content: flex-end;">
             <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
             <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
             <button class="btn btn-top" onclick="toggleFullscreen()"><i data-lucide="maximize"></i></button>
@@ -191,6 +191,10 @@
                     NOTHING PLAYING
                 </div>
                 
+                <div id="spot-auth" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%;">
+                    <button class="btn" style="padding: 0.75rem 1.5rem; font-weight: bold; background: #1DB954; color: white;" onclick="window.location.href='/spotify_login'">Login to Spotify</button>
+                </div>
+
                 <div id="spot-info" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%;">
                     <span id="spot-title" style="font-size: 1.5rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block;"></span>
                     <span id="spot-artist" style="color: var(--text-muted); font-size: 1.1rem; margin-top: 0.25rem;"></span>
@@ -498,15 +502,22 @@
             
             const spotInfo = document.getElementById('spot-info');
             const spotEmpty = document.getElementById('spot-empty');
+            const spotAuth = document.getElementById('spot-auth');
             
-            if (d.spotify && d.spotify.status === 'Playing') {
-                spotEmpty.style.display = 'none';
-                spotInfo.style.display = 'flex';
+            if (d.spotify && d.spotify.status === 'Auth_Required') {
+                if(spotEmpty) spotEmpty.style.display = 'none';
+                if(spotInfo) spotInfo.style.display = 'none';
+                if(spotAuth) spotAuth.style.display = 'flex';
+            } else if (d.spotify && d.spotify.status === 'Playing') {
+                if(spotEmpty) spotEmpty.style.display = 'none';
+                if(spotAuth) spotAuth.style.display = 'none';
+                if(spotInfo) spotInfo.style.display = 'flex';
                 document.getElementById('spot-title').innerText = d.spotify.title;
                 document.getElementById('spot-artist').innerText = d.spotify.artist;
             } else {
-                spotEmpty.style.display = 'flex';
-                spotInfo.style.display = 'none';
+                if(spotEmpty) spotEmpty.style.display = 'flex';
+                if(spotAuth) spotAuth.style.display = 'none';
+                if(spotInfo) spotInfo.style.display = 'none';
             }
             
             upSpk(d.audio.spk.vol); upMic(d.audio.mic.vol);

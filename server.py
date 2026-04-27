@@ -16,7 +16,7 @@ import socket
 import struct
 import uuid
 from spotipy.oauth2 import SpotifyOAuth
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, redirect, request
 from flask_socketio import SocketIO
 
 # --- CONFIGURATION MANAGER ---
@@ -66,12 +66,17 @@ class AudioSystem:
     @staticmethod
     def get_state(target):
         out = AudioSystem.run(['wpctl', 'get-volume', target])
+        logger.info(f"wpctl get-volume {target} returned: '{out}'")
         if not out:
             logger.warning(f"wpctl get-volume returned empty for {target}. Defaulting to 0% [MUTED]")
             return {"vol": 0, "muted": True}
         try:
-            vol_str = out.split()[1]
-            vol = int(float(vol_str) * 100)
+            parts = out.split()
+            if len(parts) > 1:
+                vol_str = parts[1]
+                vol = int(float(vol_str) * 100)
+            else:
+                vol = 0
         except Exception as e:
             logger.error(f"Failed to parse volume output '{out}' for {target}: {e}")
             vol = 0
@@ -338,7 +343,7 @@ def get_spotify_api_meta():
     try:
         sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
         token_info = sp_oauth.get_cached_token()
-        if not token_info: return None # Fail silently to prevent terminal input blocking
+        if not token_info: return {"status": "Auth_Required", "artist": "", "title": "Spotify Not Authorized"}
         
         sp = spotipy.Spotify(auth=token_info['access_token'])
         curr = sp.current_playback()
@@ -481,6 +486,23 @@ def fetch_weather():
 @app.route('/')
 def index(): return render_template('index.html')
 
+@app.route('/spotify_login')
+def spotify_login():
+    if not config.get("spot_id") or not config.get("spot_secret"): return jsonify({"error": "No credentials"})
+    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+    auth_url = sp_oauth.get_authorize_url()
+    return redirect(auth_url)
+
+@app.route('/callback')
+def callback():
+    if not config.get("spot_id") or not config.get("spot_secret"): return redirect('/')
+    sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", scope="user-read-playback-state user-modify-playback-state", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+    code = request.args.get('code')
+    if code:
+        try: sp_oauth.get_access_token(code)
+        except Exception as e: logger.error(f"Spotify auth error: {e}")
+    return redirect('/')
+
 @app.route('/manifest.json')
 def manifest():
     return jsonify({
@@ -517,14 +539,17 @@ def handle_action(action):
         sp_success = False
         if config.get("spot_id"):
             try:
-                sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False))
-                if action == 'spot_play':
-                    c = sp.current_playback()
-                    if c and c['is_playing']: sp.pause_playback()
-                    else: sp.start_playback()
-                elif action == 'spot_next': sp.next_track()
-                elif action == 'spot_prev': sp.previous_track()
-                sp_success = True
+                sp_oauth = SpotifyOAuth(client_id=config["spot_id"], client_secret=config["spot_secret"], redirect_uri="http://127.0.0.1:5000/callback", open_browser=False, cache_path=SPOTIFY_CACHE_FILE)
+                token_info = sp_oauth.get_cached_token()
+                if token_info:
+                    sp = spotipy.Spotify(auth=token_info['access_token'])
+                    if action == 'spot_play':
+                        c = sp.current_playback()
+                        if c and c['is_playing']: sp.pause_playback()
+                        else: sp.start_playback()
+                    elif action == 'spot_next': sp.next_track()
+                    elif action == 'spot_prev': sp.previous_track()
+                    sp_success = True
             except Exception as e:
                 logger.error(f"Spotify action error: {e}")
         if not sp_success:
