@@ -17,9 +17,9 @@ CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
     "weather_api": "", "weather_city": "Pristina",
     "spot_id": "", "spot_secret": "",
-    "audio_slot_1": {"id": "", "name": "DEV 1"},
-    "audio_slot_2": {"id": "", "name": "DEV 2"},
-    "active_audio_slot": 1
+    "disc_id": "", "disc_secret": "",
+    "audio_names": {},
+    "soundpad_buttons": []
 }
 
 def load_config():
@@ -52,11 +52,31 @@ class AudioSystem:
                 if re.search(r'^\s*Sinks:', line): capture = True; continue
                 if capture and re.search(r'^\s*(Sources|Filters|Streams|Video):', line): break
                 if capture:
-                    # Regex to grab the Node ID and Name from the wpctl tree
                     match = re.search(r'(?:\*|\s)\s+(\d+)\.\s+([^\[]+)', line)
-                    if match: devices.append({"id": match.group(1), "name": match.group(2).strip()})
+                    if match: 
+                        dev_id = match.group(1)
+                        dev_name = match.group(2).strip()
+                        custom_names = config.get("audio_names", {})
+                        custom_name = custom_names.get(dev_name, "")
+                        display_name = custom_name[:10] if custom_name else dev_name[:5].upper()
+                        devices.append({"id": dev_id, "name": display_name, "raw_name": dev_name, "custom_name": custom_name})
         except Exception as e: print(f"Audio parse error: {e}")
         return devices
+
+    @staticmethod
+    def get_active_sink_id():
+        try:
+            out = AudioSystem.run(['wpctl', 'status'])
+            capture = False
+            for line in out.splitlines():
+                if re.search(r'^\s*Sinks:', line): capture = True; continue
+                if capture and re.search(r'^\s*(Sources|Filters|Streams|Video):', line): break
+                if capture:
+                    match = re.search(r'(\*?)\s+(\d+)\.\s+([^\[]+)', line)
+                    if match and match.group(1) == '*':
+                        return match.group(2)
+        except: pass
+        return None
 
     @staticmethod
     def get_state(target):
@@ -74,23 +94,31 @@ class AudioSystem:
 
     @staticmethod
     def cycle_device():
-        config["active_audio_slot"] = 2 if config["active_audio_slot"] == 1 else 1
-        slot_key = f"audio_slot_{config['active_audio_slot']}"
-        
-        if config[slot_key]["id"]:
-            AudioSystem.run(['wpctl', 'set-default', config[slot_key]["id"]])
-            save_config()
-        return config[slot_key]["name"]
+        sinks = AudioSystem.get_hardware_sinks()
+        if not sinks: return
+        active_id = AudioSystem.get_active_sink_id()
+        next_sink = sinks[0]
+        if active_id:
+            for i, s in enumerate(sinks):
+                if s['id'] == active_id:
+                    next_sink = sinks[(i + 1) % len(sinks)]
+                    break
+        AudioSystem.run(['wpctl', 'set-default', next_sink['id']])
 
     @staticmethod
     def get_active_name():
-        return config[f"audio_slot_{config['active_audio_slot']}"]["name"]
+        sinks = AudioSystem.get_hardware_sinks()
+        active_id = AudioSystem.get_active_sink_id()
+        for s in sinks:
+            if s['id'] == active_id: return s['name']
+        return sinks[0]['name'] if sinks else "NONE"
 
 # --- APP INITIALIZATION ---
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 spotify_cache = None
 last_spotify_check = 0
+last_audio_devs = []
 
 # --- MEDIA ENGINES ---
 def get_spotify_api_meta():
@@ -113,9 +141,20 @@ def get_local_mpris_meta():
 
 # --- CORE SYSTEM LOOP ---
 def hardware_loop():
-    global last_spotify_check, spotify_cache
+    global last_spotify_check, spotify_cache, last_audio_devs
     while True:
         curr_time = time.time()
+        
+        # Audio Device Auto-Scan
+        curr_sinks = AudioSystem.get_hardware_sinks()
+        curr_names = [s['raw_name'] for s in curr_sinks]
+        last_names = [s['raw_name'] for s in last_audio_devs]
+        
+        if curr_names != last_names:
+            last_audio_devs = curr_sinks
+            socketio.emit('hw_scan_results', curr_sinks)
+
+        # Spotify Polling (3s limit)
         if curr_time - last_spotify_check > 3.0:
             spotify_cache = get_spotify_api_meta()
             last_spotify_check = curr_time
@@ -167,12 +206,7 @@ def manifest():
 
 @socketio.on('connect')
 def handle_connect():
-    # Push config AND live hardware list to UI on load
     socketio.emit('config_sync', {"cfg": config, "hw": AudioSystem.get_hardware_sinks()})
-
-@socketio.on('request_hw_scan')
-def handle_hw_scan():
-    socketio.emit('hw_scan_results', AudioSystem.get_hardware_sinks())
 
 @socketio.on('save_config')
 def handle_config_save(data):
@@ -200,8 +234,14 @@ def handle_action(action):
             elif action == 'spot_next': AudioSystem.run(['playerctl', 'next'])
             elif action == 'spot_prev': AudioSystem.run(['playerctl', 'previous'])
 
+    elif action.startswith('sp_play_'):
+        sp_id = action.split('sp_play_')[1]
+        AudioSystem.run(['soundux', '--play', sp_id]) # Adjust as needed for specific linux soundpad alternative
+
     elif action == 'disc_mute': AudioSystem.run(['ydotool', 'key', '29:1', '42:1', '50:1', '50:0', '42:0', '29:0']) 
     elif action == 'disc_deaf': AudioSystem.run(['ydotool', 'key', '29:1', '42:1', '32:1', '32:0', '42:0', '29:0'])
+    elif action == 'disc_cam': pass # Implement specific ydotool sequence if desired
+    elif action == 'disc_screen': pass # Implement specific ydotool sequence if desired
     elif action == 'app_term': AudioSystem.run(['alacritty']) 
     elif action == 'app_web': AudioSystem.run(['brave'])
     elif action == 'app_task': AudioSystem.run(['gnome-system-monitor']) 

@@ -38,31 +38,28 @@
         .speed-data { text-align: right; font-size: 0.9rem; color: var(--text-muted); line-height: 1.2;}
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
-        .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }
-        .panel { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
-
         .btn {
             background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 1rem; color: var(--text-main); display: flex; justify-content: center; align-items: center;
-            cursor: pointer; transition: all 0.15s ease; height: 100%;
+            cursor: pointer; transition: all 0.15s ease; height: 100%; outline: none;
         }
         .btn:active { transform: scale(0.92); background: var(--accent); box-shadow: 0 0 15px var(--accent-glow); color: #000; }
         .btn-top { width: 4rem; height: 3.5rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
         .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; flex: 0 0 10rem;}
 
-        .header-widget { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; flex: 0 0 8rem; }
-        .widget-box { background: rgba(0,0,0,0.2); border-radius: 1rem; display: flex; flex-direction: column; justify-content: center; align-items: center; }
-        #time { font-size: 3.5rem; font-weight: 700; letter-spacing: -2px; }
-        #date { color: var(--accent); font-weight: 500; font-size: 1.2rem; }
+        .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }
+        .col { display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; }
+        .panel { padding: 1.5rem; display: flex; flex-direction: column; }
+        .panel-top { flex: 1; min-height: 0; }
+        .panel-bottom { flex: 0 0 17rem; display: flex; flex-direction: column; }
 
-        .spotify { flex: 1; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 1rem; display: flex; flex-direction: column; justify-content: center;}
-        #spot-title { font-size: 1.4rem; font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        #spot-artist { color: var(--text-muted); font-size: 1.1rem; }
-        .spot-ctrl { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 1rem; margin-top: 1.5rem; height: 4rem; }
+        .widget-box { background: rgba(0,0,0,0.2); border-radius: 1rem; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+
+        .spot-ctrl { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 1rem; margin-top: 1.5rem; height: 4rem; width: 100%; }
 
         /* Sliders */
-        .slider-section { display: flex; justify-content: space-around; align-items: stretch; flex: 1; padding-top: 1rem; }
+        .slider-section { display: flex; justify-content: space-around; align-items: stretch; flex: 1; }
         .pro-slider {
             position: relative; flex: 0 0 5.5rem; height: 100%; background: rgba(0,0,0,0.4); border-radius: 1.5rem;
             overflow: hidden; cursor: pointer; box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
@@ -78,11 +75,11 @@
         .slider-icon:active { transform: scale(0.9); }
 
         .audio-switch { display: flex; flex-direction: column; justify-content: flex-end; flex: 0 0 8rem; }
-        .stat-row { display: flex; align-items: center; gap: 1rem; font-size: 1.5rem; margin-top: 1rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 1rem;}
+        .stat-row { display: flex; align-items: center; gap: 1rem; font-size: 1.5rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 1rem;}
         .stat-row i { color: var(--accent); width: 2rem; height: 2rem; }
         .stat-val { font-weight: 700; margin-left: auto; }
 
-        /* --- Settings UI Redesign --- */
+        /* --- Settings UI --- */
         #modal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); z-index: 999; justify-content: center; align-items: center; }
         .modal-card { background: #0f172a; padding: 2rem; border-radius: 1.5rem; width: 45rem; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem;}
         .tabs { display: flex; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
@@ -94,44 +91,48 @@
         .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
         .form-group label { color: var(--text-muted); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;}
         input, select { width: 100%; padding: 1rem; border-radius: 0.5rem; border: none; background: #1e293b; color: white; font-size: 1.1rem; outline: none; }
-        .hw-row { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; align-items: center; }
+        .hw-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: center; }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
     </style>
 </head>
 <body id="body">
 
     <!-- Tabbed Settings Modal -->
     <div id="modal">
-        <div class="modal-card">
+        <div class="modal-card" id="modal-card">
             <div class="tabs">
-                <button class="tab active" onclick="switchTab('tab-gen')">Integrations</button>
+                <button class="tab active" onclick="switchTab('tab-spotify')">Spotify</button>
+                <button class="tab" onclick="switchTab('tab-weather')">Weather</button>
+                <button class="tab" onclick="switchTab('tab-discord')">Discord</button>
                 <button class="tab" onclick="switchTab('tab-aud')">Audio Routing</button>
             </div>
 
-            <!-- Integrations Tab -->
-            <div id="tab-gen" class="tab-content active">
-                <div class="hw-row">
-                    <div class="form-group"><label>Weather API Key</label><input type="text" id="cfg-weather"></div>
-                    <div class="form-group"><label>City</label><input type="text" id="cfg-city"></div>
-                </div>
+            <div id="tab-spotify" class="tab-content active">
                 <div class="form-group"><label>Spotify Client ID</label><input type="text" id="cfg-spot-id"></div>
                 <div class="form-group"><label>Spotify Client Secret</label><input type="password" id="cfg-spot-secret"></div>
             </div>
 
-            <!-- Audio Routing Tab -->
+            <div id="tab-weather" class="tab-content">
+                <div class="hw-row">
+                    <div class="form-group"><label>Weather API Key</label><input type="text" id="cfg-weather"></div>
+                    <div class="form-group"><label>City</label><input type="text" id="cfg-city"></div>
+                </div>
+            </div>
+
+            <div id="tab-discord" class="tab-content">
+                <div class="form-group"><label>Discord Client ID</label><input type="text" id="cfg-disc-id"></div>
+                <div class="form-group"><label>Discord Client Secret</label><input type="password" id="cfg-disc-secret"></div>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem;">For full integration, create a Discord Developer Application and enter credentials here.</p>
+            </div>
+
             <div id="tab-aud" class="tab-content">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0;">Map your hardware devices to the UI Cycle button.</p>
-                    <button class="btn" style="height: 2.5rem; padding: 0 1rem; font-size: 0.9rem;" onclick="socket.emit('request_hw_scan')"><i data-lucide="refresh-cw" style="width: 1rem; margin-right: 0.5rem;"></i> Scan Hardware</button>
-                </div>
-                
-                <div class="hw-row">
-                    <div class="form-group"><label>Device Slot 1 Hardware</label><select id="cfg-s1-hw"></select></div>
-                    <div class="form-group"><label>UI Display Name</label><input type="text" id="cfg-s1-name" placeholder="e.g. XONAR"></div>
-                </div>
-                
-                <div class="hw-row">
-                    <div class="form-group"><label>Device Slot 2 Hardware</label><select id="cfg-s2-hw"></select></div>
-                    <div class="form-group"><label>UI Display Name</label><input type="text" id="cfg-s2-name" placeholder="e.g. MOBIUS"></div>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0 0 1rem 0;">Auto-detected output devices. Enter a custom name to override defaults.</p>
+                <div id="audio-devices-list" style="display: flex; flex-direction: column; gap: 1rem; max-height: 25rem; overflow-y: auto;">
+                    <!-- Filled by JS -->
                 </div>
             </div>
 
@@ -139,7 +140,21 @@
         </div>
     </div>
 
-    <!-- UI Core -->
+    <!-- Soundpad Edit Modal -->
+    <div id="sp-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="modal-card" id="sp-modal-card" style="width: 30rem;">
+            <h3 style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 1.5rem;" id="sp-modal-title">Edit Button</h3>
+            <div class="form-group"><label>Button ID / Command</label><input type="text" id="sp-id-input" placeholder="e.g. 1"></div>
+            <div class="form-group"><label>Display Name</label><input type="text" id="sp-name-input" placeholder="e.g. Laugh"></div>
+            <div style="display: flex; gap: 1rem; margin-top: 1rem; height: 3.5rem;">
+                <button class="btn" style="flex: 1; background: var(--panel-bg);" onclick="closeSpModal()">Cancel</button>
+                <button class="btn" style="flex: 1; background: var(--danger); display: none;" id="sp-del-btn" onclick="deleteSpBtn()">Delete</button>
+                <button class="btn" style="flex: 1; background: var(--accent); color: #000; font-weight: bold;" onclick="saveSpBtn()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Bar Core -->
     <div class="top-bar glass">
         <div class="section batt"><i data-lucide="mouse"></i> <span id="mouse-batt">--%</span></div>
         <div class="section" style="letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted);">COMMAND CENTER</div>
@@ -151,22 +166,34 @@
         </div>
     </div>
 
-    <div class="grid-container">
+    <!-- Main View -->
+    <div class="grid-container" id="main-view">
         <!-- Left Column -->
-        <div class="panel glass">
-            <div class="header-widget">
-                <div class="widget-box"><div id="time">00:00</div><div id="date">--</div></div>
-                <div class="widget-box"><i data-lucide="cloud" style="width: 3rem; height: 3rem; color: var(--accent);"></i><div id="w-temp" style="font-size: 2rem; font-weight: bold; margin-top: 0.5rem;">--°</div><div id="w-desc" style="color: var(--text-muted);">--</div></div>
+        <div class="col">
+            <div class="glass panel panel-top" style="justify-content: center; align-items: center; display: flex; flex-direction: row; gap: 1.5rem;">
+                <div class="widget-box" style="flex:1; height:100%;">
+                    <div id="time" style="font-size: clamp(3rem, 4vw, 4.5rem); font-weight: 700; letter-spacing: -2px;">00:00</div>
+                    <div id="date" style="color: var(--accent); font-weight: 500; font-size: 1.2rem;">--</div>
+                </div>
+                <div class="widget-box" style="flex:1; height:100%;">
+                    <i data-lucide="cloud" style="width: 3.5rem; height: 3.5rem; color: var(--accent);"></i>
+                    <div id="w-temp" style="font-size: 2.5rem; font-weight: bold; margin-top: 0.5rem;">--°</div>
+                    <div id="w-desc" style="color: var(--text-muted); text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;">--</div>
+                </div>
             </div>
-            <div class="btn-row">
-                <button class="btn" onclick="act('disc_mute')"><i data-lucide="mic-off"></i></button>
-                <button class="btn" onclick="act('disc_deaf')"><i data-lucide="headphones"></i></button>
-                <button class="btn" onclick="act('disc_cam')"><i data-lucide="video"></i></button>
-                <button class="btn" onclick="act('disc_screen')"><i data-lucide="monitor-up"></i></button>
-            </div>
-            <div class="spotify">
-                <span id="spot-title">Connecting...</span><span id="spot-artist">--</span>
-                <div class="spot-ctrl">
+            <div class="glass panel panel-bottom spotify" style="background: rgba(0,0,0,0.2);">
+                <h3 style="color: var(--text-muted); margin: 0 0 auto 0; font-size: 1rem; letter-spacing: 2px;">NOW PLAYING</h3>
+                
+                <div id="spot-empty" style="flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 1.2rem; font-weight: 500;">
+                    NOTHING PLAYING
+                </div>
+                
+                <div id="spot-info" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%;">
+                    <span id="spot-title" style="font-size: 1.5rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block;"></span>
+                    <span id="spot-artist" style="color: var(--text-muted); font-size: 1.1rem; margin-top: 0.25rem;"></span>
+                </div>
+                
+                <div class="spot-ctrl" style="margin-top: auto;">
                     <button class="btn" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
                     <button class="btn" onclick="act('spot_play')"><i data-lucide="play"></i></button>
                     <button class="btn" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
@@ -175,17 +202,17 @@
         </div>
 
         <!-- Center Column -->
-        <div class="panel glass">
-            <div class="btn-grid">
-                <button class="btn" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
-                <button class="btn" onclick="act('app_soundpad')"><i data-lucide="music"></i></button>
-                <button class="btn" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
-                <button class="btn" onclick="act('app_web')"><i data-lucide="globe"></i></button>
-                <button class="btn" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
-                <button class="btn" style="opacity: 0.1; cursor: default;"></button>
+        <div class="col">
+            <div class="glass panel panel-top" style="justify-content: center; align-items: center;">
+                <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">DISCORD INTEGRATION</h3>
+                <div class="btn-row" style="width: 100%; gap: 1.5rem;">
+                    <button class="btn" onclick="act('disc_mute')"><i data-lucide="mic-off" style="width: 1.8rem; height: 1.8rem;"></i></button>
+                    <button class="btn" onclick="act('disc_deaf')"><i data-lucide="headphones" style="width: 1.8rem; height: 1.8rem;"></i></button>
+                    <button class="btn" onclick="act('disc_cam')"><i data-lucide="video" style="width: 1.8rem; height: 1.8rem;"></i></button>
+                    <button class="btn" onclick="act('disc_screen')"><i data-lucide="monitor-up" style="width: 1.8rem; height: 1.8rem;"></i></button>
+                </div>
             </div>
-
-            <div class="slider-section">
+            <div class="glass panel panel-bottom slider-section" style="padding-top: 1.5rem;">
                 <div class="pro-slider" id="slide-spk">
                     <div class="slider-val" id="val-spk">0%</div>
                     <div class="slider-fill" id="fill-spk"></div>
@@ -205,16 +232,50 @@
         </div>
 
         <!-- Right Column -->
-        <div class="panel glass">
-            <h3 style="color: var(--text-muted); margin: 0 0 1rem 0; font-size: 1.5rem;">System Monitor</h3>
-            <div class="stat-row"><i data-lucide="cpu"></i> CPU <span class="stat-val" id="sys-cpu">0%</span></div>
-            <div class="stat-row"><i data-lucide="memory-stick"></i> RAM <span class="stat-val" id="sys-ram">0%</span></div>
+        <div class="col">
+            <div class="glass panel panel-top">
+                <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">MACROS & APPS</h3>
+                <div class="btn-grid" style="grid-template-columns: repeat(3, 1fr); gap: 1.5rem; flex: 1;">
+                    <button class="btn" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
+                    <button class="btn" onclick="toggleSoundpad(true)" style="border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
+                    <button class="btn" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
+                    <button class="btn" onclick="act('app_web')"><i data-lucide="globe"></i></button>
+                    <button class="btn" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
+                    <button class="btn" style="opacity: 0.1; cursor: default;"></button>
+                </div>
+            </div>
+            <div class="glass panel panel-bottom" style="display: flex; flex-direction: column;">
+                <h3 style="color: var(--text-muted); margin: 0 0 1rem 0; font-size: 1rem; letter-spacing: 2px;">SYSTEM MONITOR</h3>
+                <div style="display: flex; flex-direction: column; gap: 1rem; flex: 1; justify-content: center;">
+                    <div class="stat-row" style="margin: 0;"><i data-lucide="cpu"></i> CPU <span class="stat-val" id="sys-cpu">0%</span></div>
+                    <div class="stat-row" style="margin: 0;"><i data-lucide="memory-stick"></i> RAM <span class="stat-val" id="sys-ram">0%</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Soundpad View Overlay -->
+    <div id="soundpad-view" style="display: none; flex: 1; flex-direction: column; gap: 1.5rem; min-height: 0;">
+        <div class="glass" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; flex: 0 0 5rem;">
+            <h2 style="margin: 0; letter-spacing: 2px;">SOUNDPAD</h2>
+            <button class="btn" style="width: 8rem; height: 3.5rem; font-weight: bold;" onclick="toggleSoundpad(false)"><i data-lucide="arrow-left" style="margin-right: 0.5rem;"></i> BACK</button>
+        </div>
+        <div class="glass" style="flex: 1; padding: 1.5rem; overflow-y: auto;">
+            <div id="sp-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.5rem; align-content: start;">
+                <!-- Buttons filled by JS -->
+            </div>
         </div>
     </div>
 
     <script>
         lucide.createIcons();
         const socket = io();
+
+        // --- View Toggling ---
+        function toggleSoundpad(show) {
+            document.getElementById('main-view').style.display = show ? 'none' : 'grid';
+            document.getElementById('soundpad-view').style.display = show ? 'flex' : 'none';
+        }
 
         // --- Tabs Logic ---
         function switchTab(tabId) {
@@ -224,52 +285,142 @@
             document.getElementById(tabId).classList.add('active');
         }
 
-        // --- Hardware UI Syncing ---
-        function populateHwDropdowns(devices) {
-            const s1 = document.getElementById('cfg-s1-hw');
-            const s2 = document.getElementById('cfg-s2-hw');
-            s1.innerHTML = ''; s2.innerHTML = '';
+        // --- State Management ---
+        let spBtns = [];
+        let currentHwDevices = [];
+
+        function populateAudioTab(devices, configNames) {
+            const container = document.getElementById('audio-devices-list');
+            container.innerHTML = '';
             devices.forEach(d => {
-                const opt1 = new Option(d.name, d.id);
-                const opt2 = new Option(d.name, d.id);
-                s1.add(opt1); s2.add(opt2);
+                const val = configNames ? (configNames[d.raw_name] || '') : (d.custom_name || '');
+                container.innerHTML += `
+                    <div class="hw-row" style="background: rgba(0,0,0,0.2); padding: 0.5rem 1rem; border-radius: 0.5rem;">
+                        <div style="flex: 1; color: var(--text-muted); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${d.raw_name}">${d.raw_name}</div>
+                        <input type="text" class="audio-name-input" style="flex: 1; padding: 0.5rem; background: #0f172a;" data-raw="${d.raw_name}" placeholder="Custom (Max 10)" value="${val}" maxlength="10">
+                    </div>
+                `;
             });
         }
 
         socket.on('config_sync', (data) => {
-            // Fill Dropdowns
-            populateHwDropdowns(data.hw);
+            currentHwDevices = data.hw;
+            populateAudioTab(data.hw, data.cfg.audio_names);
             
-            // Fill Fields
             const c = data.cfg;
-            document.getElementById('cfg-weather').value = c.weather_api;
-            document.getElementById('cfg-city').value = c.weather_city;
-            document.getElementById('cfg-spot-id').value = c.spot_id;
-            document.getElementById('cfg-spot-secret').value = c.spot_secret;
+            document.getElementById('cfg-weather').value = c.weather_api || '';
+            document.getElementById('cfg-city').value = c.weather_city || '';
+            document.getElementById('cfg-spot-id').value = c.spot_id || '';
+            document.getElementById('cfg-spot-secret').value = c.spot_secret || '';
+            document.getElementById('cfg-disc-id').value = c.disc_id || '';
+            document.getElementById('cfg-disc-secret').value = c.disc_secret || '';
             
-            // Set Dropdown Selectors
-            if(c.audio_slot_1.id) document.getElementById('cfg-s1-hw').value = c.audio_slot_1.id;
-            document.getElementById('cfg-s1-name').value = c.audio_slot_1.name;
-            if(c.audio_slot_2.id) document.getElementById('cfg-s2-hw').value = c.audio_slot_2.id;
-            document.getElementById('cfg-s2-name').value = c.audio_slot_2.name;
+            spBtns = c.soundpad_buttons || [];
+            renderSpGrid();
         });
 
         socket.on('hw_scan_results', (devices) => {
-            populateHwDropdowns(devices);
-            alert("Hardware list updated!");
+            currentHwDevices = devices;
+            populateAudioTab(devices, null);
         });
 
         function saveConfig() {
+            const audio_names = {};
+            document.querySelectorAll('.audio-name-input').forEach(input => {
+                if (input.value.trim() !== '') {
+                    audio_names[input.dataset.raw] = input.value.trim();
+                }
+            });
+
             socket.emit('save_config', {
                 weather_api: document.getElementById('cfg-weather').value,
                 weather_city: document.getElementById('cfg-city').value,
                 spot_id: document.getElementById('cfg-spot-id').value,
                 spot_secret: document.getElementById('cfg-spot-secret').value,
-                audio_slot_1: { id: document.getElementById('cfg-s1-hw').value, name: document.getElementById('cfg-s1-name').value },
-                audio_slot_2: { id: document.getElementById('cfg-s2-hw').value, name: document.getElementById('cfg-s2-name').value }
+                disc_id: document.getElementById('cfg-disc-id').value,
+                disc_secret: document.getElementById('cfg-disc-secret').value,
+                audio_names: audio_names,
+                soundpad_buttons: spBtns
             });
             document.getElementById('modal').style.display = 'none';
         }
+
+        // --- Soundpad Logic ---
+        let editingSpIdx = -1;
+        let spTimer = null;
+        let spCancel = false;
+
+        function renderSpGrid() {
+            const grid = document.getElementById('sp-grid');
+            grid.innerHTML = '';
+            spBtns.forEach((btn, idx) => {
+                grid.innerHTML += `
+                    <button class="btn" style="height: 7rem; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.3);" 
+                        onmousedown="spDown(${idx})" onmouseup="spUp(${idx})" onmouseleave="spLeave(${idx})"
+                        ontouchstart="spTouchStart(event, ${idx})" ontouchend="spTouchEnd(event, ${idx})" ontouchcancel="spLeave(${idx})">
+                        <i data-lucide="play" style="color: var(--accent);"></i><span style="font-weight: bold; font-size: 1.1rem; pointer-events: none;">${btn.name}</span>
+                    </button>
+                `;
+            });
+            grid.innerHTML += `
+                <button class="btn" style="height: 7rem; border: 2px dashed var(--border); background: transparent;" 
+                    onclick="openSpModal(-1)">
+                    <i data-lucide="plus" style="width: 2rem; height: 2rem; color: var(--text-muted);"></i>
+                </button>
+            `;
+            lucide.createIcons();
+        }
+
+        function spLeave(idx) {
+            if (spTimer) { clearTimeout(spTimer); spTimer = null; spCancel = true; }
+        }
+        function spDown(idx) {
+            spCancel = false;
+            spTimer = setTimeout(() => {
+                spTimer = null; spCancel = true; 
+                openSpModal(idx);
+            }, 600);
+        }
+        function spUp(idx) {
+            if (spTimer) {
+                clearTimeout(spTimer); spTimer = null;
+                if (!spCancel) socket.emit('action', 'sp_play_' + spBtns[idx].id);
+            }
+        }
+        function spTouchStart(e, idx) { spDown(idx); }
+        function spTouchEnd(e, idx) { if(e.cancelable) e.preventDefault(); spUp(idx); }
+
+        function openSpModal(idx) {
+            editingSpIdx = idx;
+            const isEdit = idx >= 0 && idx < spBtns.length;
+            document.getElementById('sp-modal-title').innerText = isEdit ? "Edit Button" : "New Button";
+            document.getElementById('sp-id-input').value = isEdit ? spBtns[idx].id : '';
+            document.getElementById('sp-name-input').value = isEdit ? spBtns[idx].name : '';
+            document.getElementById('sp-del-btn').style.display = isEdit ? 'block' : 'none';
+            document.getElementById('sp-modal').style.display = 'flex';
+        }
+
+        function closeSpModal() { document.getElementById('sp-modal').style.display = 'none'; }
+
+        function saveSpBtn() {
+            const id = document.getElementById('sp-id-input').value.trim();
+            const name = document.getElementById('sp-name-input').value.trim();
+            if (!id || !name) return alert("ID and Name are required.");
+            
+            if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = {id, name};
+            else spBtns.push({id, name});
+            
+            closeSpModal(); renderSpGrid(); saveConfig();
+        }
+
+        function deleteSpBtn() {
+            if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns.splice(editingSpIdx, 1);
+            closeSpModal(); renderSpGrid(); saveConfig();
+        }
+
+        // Modal outer click dismissal
+        document.getElementById('modal').addEventListener('click', (e) => { if(e.target.id === 'modal') document.getElementById('modal').style.display = 'none'; });
+        document.getElementById('sp-modal').addEventListener('click', (e) => { if(e.target.id === 'sp-modal') closeSpModal(); });
 
         // --- Standard UI Logic ---
         let isDraggingSpk = false; let isDraggingMic = false;
@@ -298,6 +449,7 @@
 
         let lastTap = 0;
         document.getElementById('body').addEventListener('touchend', (e) => {
+            if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
             const cur = new Date().getTime();
             if (cur - lastTap < 300 && cur - lastTap > 0) document.getElementById('modal').style.display = 'flex';
             lastTap = cur;
@@ -310,8 +462,19 @@
             document.getElementById('sys-cpu').innerText = d.cpu + '%';
             document.getElementById('sys-ram').innerText = d.ram + '%';
             document.getElementById('mouse-batt').innerText = d.mouse_batt + '%';
-            document.getElementById('spot-title').innerText = d.spotify.title;
-            document.getElementById('spot-artist').innerText = d.spotify.artist;
+            
+            const spotInfo = document.getElementById('spot-info');
+            const spotEmpty = document.getElementById('spot-empty');
+            
+            if (d.spotify && d.spotify.status === 'Playing') {
+                spotEmpty.style.display = 'none';
+                spotInfo.style.display = 'flex';
+                document.getElementById('spot-title').innerText = d.spotify.title;
+                document.getElementById('spot-artist').innerText = d.spotify.artist;
+            } else {
+                spotEmpty.style.display = 'flex';
+                spotInfo.style.display = 'none';
+            }
             
             upSpk(d.audio.spk.vol); upMic(d.audio.mic.vol);
             document.getElementById('icon-spk').classList.toggle('muted', d.audio.spk.muted);
