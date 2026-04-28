@@ -895,6 +895,20 @@
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
         const upMic = initSlider('slide-mic', 'fill-mic', 'val-mic', 'mic', (v) => { if(v!==undefined) isDraggingMic = v; return isDraggingMic; });
 
+        // --- Auto-Fullscreen Trap ---
+        // Forces fullscreen on the very first physical interaction with the tablet
+        const enforceFullscreen = () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(e => e);
+            }
+            // Self-destruct the listeners so they don't fire repeatedly
+            document.removeEventListener('touchstart', enforceFullscreen);
+            document.removeEventListener('click', enforceFullscreen);
+        };
+
+        document.addEventListener('touchstart', enforceFullscreen, { passive: true });
+        document.addEventListener('click', enforceFullscreen, { passive: true });
+
        // --- Dashboard Gestures ---
         let maxTouches = 0;
         let lastTapTime = 0;
