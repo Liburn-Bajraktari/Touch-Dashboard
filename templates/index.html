@@ -574,13 +574,19 @@
                     if(spotInfo && spotInfo.style.display !== 'none') spotInfo.style.display = 'none';
                 }
 
-                const playBtn = document.getElementById('btn-spot-play');
-                if (playBtn) {
+                // Hardware-Optimized Icon Swap (Zero DOM Injection)
+                const iconPlay = document.getElementById('icon-spot-play');
+                const iconPause = document.getElementById('icon-spot-pause');
+                
+                if (iconPlay && iconPause) {
                     const isPlaying = d.spotify && d.spotify.status === 'Playing';
-                    const targetIcon = isPlaying ? 'pause' : 'play';
-                    if (!playBtn.querySelector('.lucide-' + targetIcon)) {
-                        playBtn.innerHTML = `<i data-lucide="${targetIcon}"></i>`;
-                        lucide.createIcons();
+                    
+                    if (isPlaying) {
+                        if (iconPlay.style.display !== 'none') iconPlay.style.display = 'none';
+                        if (iconPause.style.display === 'none') iconPause.style.display = '';
+                    } else {
+                        if (iconPlay.style.display === 'none') iconPlay.style.display = '';
+                        if (iconPause.style.display !== 'none') iconPause.style.display = 'none';
                     }
                 }
                 
@@ -720,7 +726,7 @@
                 });
 
                 elBtnBack.style.pointerEvents = 'none';
-                gsap.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out", clearProps: 'opacity' });
+                gsap.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out" });
                 gsap.to(elBattSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut", clearProps: 'transform,willChange' });
             }
 
