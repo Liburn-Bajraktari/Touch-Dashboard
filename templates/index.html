@@ -165,7 +165,7 @@
         }
 
        #soundpad-view {
-            position: absolute; display: none; overflow: hidden;
+            position: absolute; visibility: hidden; pointer-events: none; overflow: hidden; display: flex;
             /* Lock to full screen permanently to bypass CPU Layout math */
             top: 0; left: 0; width: 100%; height: 100%; 
             background: var(--panel-bg); 
@@ -721,7 +721,7 @@
                     x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02,
                     onComplete: () => {
                         // Restore main view paints
-                        gsap.set(elGlassPanels, { clearProps: "backdropFilter,webkitBackdropFilter,boxShadow" });
+                        gsap.set(elGlassPanels, { clearProps: "all" });
                     }
                 });
 
