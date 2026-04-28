@@ -10,16 +10,9 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
 
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-
-    <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
-
-    <link rel="apple-touch-icon" href="/static/icon-192.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <style>
         :root {
@@ -29,7 +22,6 @@
             --text-main: #f8fafc; --text-muted: #64748b;
         }
 
-        * { box-sizing: border-box; user-select: none; -webkit-user-drag: none; -webkit-tap-highlight-color: transparent; outline: none; }
         * { box-sizing: border-box; user-select: none; -webkit-user-drag: none; -webkit-tap-highlight-color: transparent; outline: none; }
         html { font-size: clamp(12px, 1.2vw, 18px); }
 
@@ -46,7 +38,6 @@
         }
 
         .top-bar { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; align-items: center; padding: 1rem 2rem; flex: 0 0 4rem; }
-        .top-bar { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; align-items: center; padding: 1rem 2rem; flex: 0 0 4rem; }
         .section { display: flex; align-items: center; gap: 1.5rem; }
         .batt { color: var(--accent); font-weight: 600; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;}
         .speed-data { text-align: right; font-size: 0.9rem; color: var(--text-muted); line-height: 1.2;}
@@ -59,17 +50,12 @@
         }
         .btn:active { transform: scale(0.92); background: var(--accent); box-shadow: 0 0 15px var(--accent-glow); color: #000; }
         #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
-        #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
         .btn-top { width: 4rem; height: 3.5rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
         .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: 1.5rem; flex: 1; align-content: start;}
-        .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: 1.5rem; flex: 1; align-content: start;}
 
         .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }
-        .col { 
-            display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; 
-        }
         .col { 
             display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; 
         }
@@ -89,7 +75,6 @@
             display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
         }
         .slider-fill { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: translateY(100%); background: linear-gradient(0deg, #0284c7 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; will-change: transform; }
-        .slider-fill { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: translateY(100%); background: linear-gradient(0deg, #0284c7 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; will-change: transform; }
         .slider-val { position: absolute; top: 1.5rem; font-weight: 800; font-size: 1.2rem; color: #ffffff; text-shadow: 0px 2px 4px rgba(0,0,0,0.9); pointer-events: none; z-index: 10; }
         .slider-icon {
             position: absolute; bottom: 1rem; background: rgba(0,0,0,0.5); border-radius: 50%; width: 3.5rem; height: 3.5rem;
@@ -98,56 +83,6 @@
         .slider-icon.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; }
         .slider-icon:active { transform: scale(0.9); }
 
-       /* --- Audio Hub Core --- */
-        .audio-switch { display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 0 0 8.5rem; }
-        
-        .audio-hub-btn {
-            width: 100%; height: 13rem;
-            flex-direction: column; gap: 1rem;
-            background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%);
-            border: none; 
-            border-radius: 2.5rem;
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.05), inset 0 4px 20px rgba(0,0,0,0.4);
-        }
-
-        .audio-hub-btn:active {
-            background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%) !important;
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.05), inset 0 4px 25px rgba(0,0,0,0.6) !important;
-        }
-        
-        .audio-hub-ring {
-            position: relative;
-            width: 4.5rem; height: 4.5rem;
-            border-radius: 50%;
-            background: var(--bg-dark);
-            border: 2px solid var(--accent);
-            display: flex; justify-content: center; align-items: center;
-            color: var(--accent);
-            transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-        .audio-hub-ring::before {
-            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            border-radius: 50%;
-            box-shadow: 0 0 22px var(--accent-glow), inset 0 0 15px var(--accent-glow);
-            animation: pulse-ring 2.5s infinite alternate ease-in-out;
-            pointer-events: none;
-        }
-
-        .audio-hub-ring i { width: 2.2rem; height: 2.2rem; position: relative; z-index: 2; }
-        
-        .audio-hub-btn:active .audio-hub-ring {
-            transform: rotate(90deg) scale(0.9);
-            border-color: #ffffff; color: #ffffff;
-            box-shadow: 0 0 25px rgba(255,255,255,0.6), inset 0 0 15px rgba(255,255,255,0.4);
-        }
-        .audio-hub-btn:active .audio-hub-ring::before {
-            display: none; /* Stops breathing while pressed */
-        }
-
-        @keyframes pulse-ring {
-            0% { transform: scale(0.85); opacity: 0.5; }
-            100% { transform: scale(1.05); opacity: 1; }
-        }
        /* --- Audio Hub Core --- */
         .audio-switch { display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 0 0 8.5rem; }
         
@@ -272,7 +207,6 @@
 
     <!-- Tabbed Settings Modal -->
     <div id="modal" class="modal-overlay">
-    <div id="modal" class="modal-overlay">
         <div class="modal-card" id="modal-card">
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('tab-spotify')">Spotify</button>
@@ -312,7 +246,6 @@
 
     <!-- Soundpad Edit Modal -->
     <div id="sp-modal" class="modal-overlay">
-    <div id="sp-modal" class="modal-overlay">
         <div class="modal-card" id="sp-modal-card" style="width: 30rem;">
             <h3 style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 1.5rem;" id="sp-modal-title">Edit Button</h3>
             <div class="form-group"><label>Button ID / Command</label><input type="text" id="sp-id-input" placeholder="e.g. 1"></div>
@@ -336,19 +269,8 @@
         </div>
         <div class="section" id="top-title" style="justify-content: center; letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted); transition: all 0.3s ease; text-align: center;">COMMAND CENTER</div>
         <div class="section" style="justify-content: flex-end;">
-    <div class="top-bar glass">
-        <div class="section batt" style="position: relative;">
-            <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
-            
-            <div id="batt-slide" style="display: flex; align-items: center; gap: 0.5rem;">
-                <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
-            </div>
-        </div>
-        <div class="section" id="top-title" style="justify-content: center; letter-spacing: 4px; font-weight: 300; font-size: 1.2rem; color: var(--text-muted); transition: all 0.3s ease; text-align: center;">COMMAND CENTER</div>
-        <div class="section" style="justify-content: flex-end;">
             <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
             <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
-            <!-- <button class="btn btn-top" onclick="toggleFullscreen()"><i data-lucide="maximize"></i></button> -->
             <!-- <button class="btn btn-top" onclick="toggleFullscreen()"><i data-lucide="maximize"></i></button> -->
             <button class="btn btn-top" style="color: #ef4444;"><i data-lucide="power"></i></button>
         </div>
@@ -357,12 +279,8 @@
     <!-- Main View -->
     <div id="view-wrapper">
     <div class="grid-container view-layer active" id="main-view">
-    <div id="view-wrapper">
-    <div class="grid-container view-layer active" id="main-view">
         <!-- Left Column -->
         <div class="col">
-            <div class="glass panel spotify" style="flex: 1; background: rgba(10, 15, 25, 0.5); padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 0;">
-                <h3 style="color: rgba(255,255,255,0.4); margin: 0 auto; text-align: center; width: 100%; font-size: 0.75rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;">NOW PLAYING</h3>
             <div class="glass panel spotify" style="flex: 1; background: rgba(10, 15, 25, 0.5); padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 0;">
                 <h3 style="color: rgba(255,255,255,0.4); margin: 0 auto; text-align: center; width: 100%; font-size: 0.75rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;">NOW PLAYING</h3>
                 
@@ -395,31 +313,6 @@
                         <span id="spot-title" style="font-size: 1.4rem; font-weight: 800; color: #ffffff; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
                         <span id="spot-artist" style="color: #64748b; font-size: 1rem; font-weight: 500; margin-top: 0.4rem; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
                     </div>
-                <div id="spot-auth" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; width: 100%;">
-                    <style>
-                        .spot-login-btn {
-                            width: 100%; height: 4rem !important; padding: 0 1rem; font-size: 1.1rem; font-weight: 800; letter-spacing: 1px;
-                            background: #1DB954 !important; color: #000 !important; border-radius: 3rem !important;
-                            border: none !important; display: flex; align-items: center; justify-content: center; gap: 0.75rem;
-                        }
-                        .spot-login-btn:active { background: #1ed760 !important; box-shadow: 0 0 20px rgba(29, 185, 84, 0.4) !important; }
-                    </style>
-                    <button class="btn spot-login-btn" onclick="window.location.href='/spotify_login'">
-                        <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
-                            <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.48.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.48-1.02.659-1.56.3z"/>
-                        </svg>
-                        CONNECT SPOTIFY
-                    </button>
-                </div>
-
-                <div id="spot-info" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: space-between; width: 100%; min-height: 0; margin-top: 1rem;">
-                    <div style="flex: 1; width: 100%; min-height: 0; display: flex; justify-content: center; align-items: center;">
-                        <img id="spot-art" src="" style="max-height: 100%; max-width: 100%; aspect-ratio: 1/1; border-radius: 0.75rem; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;">
-                    </div>
-                    <div style="width: 100%; text-align: center; margin-top: 1rem; flex-shrink: 0;">
-                        <span id="spot-title" style="font-size: 1.4rem; font-weight: 800; color: #ffffff; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
-                        <span id="spot-artist" style="color: #64748b; font-size: 1rem; font-weight: 500; margin-top: 0.4rem; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
-                    </div>
                 </div>
                 
                 <div class="spot-ctrl" style="margin-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 3.5rem;">
@@ -431,17 +324,7 @@
                     <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
                 </div>
             </div>
-                <div class="spot-ctrl" style="margin-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 3.5rem;">
-                    <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
-                    <button class="btn" id="btn-spot-play" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_play')">
-                        <i data-lucide="play" id="icon-spot-play"></i>
-                        <i data-lucide="pause" id="icon-spot-pause" style="display: none;"></i>
-                    </button>
-                    <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
-                </div>
-            </div>
 
-            <div class="glass panel" style="flex: 0 0 14rem; justify-content: center; align-items: center; display: flex; flex-direction: column;">
             <div class="glass panel" style="flex: 0 0 14rem; justify-content: center; align-items: center; display: flex; flex-direction: column;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">DISCORD INTEGRATION</h3>
                 <div class="btn-row" style="width: 100%; gap: 1.5rem;">
@@ -482,37 +365,6 @@
             </div>
 
             <div class="glass panel slider-section" style="flex: 1; padding-top: 1.5rem;">
-        </div>
-
-        <!-- Center Column -->
-        <div class="col">
-            <div class="glass panel" style="flex: 0 0 14rem; justify-content: center; align-items: center; display: flex; flex-direction: column; gap: 1.5rem;">
-                <div style="display: flex; justify-content: center; align-items: center; width: 100%;">
-                    
-                    <div style="position: relative;">
-                        
-                        <div id="time" style="font-size: clamp(4rem, 6vw, 5.5rem); font-weight: 700; letter-spacing: -2px; line-height: 1;">00:00</div>
-                        
-                        <div style="position: absolute; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 1.5rem; display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 1.3rem; color: var(--text-muted); line-height: 1;">
-                            <div id="date-day">-</div>
-                            <div style="color: var(--border); font-size: 1rem; margin: 0.1rem 0;">/</div>
-                            <div id="date-month">-</div>
-                            <div id="date-dayname" style="background: var(--text-main); color: var(--bg-dark); padding: 0.15rem 0.6rem; border-radius: 1rem; font-size: 0.75rem; margin-top: 0.4rem; letter-spacing: 1px;">---</div>
-                        </div>
-                        
-                    </div>
-                    
-                </div>
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <i data-lucide="cloud" style="width: 3rem; height: 3rem; color: var(--accent);"></i>
-                    <div style="display: flex; flex-direction: column;">
-                        <div id="w-temp" style="font-size: 2.5rem; font-weight: bold; line-height: 1;">--°</div>
-                        <div id="w-desc" style="color: var(--text-muted); text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;">--</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="glass panel slider-section" style="flex: 1; padding-top: 1.5rem;">
                 <div class="pro-slider" id="slide-spk">
                     <div class="slider-val" id="val-spk">0%</div>
                     <div class="slider-fill" id="fill-spk"></div>
@@ -520,15 +372,6 @@
                 </div>
 
                 <div class="audio-switch">
-                    <button class="btn audio-hub-btn" onclick="act('audio_cycle')">
-                        <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 800; letter-spacing: 2px;">OUTPUT</span>
-                        
-                        <div class="audio-hub-ring">
-                            <i data-lucide="audio-lines"></i>
-                        </div>
-                        
-                        <span id="btn-audio-cycle" style="font-size: 0.9rem; font-weight: 700; color: var(--text-main); letter-spacing: 1px; text-align: center; line-height: 1.2; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">DEVICE</span>
-                    </button>
                     <button class="btn audio-hub-btn" onclick="act('audio_cycle')">
                         <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 800; letter-spacing: 2px;">OUTPUT</span>
                         
@@ -583,37 +426,6 @@
                         <button class="btn" style="flex: 1; height: auto; opacity: 0.1; cursor: default;"></button>
                         <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: transparent; letter-spacing: 1px;">NONE</span>
                     </div>
-                <div class="btn-grid" style="grid-template-columns: repeat(3, 1fr); grid-auto-rows: 6rem; gap: 1.5rem; flex: 1;">
-                    <!-- Macro 1 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">CLIP</span>
-                    </div>
-                    <!-- Macro 2 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" id="btn-macro-sp" onclick="toggleSoundpad(true)" style="flex: 1; height: auto; border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--accent); letter-spacing: 1px;">SOUNDPAD</span>
-                    </div>
-                    <!-- Macro 3 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">TERM</span>
-                    </div>
-                    <!-- Macro 4 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_web')"><i data-lucide="globe"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">BROWSER</span>
-                    </div>
-                    <!-- Macro 5 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">TASK MGR</span>
-                    </div>
-                    <!-- Placeholder -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto; opacity: 0.1; cursor: default;"></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: transparent; letter-spacing: 1px;">NONE</span>
-                    </div>
                 </div>
             </div>
             <div class="glass panel" style="flex: 0 0 auto; display: flex; flex-direction: column;">
@@ -627,10 +439,7 @@
         </div>
     </div>
     
-    
     <!-- Soundpad View Overlay -->
-    <div id="soundpad-view" style="visibility: hidden; pointer-events: none; flex-direction: column;">
-        <div id="sp-inner" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%; opacity: 0;">
     <div id="soundpad-view" style="visibility: hidden; pointer-events: none; flex-direction: column;">
         <div id="sp-inner" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%; opacity: 0;">
             <div id="sp-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.5rem; align-content: start;">
@@ -639,179 +448,8 @@
         </div>
     </div>
     </div>
-    </div>
     <script>
         lucide.createIcons();
-        
-        // --- NATIVE WEBSOCKET REFACTOR ---
-        const socket = new WebSocket(`ws://${location.host}/ws`);
-        let hasDisconnected = false;
-
-        socket.onclose = () => { 
-            hasDisconnected = true; 
-            document.getElementById('top-title').innerText = "RECONNECTING...";
-            document.getElementById('top-title').style.color = "var(--danger)";
-            setTimeout(() => { window.location.reload(); }, 2000); // Polls to refresh when server restarts
-        };
-
-        socket.onopen = () => { 
-            if (hasDisconnected) window.location.reload(); 
-        };
-
-        // Helper to send JSON actions
-        function sendSocket(type, data = null) {
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({ type: type, data: data }));
-            }
-        }
-
-        let isAnimating = false;
-        let pendingSysData = null;
-
-        socket.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            const d = msg.data;
-
-            if (msg.type === 'config_sync') {
-                globalCfg = d.cfg; // SAVE the config to our new global variable
-                currentHwDevices = d.hw;
-                
-                // Use the names from the saved config
-                populateAudioTab(d.hw, globalCfg.audio_names);
-                
-                const c = d.cfg;
-                document.getElementById('cfg-weather').value = c.weather_api || '';
-                document.getElementById('cfg-city').value = c.weather_city || '';
-                document.getElementById('cfg-spot-id').value = c.spot_id || '';
-                document.getElementById('cfg-spot-secret').value = c.spot_secret || '';
-                document.getElementById('cfg-disc-id').value = c.disc_id || '';
-                document.getElementById('cfg-disc-secret').value = c.disc_secret || '';
-                spBtns = c.soundpad_buttons || [];
-                renderSpGrid();
-            } 
-            else if (msg.type === 'hw_scan_results') {
-                currentHwDevices = d;
-                populateAudioTab(d, globalCfg.audio_names);
-            }
-            else if (msg.type === 'weather_data') {
-                requestAnimationFrame(() => {
-                    document.getElementById('w-temp').innerText = d.temp + '°'; 
-                    document.getElementById('w-desc').innerText = d.desc;
-                });
-            } 
-            else if (msg.type === 'speedtest_result') {
-                requestAnimationFrame(() => {
-                    document.getElementById('s-dl').innerText = d.down; 
-                    document.getElementById('s-ul').innerText = d.up;
-                });
-            } 
-            else if (msg.type === 'sys_data') {
-                if (isAnimating) {
-                    pendingSysData = d;
-                    return;
-                }
-                updateSysDataDOM(d);
-            }
-        };
-
-        function updateSysDataDOM(d) {
-            requestAnimationFrame(() => {
-                const sysCpu = document.getElementById('sys-cpu');
-                if (sysCpu.innerText !== d.cpu + '%') sysCpu.innerText = d.cpu + '%';
-                
-                const sysRam = document.getElementById('sys-ram');
-                if (sysRam.innerText !== d.ram + '%') sysRam.innerText = d.ram + '%';
-                
-                const mouseBatt = document.getElementById('mouse-batt');
-                if (mouseBatt.innerText !== d.mouse_batt + '%') mouseBatt.innerText = d.mouse_batt + '%';
-                
-                const gpuRow = document.getElementById('sys-gpu-row');
-                if (d.gpu !== null && d.gpu !== "") {
-                    if (gpuRow.style.display !== 'flex') gpuRow.style.display = 'flex';
-                    const sysGpu = document.getElementById('sys-gpu');
-                    if (sysGpu.innerText !== d.gpu + '%') sysGpu.innerText = d.gpu + '%';
-                } else {
-                    if (gpuRow.style.display !== 'none') gpuRow.style.display = 'none';
-                }
-                
-                const spotInfo = document.getElementById('spot-info');
-                const spotEmpty = document.getElementById('spot-empty');
-                const spotAuth = document.getElementById('spot-auth');
-                
-                if (d.spotify && d.spotify.status === 'Auth_Required') {
-                    if(spotEmpty && spotEmpty.style.display !== 'none') spotEmpty.style.display = 'none';
-                    if(spotInfo && spotInfo.style.display !== 'none') spotInfo.style.display = 'none';
-                    if(spotAuth && spotAuth.style.display !== 'flex') spotAuth.style.display = 'flex';
-                } else if (d.spotify && (d.spotify.status === 'Playing' || d.spotify.status === 'Paused')) {
-                    if(spotEmpty && spotEmpty.style.display !== 'none') spotEmpty.style.display = 'none';
-                    if(spotAuth && spotAuth.style.display !== 'none') spotAuth.style.display = 'none';
-                    if(spotInfo && spotInfo.style.display !== 'flex') spotInfo.style.display = 'flex';
-                    
-                    const spotTitle = document.getElementById('spot-title');
-                    if (spotTitle.innerText !== d.spotify.title) spotTitle.innerText = d.spotify.title;
-                    
-                    const spotArtist = document.getElementById('spot-artist');
-                    if (spotArtist.innerText !== d.spotify.artist) spotArtist.innerText = d.spotify.artist;
-                    
-                    const artImg = document.getElementById('spot-art');
-                    if (d.spotify.art_url) {
-                        if (artImg.src !== d.spotify.art_url) artImg.src = d.spotify.art_url;
-                        if (artImg.style.display !== 'block') artImg.style.display = 'block';
-                    } else {
-                        if (artImg.style.display !== 'none') artImg.style.display = 'none';
-                    }
-                } else {
-                    if(spotEmpty && spotEmpty.style.display !== 'flex') spotEmpty.style.display = 'flex';
-                    if(spotAuth && spotAuth.style.display !== 'none') spotAuth.style.display = 'none';
-                    if(spotInfo && spotInfo.style.display !== 'none') spotInfo.style.display = 'none';
-                }
-
-                const playBtn = document.getElementById('btn-spot-play');
-                if (playBtn) {
-                    const isPlaying = d.spotify && d.spotify.status === 'Playing';
-                    const targetIcon = isPlaying ? 'pause' : 'play';
-                    if (!playBtn.querySelector('.lucide-' + targetIcon)) {
-                        playBtn.innerHTML = `<i data-lucide="${targetIcon}"></i>`;
-                        lucide.createIcons();
-                    }
-                }
-                
-                upSpk(d.audio.spk.vol); upMic(d.audio.mic.vol);
-                
-                const iconSpk = document.getElementById('icon-spk');
-                if (iconSpk.classList.contains('muted') !== d.audio.spk.muted) iconSpk.classList.toggle('muted', d.audio.spk.muted);
-                
-                const iconMic = document.getElementById('icon-mic');
-                if (iconMic.classList.contains('muted') !== d.audio.mic.muted) iconMic.classList.toggle('muted', d.audio.mic.muted);
-                
-                const btnAudioCycle = document.getElementById('btn-audio-cycle');
-                if (btnAudioCycle.innerText !== d.audio.active_dev) btnAudioCycle.innerText = d.audio.active_dev;
-                
-                if (d.discord) {
-                    const bMute = document.getElementById('btn-disc-mute');
-                    const bDeaf = document.getElementById('btn-disc-deaf');
-                    if (bMute && bMute.classList.contains('muted') !== d.discord.mute) bMute.classList.toggle('muted', d.discord.mute);
-                    if (bDeaf && bDeaf.classList.contains('muted') !== d.discord.deaf) bDeaf.classList.toggle('muted', d.discord.deaf);
-                }
-            });
-        }
-
-       // --- Hardware-Accelerated App Morphing (0.3s) ---
-        let spOrigin = {}; 
-        
-        // Cache DOM nodes for the Soundpad Morph to avoid querying during animation
-        const elSpView = document.getElementById('soundpad-view');
-        const elSpInner = document.getElementById('sp-inner');
-        const elCols = document.querySelectorAll('#main-view .col');
-        const elMainView = document.getElementById('main-view');
-        const elBtnSp = document.getElementById('btn-macro-sp');
-        const elBtnSpIcon = elBtnSp.children[0];
-        const elBtnBack = document.getElementById('btn-back');
-        const elBattSlide = document.getElementById('batt-slide');
-        const elTopTitle = document.getElementById('top-title');
-        const elViewWrapper = document.getElementById('view-wrapper');
-        const elGlassPanels = document.querySelectorAll('.glass');
-
         
         // --- NATIVE WEBSOCKET REFACTOR ---
         const socket = new WebSocket(`ws://${location.host}/ws`);
@@ -1113,7 +751,6 @@
         let spBtns = [];
         let currentHwDevices = [];
         let globalCfg = {}; 
-        let globalCfg = {}; 
 
         function populateAudioTab(devices, configNames) {
             const container = document.getElementById('audio-devices-list');
@@ -1138,7 +775,6 @@
             });
 
             sendSocket('save_config', {
-            sendSocket('save_config', {
                 weather_api: document.getElementById('cfg-weather').value,
                 weather_city: document.getElementById('cfg-city').value,
                 spot_id: document.getElementById('cfg-spot-id').value,
@@ -1149,7 +785,6 @@
                 soundpad_buttons: spBtns
             });
             document.getElementById('modal').classList.remove('active');
-            document.getElementById('modal').classList.remove('active');
         }
 
         let editingSpIdx = -1;
@@ -1159,9 +794,7 @@
         function renderSpGrid() {
             const grid = document.getElementById('sp-grid');
             let htmlStr = '';
-            let htmlStr = '';
             spBtns.forEach((btn, idx) => {
-                htmlStr += `
                 htmlStr += `
                     <button class="btn" style="height: 7rem; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.3);" 
                         onmousedown="spDown(${idx})" onmouseup="spUp(${idx})" onmouseleave="spLeave(${idx})"
@@ -1171,20 +804,15 @@
                 `;
             });
             htmlStr += `
-            htmlStr += `
                 <button class="btn" style="height: 7rem; border: 2px dashed var(--border); background: transparent;" 
                     onclick="openSpModal(-1)">
                     <i data-lucide="plus" style="width: 2rem; height: 2rem; color: var(--text-muted);"></i>
                 </button>
             `;
             grid.innerHTML = htmlStr;
-            grid.innerHTML = htmlStr;
             lucide.createIcons();
         }
 
-        function spLeave(idx) { if (spTimer) { clearTimeout(spTimer); spTimer = null; spCancel = true; } }
-        function spDown(idx) { spCancel = false; spTimer = setTimeout(() => { spTimer = null; spCancel = true; openSpModal(idx); }, 600); }
-        function spUp(idx) { if (spTimer) { clearTimeout(spTimer); spTimer = null; if (!spCancel) sendSocket('action', 'sp_play_' + spBtns[idx].id); } }
         function spLeave(idx) { if (spTimer) { clearTimeout(spTimer); spTimer = null; spCancel = true; } }
         function spDown(idx) { spCancel = false; spTimer = setTimeout(() => { spTimer = null; spCancel = true; openSpModal(idx); }, 600); }
         function spUp(idx) { if (spTimer) { clearTimeout(spTimer); spTimer = null; if (!spCancel) sendSocket('action', 'sp_play_' + spBtns[idx].id); } }
@@ -1199,10 +827,8 @@
             document.getElementById('sp-name-input').value = isEdit ? spBtns[idx].name : '';
             document.getElementById('sp-del-btn').style.display = isEdit ? 'block' : 'none';
             document.getElementById('sp-modal').classList.add('active');
-            document.getElementById('sp-modal').classList.add('active');
         }
 
-        function closeSpModal() { document.getElementById('sp-modal').classList.remove('active'); }
         function closeSpModal() { document.getElementById('sp-modal').classList.remove('active'); }
         function saveSpBtn() {
             const id = document.getElementById('sp-id-input').value.trim();
@@ -1219,7 +845,6 @@
         }
 
         document.getElementById('modal').addEventListener('click', (e) => { if(e.target.id === 'modal') document.getElementById('modal').classList.remove('active'); });
-        document.getElementById('modal').addEventListener('click', (e) => { if(e.target.id === 'modal') document.getElementById('modal').classList.remove('active'); });
         document.getElementById('sp-modal').addEventListener('click', (e) => { if(e.target.id === 'sp-modal') closeSpModal(); });
 
         let isDraggingSpk = false; let isDraggingMic = false;
@@ -1228,14 +853,6 @@
         function initSlider(sId, fId, vId, type, dCheck) {
             const s = document.getElementById(sId), f = document.getElementById(fId), v = document.getElementById(vId);
             let lastEmit = 0; let currentPct = 0;
-            let rAF = null; // Rendering Frame ID
-            
-            function set(pct) { 
-                currentPct = pct; 
-                f.style.transform = `translateY(${100 - pct}%)`; 
-                if (v.innerText !== pct + '%') v.innerText = pct + '%'; 
-            }
-            
             let rAF = null; // Rendering Frame ID
             
             function set(pct) { 
@@ -1255,14 +872,7 @@
                 if (rAF) cancelAnimationFrame(rAF);
                 rAF = requestAnimationFrame(() => set(pct));
                 
-                
-                // Hardware Acceleration: Queues the visual update to the exact refresh rate of the monitor
-                if (rAF) cancelAnimationFrame(rAF);
-                rAF = requestAnimationFrame(() => set(pct));
-                
                 const now = Date.now();
-                if (now - lastEmit > 80) { // Bumped timeout slightly to save network load
-                    sendSocket('set_volume', {type: type, val: pct});
                 if (now - lastEmit > 80) { // Bumped timeout slightly to save network load
                     sendSocket('set_volume', {type: type, val: pct});
                     lastEmit = now;
@@ -1271,7 +881,6 @@
             function endDrag() {
                 if (dCheck()) {
                     dCheck(false);
-                    sendSocket('set_volume', {type: type, val: currentPct});
                     sendSocket('set_volume', {type: type, val: currentPct});
                 }
             }
@@ -1282,7 +891,6 @@
             s.addEventListener('touchmove', (e) => { e.preventDefault(); if(dCheck()) drag(e); }, {passive: false});
             document.addEventListener('touchend', endDrag);
             document.addEventListener('touchcancel', endDrag);
-            return (ext) => { if(!dCheck()) { if (rAF) cancelAnimationFrame(rAF); rAF = requestAnimationFrame(() => set(ext)); } };
             return (ext) => { if(!dCheck()) { if (rAF) cancelAnimationFrame(rAF); rAF = requestAnimationFrame(() => set(ext)); } };
         }
 
@@ -1319,65 +927,11 @@
                     toggleFullscreen();
                 }
                 lastTapTime = 0; // Reset
-       // --- Dashboard Gestures ---
-        let maxTouches = 0;
-        let lastTapTime = 0;
-        let lastTapFingers = 0;
-
-        document.addEventListener('touchstart', (e) => {
-            if(e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
-            // Record the highest number of fingers on the screen during this touch
-            maxTouches = Math.max(maxTouches, e.touches.length);
-        }, { passive: false });
-
-        document.addEventListener('touchend', (e) => {
-            if(e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
-            
-            // Wait until ALL fingers have left the glass
-            if (e.touches.length > 0) return; 
-
-            const now = Date.now();
-            const tapGap = now - lastTapTime;
-
-            if (tapGap > 0 && tapGap < 400) {
-                // It's a double tap! Check the max fingers used across both taps
-                if (maxTouches === 2 || lastTapFingers === 2) {
-                    e.preventDefault();
-                    document.getElementById('modal').classList.add('active');
-                } else if (maxTouches === 1 && lastTapFingers === 1) {
-                    e.preventDefault();
-                    toggleFullscreen();
-                }
-                lastTapTime = 0; // Reset
             } else {
-                lastTapTime = now;
-                lastTapFingers = maxTouches;
                 lastTapTime = now;
                 lastTapFingers = maxTouches;
             }
             
-            maxTouches = 0; // Reset for next interaction
-        });
-
-        document.addEventListener('dblclick', (e) => {
-            if(e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
-            if (e.pointerType === 'touch' || window.matchMedia("(pointer: coarse)").matches) return;
-            document.getElementById('modal').classList.add('active');
-        });
-
-        function act(a) { sendSocket('action', a); }
-        function runSpeedtest() { 
-            document.getElementById('s-dl').innerText = "..."; 
-            document.getElementById('s-ul').innerText = "..."; 
-            sendSocket('run_speedtest'); 
-        }
-
-        let lastTimeStr = "";
-        const elTime = document.getElementById('time');
-        const elDateMonth = document.getElementById('date-month');
-        const elDateDay = document.getElementById('date-day');
-        const elDateDayName = document.getElementById('date-dayname');
-        
             maxTouches = 0; // Reset for next interaction
         });
 
@@ -1402,16 +956,6 @@
         
         setInterval(() => {
             const d = new Date();
-            const timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
-            if (timeStr !== lastTimeStr) {
-                lastTimeStr = timeStr;
-                requestAnimationFrame(() => {
-                    elTime.innerText = timeStr;
-                    elDateMonth.innerText = d.getMonth() + 1;
-                    elDateDay.innerText = d.getDate();
-                    elDateDayName.innerText = d.toLocaleDateString([], {weekday: 'short'}).toUpperCase();
-                });
-            }
             const timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
             if (timeStr !== lastTimeStr) {
                 lastTimeStr = timeStr;
