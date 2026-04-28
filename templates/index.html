@@ -475,6 +475,7 @@
 
         let isAnimating = false;
         let pendingSysData = null;
+        let spotifyLock = 0;
 
         socket.onmessage = (event) => {
             const msg = JSON.parse(event.data);
@@ -579,14 +580,17 @@
                 const iconPause = document.getElementById('icon-spot-pause');
                 
                 if (iconPlay && iconPause) {
-                    const isPlaying = d.spotify && d.spotify.status === 'Playing';
-                    
-                    if (isPlaying) {
-                        if (iconPlay.style.display !== 'none') iconPlay.style.display = 'none';
-                        if (iconPause.style.display === 'none') iconPause.style.display = '';
-                    } else {
-                        if (iconPlay.style.display === 'none') iconPlay.style.display = '';
-                        if (iconPause.style.display !== 'none') iconPause.style.display = 'none';
+                    // THE FIX: Only allow the server to overwrite the UI if the lock has expired
+                    if (Date.now() > spotifyLock) {
+                        const isPlaying = d.spotify && d.spotify.status === 'Playing';
+                        
+                        if (isPlaying) {
+                            if (iconPlay.style.display !== 'none') iconPlay.style.display = 'none';
+                            if (iconPause.style.display === 'none') iconPause.style.display = '';
+                        } else {
+                            if (iconPlay.style.display === 'none') iconPlay.style.display = '';
+                            if (iconPause.style.display !== 'none') iconPause.style.display = 'none';
+                        }
                     }
                 }
                 
@@ -937,23 +941,22 @@
 
         // --- Action Dispatcher with Optimistic UI ---
         function act(a) { 
-            // Instantly flip the Play/Pause icon the millisecond the screen is touched
-            // This hides the 0.5s+ latency of the Spotify REST API
             if (a === 'spot_play') {
+                spotifyLock = Date.now() + 1500; // Lock out server updates for 1.5s
+                
                 const iconPlay = document.getElementById('icon-spot-play');
                 const iconPause = document.getElementById('icon-spot-pause');
                 
                 if (iconPlay && iconPause) {
                     const isCurrentlyPaused = (iconPlay.style.display !== 'none');
-                    // Flip the displays immediately
                     iconPlay.style.display = isCurrentlyPaused ? 'none' : '';
                     iconPause.style.display = isCurrentlyPaused ? '' : 'none';
                 }
             }
             
-            // Send the command to the server in the background
             sendSocket('action', a); 
         }
+
         function runSpeedtest() { 
             document.getElementById('s-dl').innerText = "..."; 
             document.getElementById('s-ul').innerText = "..."; 
