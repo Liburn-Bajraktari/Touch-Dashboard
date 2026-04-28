@@ -439,7 +439,7 @@ async def index(request: Request):
     global last_host_url
     last_host_url = request.url.netloc
     response = FileResponse(os.path.join(BASE_DIR, "templates", "index.html"))
-    # Instructs the WebView to re-validate the file every time
+    # FORCES WEBVIEW TO CHECK SERVER EVERY TIME
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -452,11 +452,11 @@ async def favicon():
 
 @app.get('/manifest.json')
 async def manifest():
-    # Adding a version query here tricks the PWA manager
+    # Adding ?v=1.2 to the start_url tricks the PWA cache
     return JSONResponse(content={
         "name": "Command Center Dashboard",
         "short_name": "CmdCenter",
-        "start_url": "/?v=1.1", 
+        "start_url": "/?v=1.2",
         "display": "standalone",
         "orientation": "landscape",
         "background_color": "#090e17",
