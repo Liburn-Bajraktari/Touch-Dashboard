@@ -720,20 +720,17 @@
        // --- Dashboard Gestures ---
         let lastSingleFingerTime = 0;
         let lastTwoFingerTime = 0;
-        let gestureTimeout = null; // FIX: Prevents 1-finger logic from firing during 2-finger taps
+        let gestureTimeout = null;
 
-        document.getElementById('body').addEventListener('touchstart', (e) => {
+        // Tied directly to document so it never misses, regardless of layout wrappers
+        document.addEventListener('touchstart', (e) => {
             if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
             
             const now = Date.now();
             const numFingers = e.touches.length;
 
             if (numFingers === 2) {
-                // ABORT Fullscreen: A second finger has arrived!
-                if (gestureTimeout) {
-                    clearTimeout(gestureTimeout);
-                    gestureTimeout = null;
-                }
+                if (gestureTimeout) clearTimeout(gestureTimeout);
                 
                 const tapGap = now - lastTwoFingerTime;
                 if (tapGap < 450 && tapGap > 0) {
@@ -746,18 +743,15 @@
                 const tapGap = now - lastSingleFingerTime;
                 if (tapGap < 350 && tapGap > 0) {
                     e.preventDefault();
-                    // WAIT 60ms to ensure a second finger isn't landing
                     gestureTimeout = setTimeout(() => {
                         toggleFullscreen();
-                        gestureTimeout = null;
                     }, 60);
                 }
                 lastSingleFingerTime = now;
             }
         }, { passive: false });
 
-        // Standard Double-Click (For ThinkPad Mouse/Trackpad only)
-        document.getElementById('body').addEventListener('dblclick', (e) => {
+        document.addEventListener('dblclick', (e) => {
             if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
             if (e.pointerType === 'touch' || window.matchMedia("(pointer: coarse)").matches) return;
             document.getElementById('modal').classList.add('active');
