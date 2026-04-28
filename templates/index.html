@@ -48,20 +48,22 @@
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
         .btn {
-            background: rgba(255, 255, 255, 0.07); 
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            /* Upgraded hardware-tactile styling */
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%); 
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.08);
             border-radius: 1rem; color: var(--text-main); display: flex; justify-content: center; align-items: center;
             cursor: pointer; transition: all 0.15s ease; height: 100%; outline: none;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Added Shadow */
         }
         .btn:active { transform: scale(0.92); background: var(--accent); box-shadow: 0 0 15px var(--accent-glow); color: #000; }
+        #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
-        
         .btn-top { width: 4rem; height: 3.5rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
         .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: 1.5rem; flex: 1; align-content: start;}
 
-        .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }.col { 
+        .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }
+        .col { 
             display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; 
         }
         .panel { padding: 1.5rem; display: flex; flex-direction: column; }
@@ -321,12 +323,12 @@
                 </div>
                 
                 <div class="spot-ctrl" style="margin-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 3.5rem;">
-                    <button class="btn" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
-                    <button class="btn" id="btn-spot-play" onclick="act('spot_play')">
+                    <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
+                    <button class="btn" id="btn-spot-play" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_play')">
                         <i data-lucide="play" id="icon-spot-play"></i>
                         <i data-lucide="pause" id="icon-spot-pause" style="display: none;"></i>
                     </button>
-                    <button class="btn" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
+                    <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
                 </div>
             </div>
 
