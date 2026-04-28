@@ -81,7 +81,7 @@
         .slider-icon.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; }
         .slider-icon:active { transform: scale(0.9); }
 
-        /* --- Audio Hub Core --- */
+       /* --- Audio Hub Core --- */
         .audio-switch { display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 0 0 8.5rem; }
         
         .audio-hub-btn {
@@ -91,6 +91,12 @@
             border: 1px solid rgba(255,255,255,0.05);
             border-radius: 2.5rem;
             box-shadow: inset 0 4px 20px rgba(0,0,0,0.4);
+        }
+
+        /* THE FIX: Stops the default .btn shadow from bleeding through and looking chopped */
+        .audio-hub-btn:active {
+            box-shadow: inset 0 4px 20px rgba(0,0,0,0.4) !important;
+            background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%) !important;
         }
         
         .audio-hub-ring {
