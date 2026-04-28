@@ -103,12 +103,63 @@
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+        /* --- Hardware-Accelerated View Animations --- */
+        #view-wrapper {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+            width: 100%;
+        }
+
+        .view-layer {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            /* Cubic-bezier gives that snappy modern iOS/Tech feel */
+            transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .view-layer.active {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+            transform: scale(1);
+        }
+
+        /* The 3D "Push" Effect States */
+        .view-layer.hidden-under { transform: scale(0.92); opacity: 0; }
+        .view-layer.hidden-over { transform: scale(1.08); opacity: 0; }
+
+        /* --- Modal Animation Styles --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.8); backdrop-filter: blur(10px);
+            z-index: 999; display: flex; justify-content: center; align-items: center;
+            opacity: 0; visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s;
+        }
+        
+        .modal-overlay.active {
+            opacity: 1; visibility: visible;
+        }
+
+        .modal-overlay .modal-card {
+            transform: scale(0.95) translateY(2rem);
+            transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        .modal-overlay.active .modal-card {
+            transform: scale(1) translateY(0);
+        }
     </style>
 </head>
 <body id="body">
 
     <!-- Tabbed Settings Modal -->
-    <div id="modal">
+    <div id="modal" class="modal-overlay">
         <div class="modal-card" id="modal-card">
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('tab-spotify')">Spotify</button>
@@ -147,7 +198,7 @@
     </div>
 
     <!-- Soundpad Edit Modal -->
-    <div id="sp-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); z-index: 1000; justify-content: center; align-items: center;">
+    <div id="sp-modal" class="modal-overlay">
         <div class="modal-card" id="sp-modal-card" style="width: 30rem;">
             <h3 style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 1.5rem;" id="sp-modal-title">Edit Button</h3>
             <div class="form-group"><label>Button ID / Command</label><input type="text" id="sp-id-input" placeholder="e.g. 1"></div>
@@ -163,7 +214,7 @@
     <!-- Top Bar Core -->
     <div class="top-bar glass">
         <div class="section batt" style="gap: 1rem;">
-            <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="display: none; width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
+            <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="opacity: 0; pointer-events: none; transition: all 0.3s ease; width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
             </div>
@@ -178,7 +229,8 @@
     </div>
 
     <!-- Main View -->
-    <div class="grid-container" id="main-view">
+    <div id="view-wrapper">
+    <div class="grid-container view-layer active" id="main-view">
         <!-- Left Column -->
         <div class="col">
             <div class="glass panel panel-top" style="justify-content: center; align-items: center; display: flex; flex-direction: column; gap: 1.5rem;">
@@ -329,16 +381,16 @@
             </div>
         </div>
     </div>
-
+    
     <!-- Soundpad View Overlay -->
-    <div id="soundpad-view" style="display: none; flex: 1; min-height: 0;">
+    <div id="soundpad-view" class="view-layer hidden-over" style="display: flex; flex-direction: column;">
         <div class="glass" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%;">
             <div id="sp-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.5rem; align-content: start;">
                 <!-- Buttons filled by JS -->
             </div>
         </div>
     </div>
-
+    </div>
     <script>
         lucide.createIcons();
         
@@ -463,16 +515,38 @@
             }
         };
 
-       // --- View Toggling & Top Bar Morphing ---
+       // --- View Toggling & Smooth Morphing ---
         function toggleSoundpad(show) {
-            document.getElementById('main-view').style.display = show ? 'none' : 'grid';
-            document.getElementById('soundpad-view').style.display = show ? 'flex' : 'none';
-            document.getElementById('btn-back').style.display = show ? 'flex' : 'none';
-            
+            const mainView = document.getElementById('main-view');
+            const spView = document.getElementById('soundpad-view');
+            const btnBack = document.getElementById('btn-back');
             const title = document.getElementById('top-title');
+
+            if (show) {
+                // Push Main down, Drop Soundpad in
+                mainView.classList.remove('active');
+                mainView.classList.add('hidden-under');
+                spView.classList.remove('hidden-over');
+                spView.classList.add('active');
+                
+                btnBack.style.opacity = '1';
+                btnBack.style.pointerEvents = 'auto';
+            } else {
+                // Pull Main up, Push Soundpad out
+                spView.classList.remove('active');
+                spView.classList.add('hidden-over');
+                mainView.classList.remove('hidden-under');
+                mainView.classList.add('active');
+                
+                btnBack.style.opacity = '0';
+                btnBack.style.pointerEvents = 'none';
+            }
+            
             title.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
             title.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
             title.style.fontWeight = show ? '800' : '300';
+            title.style.transform = 'scale(1.05)'; // Tiny bump effect
+            setTimeout(() => title.style.transform = 'scale(1)', 150);
         }
 
         function switchTab(tabId) {
@@ -518,7 +592,7 @@
                 audio_names: audio_names,
                 soundpad_buttons: spBtns
             });
-            document.getElementById('modal').style.display = 'none';
+            document.getElementById('modal').classList.remove('active');
         }
 
         let editingSpIdx = -1;
@@ -559,10 +633,10 @@
             document.getElementById('sp-id-input').value = isEdit ? spBtns[idx].id : '';
             document.getElementById('sp-name-input').value = isEdit ? spBtns[idx].name : '';
             document.getElementById('sp-del-btn').style.display = isEdit ? 'block' : 'none';
-            document.getElementById('sp-modal').style.display = 'flex';
+            document.getElementById('sp-modal').classList.add('active');
         }
 
-        function closeSpModal() { document.getElementById('sp-modal').style.display = 'none'; }
+        function closeSpModal() { document.getElementById('sp-modal').classList.remove('active'); }
         function saveSpBtn() {
             const id = document.getElementById('sp-id-input').value.trim();
             const name = document.getElementById('sp-name-input').value.trim();
@@ -577,8 +651,8 @@
             closeSpModal(); renderSpGrid(); saveConfig();
         }
 
-        document.getElementById('modal').addEventListener('click', (e) => { if(e.target.id === 'modal') document.getElementById('modal').style.display = 'none'; });
-        document.getElementById('sp-modal').addEventListener('click', (e) => { if(e.target.id === 'sp-modal') closeSpModal(); });
+        document.getElementById('modal').addEventListener('click', (e) => { if(e.target.id === 'modal') document.getElementById('modal').classList.remove('active'); });
+document.getElementById('sp-modal').addEventListener('click', (e) => { if(e.target.id === 'sp-modal') closeSpModal(); });
 
         let isDraggingSpk = false; let isDraggingMic = false;
         function toggleFullscreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>e); else if (document.exitFullscreen) document.exitFullscreen(); }
@@ -640,7 +714,7 @@
                 const tapGap = now - lastTwoFingerTime;
                 if (tapGap < 450 && tapGap > 0) {
                     e.preventDefault();
-                    document.getElementById('modal').style.display = 'flex';
+                    document.getElementById('modal').classList.add('active');
                 }
                 lastTwoFingerTime = now;
             } 
@@ -662,7 +736,7 @@
         document.getElementById('body').addEventListener('dblclick', (e) => {
             if(e.target.tagName === 'INPUT' || e.target.closest('button')) return;
             if (e.pointerType === 'touch' || window.matchMedia("(pointer: coarse)").matches) return;
-            document.getElementById('modal').style.display = 'flex';
+            document.getElementById('modal').classList.add('active');
         });
 
         function act(a) { sendSocket('action', a); }
