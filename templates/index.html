@@ -618,20 +618,17 @@
         const elBattSlide = document.getElementById('batt-slide');
         const elTopTitle = document.getElementById('top-title');
         const elViewWrapper = document.getElementById('view-wrapper');
-        const elGlassPanels = document.querySelectorAll('.glass');
+        const elMainGlassPanels = document.querySelectorAll('#main-view .glass');
 
         function toggleSoundpad(show) {
             isAnimating = true;
 
             if (show) {
-                // 1. Read Phase (No Writes yet to prevent Layout Thrashing)
                 const btnRect = elBtnSp.getBoundingClientRect();
                 const wrapRect = elViewWrapper.getBoundingClientRect();
-                
-                // 2. Write Phase
+
                 elMainView.style.pointerEvents = 'none';
-                
-                // Calculate GPU Transform Math (Bypasses CPU entirely)
+
                 const wrapCenterX = wrapRect.width / 2;
                 const wrapCenterY = wrapRect.height / 2;
                 const btnCenterX = (btnRect.left - wrapRect.left) + (btnRect.width / 2);
@@ -644,31 +641,28 @@
                     scaleY: btnRect.height / wrapRect.height
                 };
 
-                // Kill heavy paints on main view panels during movement
-                gsap.set(elGlassPanels, { backdropFilter: 'none', webkitBackdropFilter: 'none', boxShadow: 'none' });
+                // Kill heavy paints only on main view to save GPU bandwidth during transition
+                gsap.set(elMainGlassPanels, { backdropFilter: 'none', webkitBackdropFilter: 'none', boxShadow: 'none' });
 
-                // Prep the shell (Full size, but shrunk/moved via GPU transforms)
                 gsap.set(elSpView, { 
                     visibility: 'visible', pointerEvents: 'auto', opacity: 1, 
                     x: spOrigin.x, y: spOrigin.y, 
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
                     backdropFilter: 'none', webkitBackdropFilter: 'none',
-                    boxShadow: 'none' // Kill heavy paint shadows during movement
+                    boxShadow: 'none',
+                    willChange: 'transform, opacity' // Boost hardware acceleration
                 });
-                
+
                 gsap.set(elSpInner, { opacity: 0 });
 
-                // GPU-Only Morphing (0.3s)
                 gsap.to(elSpView, { 
                     duration: 0.3, 
                     x: 0, y: 0, scaleX: 1, scaleY: 1, 
                     ease: "power3.inOut",
                     onComplete: () => {
-                        // Turn heavy paints back on ONLY after motion completely stops
                         requestAnimationFrame(() => {
                             gsap.set(elSpView, { 
-                                backdropFilter: 'blur(20px)', webkitBackdropFilter: 'blur(20px)',
-                                boxShadow: '0 4px 30px rgba(0, 0, 0, 0.5)'
+                                backdropFilter: '', webkitBackdropFilter: '', boxShadow: '', willChange: 'auto'
                             });
                         });
                         gsap.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out", onComplete: () => {
@@ -678,50 +672,46 @@
                     }
                 });
 
-                // Crossfades & Pushes
                 gsap.to(elBtnSpIcon, { opacity: 0, duration: 0.1 });
                 gsap.to(elBtnSp, { opacity: 0, duration: 0.15 });
 
-                gsap.to(elCols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
-                gsap.to(elCols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
-                gsap.to(elCols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(elCols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut", willChange: 'transform, opacity' });
+                gsap.to(elCols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", willChange: 'transform, opacity' });
+                gsap.to(elCols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", willChange: 'transform, opacity' });
 
-                gsap.to(elBattSlide, { x: '4.5rem', duration: 0.3, ease: "power3.inOut" });
+                gsap.to(elBattSlide, { x: '4.5rem', duration: 0.3, ease: "power3.inOut", willChange: 'transform' });
                 gsap.to(elBtnBack, { opacity: 1, duration: 0.15, delay: 0.1 });
                 elBtnBack.style.pointerEvents = 'auto';
 
             } else {
                 elMainView.style.pointerEvents = 'auto';
-                // 1. Hide inner content instantly
+
                 gsap.to(elSpInner, { opacity: 0, duration: 0.1, ease: "power2.in" });
 
-                // 2. Kill heavy paints BEFORE moving
                 gsap.set(elSpView, { 
-                    backdropFilter: 'none', webkitBackdropFilter: 'none',
-                    boxShadow: 'none'
+                    backdropFilter: 'none', webkitBackdropFilter: 'none', boxShadow: 'none', willChange: 'transform, opacity'
                 });
 
-                // 3. GPU Warp back to origin
                 gsap.to(elSpView, { 
                     duration: 0.3, delay: 0.05,
                     x: spOrigin.x, y: spOrigin.y, 
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
                     ease: "power3.inOut", 
                     onComplete: () => { 
-                        gsap.set(elSpView, { visibility: 'hidden', pointerEvents: 'none' }); 
+                        gsap.set(elSpView, { visibility: 'hidden', pointerEvents: 'none', clearProps: 'all' }); 
                         isAnimating = false;
                         if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                     }
                 });
 
-                gsap.to(elBtnSp, { opacity: 1, duration: 0.15, delay: 0.1 });
-                gsap.to(elBtnSpIcon, { opacity: 1, duration: 0.15, delay: 0.15 });
+                gsap.to(elBtnSp, { opacity: 1, duration: 0.15, delay: 0.1, clearProps: 'opacity' });
+                gsap.to(elBtnSpIcon, { opacity: 1, duration: 0.15, delay: 0.15, clearProps: 'opacity' });
 
                 gsap.to(elCols, { 
                     x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02,
                     onComplete: () => {
-                        // Restore main view paints safely without destroying inline layout styles
-                        elGlassPanels.forEach(p => {
+                        gsap.set(elCols, { clearProps: 'transform,opacity,willChange' });
+                        elMainGlassPanels.forEach(p => {
                             p.style.backdropFilter = '';
                             p.style.webkitBackdropFilter = '';
                             p.style.boxShadow = '';
@@ -730,17 +720,15 @@
                 });
 
                 elBtnBack.style.pointerEvents = 'none';
-                gsap.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out" });
-                gsap.to(elBattSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut" });
+                gsap.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out", clearProps: 'opacity' });
+                gsap.to(elBattSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut", clearProps: 'transform,willChange' });
             }
-            
-            // Sync title animation with GSAP requestAnimationFrame pipeline instead of setTimeout
+
             elTopTitle.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
             elTopTitle.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
             elTopTitle.style.fontWeight = show ? '800' : '300';
-            gsap.fromTo(elTopTitle, { scale: 1.05 }, { scale: 1, duration: 0.15, ease: "power2.out" });
+            gsap.fromTo(elTopTitle, { scale: 1.05 }, { scale: 1, duration: 0.15, ease: "power2.out", clearProps: 'scale' });
         }
-
         function switchTab(tabId) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
