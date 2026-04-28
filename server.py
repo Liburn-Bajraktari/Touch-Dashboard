@@ -20,6 +20,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
+from fastapi.staticfiles import StaticFiles 
 
 # --- CONFIGURATION MANAGER ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -424,6 +425,7 @@ async def fetch_weather():
 # --- FASTAPI APP & ROUTES ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
     restart_discord_ipc()
     asyncio.create_task(hardware_loop())
     asyncio.create_task(fetch_weather())
@@ -447,9 +449,27 @@ async def favicon():
 @app.get('/manifest.json')
 async def manifest():
     return JSONResponse({
-        "name": "Command Center", "short_name": "Dash", "display": "fullscreen", "orientation": "landscape",
-        "background_color": "#090e17", "theme_color": "#090e17",
-        "icons": [{"src": "https://upload.wikimedia.org/wikipedia/commons/4/49/A_black_image.jpg", "sizes": "192x192", "type": "image/jpeg"}]
+        "name": "Command Center Dashboard",
+        "short_name": "CmdCenter",
+        "start_url": "/",
+        "display": "fullscreen",
+        "orientation": "landscape",
+        "background_color": "#090e17", # Matches your UI bg
+        "theme_color": "#0ea5e9",      # Matches your accent blue
+        "icons": [
+            {
+                "src": "/static/icon-192.png",
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any maskable" # Important for nice Android rendering
+            },
+            {
+                "src": "/static/icon-512.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable"
+            }
+        ]
     })
 
 @app.get('/spotify_login')
