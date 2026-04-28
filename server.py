@@ -456,7 +456,7 @@ async def manifest():
     return JSONResponse(content={
         "name": "Command Center Dashboard",
         "short_name": "CmdCenter",
-        "start_url": "/?v=1.2",
+        "start_url": "/?v=1.6",
         "display": "standalone",
         "orientation": "landscape",
         "background_color": "#090e17",

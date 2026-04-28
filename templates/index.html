@@ -10,7 +10,7 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
 
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="/manifest.json?v=1.6">
     
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,6 +18,7 @@
     <meta name="theme-color" content="#090e17">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="/static/sw.js?v=1.6"></script>
     <style>
         :root {
             --bg-dark: #090e17; --panel-bg: rgba(15, 23, 42, 0.4); --border: rgba(255, 255, 255, 0.08);
@@ -48,14 +49,27 @@
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
         .btn {
-            /* Upgraded hardware-tactile styling */
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%); 
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.08);
-            border-radius: 1rem; color: var(--text-main); display: flex; justify-content: center; align-items: center;
-            cursor: pointer; transition: all 0.15s ease; height: 100%; outline: none;
+            background-color: rgba(255, 255, 255, 0.1); /* Increased for visibility */
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px; 
+            color: #f8fafc;
+            display: flex; 
+            justify-content: center; 
+            align-items: center;
+            height: 100%;
+            width: 100%;
+            /* Standard shadow - avoid complex blurs if it's still not showing */
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.4);
+            transition: background-color 0.15s ease;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
         }
-        .btn:active { transform: scale(0.92); background: var(--accent); box-shadow: 0 0 15px var(--accent-glow); color: #000; }
+
+        .btn:active {
+            background-color: #0ea5e9;
+            color: #000000;
+            transform: scale(0.95);
+        }
         #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
         .btn-top { width: 4rem; height: 3.5rem; }
@@ -456,13 +470,25 @@
     </div>
     </div>
     <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                // Versioning the worker file name/query forces a deep refresh
-                navigator.serviceWorker.register('/static/sw.js?v=1.2').catch(err => console.log('SW setup failed', err));
-            });
-        }
+async function clearEverything() {
+    if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (let r of registrations) { await r.unregister(); }
+    }
+    if ('caches' in window) {
+        const keys = await caches.keys();
+        for (let k of keys) { await caches.delete(k); }
+    }
+}
 
+// Bumping this from '1.5' to '1.6' forces the tablet to wipe its own memory
+const APP_VERSION = '1.6'; 
+if (localStorage.getItem('app_version') !== APP_VERSION) {
+    clearEverything().then(() => {
+        localStorage.setItem('app_version', APP_VERSION);
+        window.location.reload(true);
+    });
+}
         lucide.createIcons();
         
         // --- NATIVE WEBSOCKET REFACTOR ---
