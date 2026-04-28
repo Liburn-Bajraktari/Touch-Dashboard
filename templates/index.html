@@ -56,7 +56,10 @@
         .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: 1.5rem; flex: 1; align-content: start;}
 
         .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }
-        .col { display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; }
+        .col { 
+            display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; 
+            will-change: transform, opacity; /* Forces GPU to pre-render the columns */
+        }
         .panel { padding: 1.5rem; display: flex; flex-direction: column; }
         .panel-top { flex: 0 0 14rem; }
         .panel-bottom { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -156,10 +159,14 @@
 
        #soundpad-view {
             position: absolute; display: none; overflow: hidden;
-            background: var(--panel-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            /* Lock to full screen permanently to bypass CPU Layout math */
+            top: 0; left: 0; width: 100%; height: 100%; 
+            background: var(--panel-bg); 
+            border: 1px solid var(--border); 
+            /* Set origin to center so math scales evenly */
+            transform-origin: center center; 
             z-index: 10;
-            will-change: top, left, width, height; /* Preps the GPU */
+            will-change: transform, opacity, filter; /* Reserve hardware memory */
         }
 
         /* --- Modal Animation Styles --- */
@@ -568,79 +575,87 @@
             const title = document.getElementById('top-title');
 
             if (show) {
-                // 1. Calculate bounds
                 const btnRect = btn.getBoundingClientRect();
                 const wrapRect = document.getElementById('view-wrapper').getBoundingClientRect();
                 
+                // 1. Calculate GPU Transform Math (Bypasses CPU entirely)
+                const wrapCenterX = wrapRect.width / 2;
+                const wrapCenterY = wrapRect.height / 2;
+                const btnCenterX = (btnRect.left - wrapRect.left) + (btnRect.width / 2);
+                const btnCenterY = (btnRect.top - wrapRect.top) + (btnRect.height / 2);
+
                 spOrigin = {
-                    t: btnRect.top - wrapRect.top,
-                    l: btnRect.left - wrapRect.left,
-                    w: btnRect.width,
-                    h: btnRect.height
+                    x: btnCenterX - wrapCenterX,
+                    y: btnCenterY - wrapCenterY,
+                    scaleX: btnRect.width / wrapRect.width,
+                    scaleY: btnRect.height / wrapRect.height
                 };
 
-                // 2. Wrap tightly (DISABLE BLUR TO PREVENT GPU FRAME DROPS)
+                // 2. Prep the shell (Full size, but shrunk/moved via GPU transforms)
                 gsap.set(spView, { 
                     display: 'flex', opacity: 1, 
-                    top: spOrigin.t, left: spOrigin.l, 
-                    width: spOrigin.w, height: spOrigin.h, 
-                    borderRadius: '1rem',
-                    backdropFilter: 'none', 
-                    webkitBackdropFilter: 'none'
+                    x: spOrigin.x, y: spOrigin.y, 
+                    scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
+                    borderRadius: '4rem', // Higher radius because it squishes during scale
+                    backdropFilter: 'none', webkitBackdropFilter: 'none',
+                    boxShadow: 'none' // Kill heavy paint shadows during movement
                 });
                 
-                gsap.set(spInner, { opacity: 0, scale: 0.95 });
+                gsap.set(spInner, { opacity: 0 });
 
-                // 3. Morph the shell (0.3s Smooth)
+                // 3. GPU-Only Morphing (0.3s)
                 gsap.to(spView, { 
                     duration: 0.3, 
-                    top: 0, left: 0, width: '100%', height: '100%', borderRadius: '1.5rem', 
+                    x: 0, y: 0, scaleX: 1, scaleY: 1, 
+                    borderRadius: '1.5rem', 
                     ease: "power3.inOut",
                     onComplete: () => {
-                        // Snap blur back on once the GPU stops calculating motion
-                        gsap.set(spView, { backdropFilter: 'blur(20px)', webkitBackdropFilter: 'blur(20px)' });
+                        // Turn heavy paints back on ONLY after motion completely stops
+                        gsap.set(spView, { 
+                            backdropFilter: 'blur(20px)', webkitBackdropFilter: 'blur(20px)',
+                            boxShadow: '0 4px 30px rgba(0, 0, 0, 0.5)'
+                        });
+                        gsap.to(spInner, { opacity: 1, duration: 0.15, ease: "power2.out" });
                     }
                 });
-                
-                gsap.to(spInner, { opacity: 1, scale: 1, duration: 0.2, delay: 0.1, ease: "power2.out" });
 
-                // 4. Seamless crossfade
+                // 4. Crossfades & Pushes
                 gsap.to(btnIcon, { opacity: 0, duration: 0.1 });
                 gsap.to(btn, { opacity: 0, duration: 0.15 });
 
-                // 5. Push columns out
-                gsap.to(cols[0], { x: -30, opacity: 0, duration: 0.3, ease: "power3.inOut" });
-                gsap.to(cols[1], { y: 30, opacity: 0, duration: 0.3, ease: "power3.inOut" });
-                gsap.to(cols[2], { x: 30, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(cols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(cols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(cols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
 
-                // 6. Synchronized Top Bar
                 gsap.to(battSlide, { x: '4.5rem', duration: 0.3, ease: "power3.inOut" });
                 gsap.to(btnBack, { opacity: 1, duration: 0.15, delay: 0.1 });
                 btnBack.style.pointerEvents = 'auto';
 
             } else {
-                // 1. Hide inner content
-                gsap.to(spInner, { opacity: 0, scale: 0.95, duration: 0.15, ease: "power2.in" });
+                // 1. Hide inner content instantly
+                gsap.to(spInner, { opacity: 0, duration: 0.1, ease: "power2.in" });
 
-                // 2. Remove blur BEFORE moving to save GPU frames
-                gsap.set(spView, { backdropFilter: 'none', webkitBackdropFilter: 'none' });
+                // 2. Kill heavy paints BEFORE moving
+                gsap.set(spView, { 
+                    backdropFilter: 'none', webkitBackdropFilter: 'none',
+                    boxShadow: 'none'
+                });
 
-                // 3. Shrink shell (0.3s)
+                // 3. GPU Warp back to origin
                 gsap.to(spView, { 
                     duration: 0.3, delay: 0.05,
-                    top: spOrigin.t, left: spOrigin.l, width: spOrigin.w, height: spOrigin.h, borderRadius: '1rem', 
+                    x: spOrigin.x, y: spOrigin.y, 
+                    scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
+                    borderRadius: '4rem', 
                     ease: "power3.inOut", 
                     onComplete: () => { gsap.set(spView, { display: 'none' }); }
                 });
 
-                // 4. Fade button back
                 gsap.to(btn, { opacity: 1, duration: 0.15, delay: 0.1 });
                 gsap.to(btnIcon, { opacity: 1, duration: 0.15, delay: 0.15 });
 
-                // 5. Pull columns back
                 gsap.to(cols, { x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02 });
 
-                // 6. Synchronized Top Bar Closing
                 btnBack.style.pointerEvents = 'none';
                 gsap.to(btnBack, { opacity: 0, duration: 0.1, ease: "power2.out" });
                 gsap.to(battSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut" });
@@ -764,16 +779,27 @@
         function initSlider(sId, fId, vId, type, dCheck) {
             const s = document.getElementById(sId), f = document.getElementById(fId), v = document.getElementById(vId);
             let lastEmit = 0; let currentPct = 0;
-            function set(pct) { currentPct = pct; f.style.height = pct + '%'; v.innerText = pct + '%'; }
+            let rAF = null; // Rendering Frame ID
+            
+            function set(pct) { 
+                currentPct = pct; 
+                f.style.height = pct + '%'; 
+                v.innerText = pct + '%'; 
+            }
+            
             function drag(e) {
                 const r = s.getBoundingClientRect();
                 let clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
                 if (clientY === undefined) return;
                 let pct = 100 - (((clientY - r.top) / r.height) * 100);
                 pct = Math.max(0, Math.min(100, Math.round(pct)));
-                set(pct); 
+                
+                // Hardware Acceleration: Queues the visual update to the exact refresh rate of the monitor
+                if (rAF) cancelAnimationFrame(rAF);
+                rAF = requestAnimationFrame(() => set(pct));
+                
                 const now = Date.now();
-                if (now - lastEmit > 60) {
+                if (now - lastEmit > 80) { // Bumped timeout slightly to save network load
                     sendSocket('set_volume', {type: type, val: pct});
                     lastEmit = now;
                 }
@@ -791,7 +817,7 @@
             s.addEventListener('touchmove', (e) => { e.preventDefault(); if(dCheck()) drag(e); }, {passive: false});
             document.addEventListener('touchend', endDrag);
             document.addEventListener('touchcancel', endDrag);
-            return (ext) => { if(!dCheck()) set(ext); };
+            return (ext) => { if(!dCheck()) { if (rAF) cancelAnimationFrame(rAF); rAF = requestAnimationFrame(() => set(ext)); } };
         }
 
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
