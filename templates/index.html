@@ -58,7 +58,6 @@
         .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }
         .col { 
             display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; 
-            will-change: transform, opacity; /* Forces GPU to pre-render the columns */
         }
         .panel { padding: 1.5rem; display: flex; flex-direction: column; }
         .panel-top { flex: 0 0 14rem; }
@@ -109,16 +108,21 @@
             display: flex; justify-content: center; align-items: center;
             color: var(--accent);
             position: relative;
+            box-shadow: inset 0 0 15px var(--accent-glow);
             transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.3s, color 0.3s, box-shadow 0.3s;
         }
 
         .audio-hub-ring::after {
-            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            border-radius: 50%;
-            box-shadow: 0 0 22px var(--accent-glow), inset 0 0 15px var(--accent-glow);
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border-radius: inherit;
+            box-shadow: 0 0 22px var(--accent-glow);
             opacity: 0.3;
             animation: pulse-ring 2.5s infinite alternate ease-in-out;
-            pointer-events: none; z-index: 0; will-change: opacity;
+            pointer-events: none;
+            z-index: 0;
+            will-change: transform, opacity;
         }
 
         .audio-hub-ring i { width: 2.2rem; height: 2.2rem; z-index: 1; }
@@ -134,8 +138,8 @@
         }
 
         @keyframes pulse-ring {
-            0% { opacity: 0.2; }
-            100% { opacity: 1; }
+            0% { transform: scale(0.95); opacity: 0.4; }
+            100% { transform: scale(1.05); opacity: 1; }
         }
         .stat-row { display: flex; align-items: center; gap: 1rem; font-size: 1.5rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 1rem;}
         .stat-row i { color: var(--accent); width: 2rem; height: 2rem; }
@@ -169,7 +173,7 @@
         }
 
        #soundpad-view {
-            position: absolute; display: flex; visibility: hidden; pointer-events: none; overflow: hidden;
+            position: absolute; display: flex; visibility: hidden; opacity: 0; pointer-events: none; overflow: hidden;
             /* Lock to full screen permanently to bypass CPU Layout math */
             top: 0; left: 0; width: 100%; height: 100%; 
             background: var(--panel-bg); 
@@ -177,7 +181,6 @@
             /* Set origin to center so math scales evenly */
             transform-origin: center center; 
             z-index: 10;
-            will-change: transform, opacity; /* Reserve hardware memory without forcing filter rendering */
         }
 
         /* --- Modal Animation Styles --- */
@@ -578,8 +581,12 @@
 
        // --- Hardware-Accelerated App Morphing (0.3s) ---
         let spOrigin = {}; 
+        let soundpadAnimating = false;
 
         function toggleSoundpad(show) {
+            if (soundpadAnimating) return;
+            soundpadAnimating = true;
+
             const spView = document.getElementById('soundpad-view');
             const spInner = document.getElementById('sp-inner');
             const cols = document.querySelectorAll('#main-view .col');
@@ -588,10 +595,6 @@
             const btnBack = document.getElementById('btn-back');
             const battSlide = document.getElementById('batt-slide');
             const title = document.getElementById('top-title');
-
-            const easeInOut = 'cubic-bezier(0.65, 0, 0.35, 1)';
-            const easeOut = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
-            const easeIn = 'cubic-bezier(0.8, 0.2, 0.8, 1)';
 
             if (show) {
                 // DOM Read Phase (Sync)
@@ -610,69 +613,62 @@
                     scaleY: btnRect.height / wrapRect.height
                 };
 
-                // DOM Write Phase (Batched via rAF) - Using WAAPI for 100% GPU offload
+                // Add will-change dynamically ONLY during animation to save VRAM
+                cols.forEach(c => c.style.willChange = 'transform, opacity');
+                spView.style.willChange = 'transform, opacity';
+                spView.style.pointerEvents = 'none'; // Lock during transition
+
+                // DOM Write Phase (Batched via rAF to prevent Layout Thrashing)
                 requestAnimationFrame(() => {
-                    spView.style.visibility = 'visible';
-                    spView.style.opacity = '1';
-                    spView.style.backdropFilter = 'none';
-                    spView.style.webkitBackdropFilter = 'none';
-                    spView.style.boxShadow = 'none';
-                    spView.style.pointerEvents = 'none';
-                    spView.style.borderRadius = '1.5rem';
-                    spView.style.transform = `translate3d(0, 0, 0) scale(1, 1)`;
-
-                    spInner.style.opacity = '0';
-
-                    const morphAnim = spView.animate([
-                        { transform: `translate3d(${spOrigin.x}px, ${spOrigin.y}px, 0) scale(${spOrigin.scaleX}, ${spOrigin.scaleY})` },
-                        { transform: `translate3d(0, 0, 0) scale(1, 1)` }
-                    ], { duration: 350, easing: easeInOut });
-
-                    morphAnim.onfinish = () => {
-                        spView.style.backdropFilter = 'blur(20px)';
-                        spView.style.webkitBackdropFilter = 'blur(20px)';
-                        spView.style.boxShadow = '0 4px 30px rgba(0, 0, 0, 0.3)';
-                        spView.style.pointerEvents = 'auto';
-                        
-                        spInner.style.opacity = '1';
-                        spInner.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: easeOut });
-                    };
-
-                    btnIcon.style.opacity = '0';
-                    btnIcon.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100 });
+                    // Use autoAlpha for visibility: hidden/visible toggling without display reflows
+                    gsap.set(spView, { 
+                        autoAlpha: 1, 
+                        x: spOrigin.x, y: spOrigin.y, 
+                        scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
+                        borderRadius: '1.5rem',
+                        backdropFilter: 'none', webkitBackdropFilter: 'none',
+                        boxShadow: 'none', pointerEvents: 'none',
+                        force3D: true
+                    });
                     
-                    btn.style.opacity = '0';
-                    btn.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150 });
+                    gsap.set(spInner, { autoAlpha: 0, force3D: true });
 
-                    cols[0].style.transform = 'translate3d(-80px, 0, 0) scale(0.9)';
-                    cols[0].style.opacity = '0';
-                    cols[0].animate([
-                        { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
-                        { transform: 'translate3d(-80px, 0, 0) scale(0.9)', opacity: 0 }
-                    ], { duration: 350, easing: easeInOut });
+                    // GPU-Only Morphing (0.35s)
+                    gsap.to(spView, { 
+                        duration: 0.35, 
+                        x: 0, y: 0, scaleX: 1, scaleY: 1, 
+                        ease: "power3.inOut",
+                        force3D: true,
+                        onComplete: () => {
+                            gsap.set(spView, { 
+                                backdropFilter: 'blur(20px)', webkitBackdropFilter: 'blur(20px)',
+                                boxShadow: '0 4px 30px rgba(0, 0, 0, 0.3)', pointerEvents: 'auto'
+                            });
+                            spView.style.pointerEvents = 'auto'; // Ensure it accepts clicks after opening
+                            gsap.to(spInner, { 
+                                autoAlpha: 1, duration: 0.15, ease: "power2.out", force3D: true,
+                                onComplete: () => { soundpadAnimating = false; }
+                            });
+                        }
+                    });
 
-                    cols[1].style.transform = 'translate3d(0, 80px, 0) scale(0.9)';
-                    cols[1].style.opacity = '0';
-                    cols[1].animate([
-                        { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
-                        { transform: 'translate3d(0, 80px, 0) scale(0.9)', opacity: 0 }
-                    ], { duration: 350, easing: easeInOut });
+                    gsap.to(btnIcon, { autoAlpha: 0, duration: 0.1, force3D: true });
+                    gsap.to(btn, { autoAlpha: 0, duration: 0.15, force3D: true });
 
-                    cols[2].style.transform = 'translate3d(80px, 0, 0) scale(0.9)';
-                    cols[2].style.opacity = '0';
-                    cols[2].animate([
-                        { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
-                        { transform: 'translate3d(80px, 0, 0) scale(0.9)', opacity: 0 }
-                    ], { duration: 350, easing: easeInOut });
+                    // Push the columns away with scale for true 3D feel, force3D forces GPU
+                    gsap.to(cols, { 
+                        x: i => i === 0 ? -80 : i === 2 ? 80 : 0, 
+                        y: i => i === 1 ? 80 : 0, 
+                        scale: 0.9, 
+                        autoAlpha: 0, 
+                        duration: 0.35, 
+                        ease: "power3.inOut", 
+                        force3D: true, 
+                        stagger: 0.05 
+                    });
 
-                    battSlide.style.transform = 'translate3d(4.5rem, 0, 0)';
-                    battSlide.animate([
-                        { transform: 'translate3d(0, 0, 0)' },
-                        { transform: 'translate3d(4.5rem, 0, 0)' }
-                    ], { duration: 350, easing: easeInOut });
-
-                    btnBack.style.opacity = '1';
-                    btnBack.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, delay: 150, fill: 'backwards' });
+                    gsap.to(battSlide, { x: '4.5rem', duration: 0.35, ease: "power3.inOut", force3D: true });
+                    gsap.to(btnBack, { autoAlpha: 1, duration: 0.15, delay: 0.15, force3D: true });
                     btnBack.style.pointerEvents = 'auto';
 
                     title.innerText = 'SOUNDPAD';
@@ -683,47 +679,45 @@
                 });
 
             } else {
+                spView.style.willChange = 'transform, opacity';
+                spView.style.pointerEvents = 'none'; // Lock during transition
+
                 requestAnimationFrame(() => {
-                    spInner.style.opacity = '0';
-                    spInner.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, easing: easeIn });
+                    gsap.to(spInner, { autoAlpha: 0, duration: 0.1, ease: "power2.in", force3D: true });
 
-                    spView.style.backdropFilter = 'none';
-                    spView.style.webkitBackdropFilter = 'none';
-                    spView.style.boxShadow = 'none';
-                    spView.style.pointerEvents = 'none';
-                    spView.style.transform = `translate3d(${spOrigin.x}px, ${spOrigin.y}px, 0) scale(${spOrigin.scaleX}, ${spOrigin.scaleY})`;
+                    gsap.set(spView, { 
+                        backdropFilter: 'none', webkitBackdropFilter: 'none',
+                        boxShadow: 'none', pointerEvents: 'none'
+                    });
 
-                    const morphClose = spView.animate([
-                        { transform: `translate3d(0, 0, 0) scale(1, 1)` },
-                        { transform: `translate3d(${spOrigin.x}px, ${spOrigin.y}px, 0) scale(${spOrigin.scaleX}, ${spOrigin.scaleY})` }
-                    ], { duration: 350, delay: 50, easing: easeInOut, fill: 'backwards' });
+                    gsap.to(spView, { 
+                        duration: 0.35, delay: 0.05,
+                        x: spOrigin.x, y: spOrigin.y, 
+                        scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
+                        ease: "power3.inOut",
+                        force3D: true, 
+                        onComplete: () => { 
+                            gsap.set(spView, { autoAlpha: 0 }); 
+                            spView.style.willChange = 'auto';
+                        }
+                    });
 
-                    morphClose.onfinish = () => { spView.style.visibility = 'hidden'; };
+                    gsap.to(btn, { autoAlpha: 1, duration: 0.15, delay: 0.15, force3D: true });
+                    gsap.to(btnIcon, { autoAlpha: 1, duration: 0.15, delay: 0.2, force3D: true });
 
-                    btn.style.opacity = '1';
-                    btn.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, delay: 150, fill: 'backwards' });
-                    
-                    btnIcon.style.opacity = '1';
-                    btnIcon.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, delay: 200, fill: 'backwards' });
-
-                    cols.forEach((col, i) => {
-                        col.style.transform = 'translate3d(0, 0, 0) scale(1)';
-                        col.style.opacity = '1';
-                        col.animate([
-                            { transform: `translate3d(${i===0 ? -80 : i===1 ? 0 : 80}px, ${i===1 ? 80 : 0}px, 0) scale(0.9)`, opacity: 0 },
-                            { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 }
-                        ], { duration: 350, delay: 50 + (i * 20), easing: easeInOut, fill: 'backwards' });
+                    // Pull columns back in
+                    gsap.to(cols, { 
+                        x: 0, y: 0, scale: 1, autoAlpha: 1, duration: 0.35, 
+                        ease: "power3.inOut", delay: 0.05, stagger: 0.02, force3D: true,
+                        onComplete: () => { 
+                            cols.forEach(c => c.style.willChange = 'auto'); 
+                            soundpadAnimating = false;
+                        }
                     });
 
                     btnBack.style.pointerEvents = 'none';
-                    btnBack.style.opacity = '0';
-                    btnBack.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, easing: easeOut });
-                    
-                    battSlide.style.transform = 'translate3d(0, 0, 0)';
-                    battSlide.animate([
-                        { transform: 'translate3d(4.5rem, 0, 0)' },
-                        { transform: 'translate3d(0, 0, 0)' }
-                    ], { duration: 350, delay: 50, easing: easeInOut, fill: 'backwards' });
+                    gsap.to(btnBack, { autoAlpha: 0, duration: 0.1, ease: "power2.out", force3D: true });
+                    gsap.to(battSlide, { x: 0, duration: 0.35, delay: 0.05, ease: "power3.inOut", force3D: true });
 
                     title.innerText = 'COMMAND CENTER';
                     title.style.color = 'var(--text-muted)';
