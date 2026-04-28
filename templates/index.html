@@ -125,7 +125,8 @@
             background: rgba(0,0,0,0.8); backdrop-filter: blur(10px);
             z-index: 999; display: flex; justify-content: center; align-items: center;
             opacity: 0; visibility: hidden;
-            transition: opacity 0.3s ease, visibility 0.3s;
+            /* Fades the background in 0.15s */
+            transition: opacity 0.15s ease-out, visibility 0.15s ease-out; 
         }
         
         .modal-overlay.active {
@@ -133,8 +134,10 @@
         }
 
         .modal-overlay .modal-card {
-            transform: scale(0.95) translateY(2rem);
-            transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+            /* Reduced vertical travel distance so it snaps into place faster */
+            transform: scale(0.95) translateY(1rem); 
+            /* Pops the menu in a snappy 0.2s */
+            transition: transform 0.2s cubic-bezier(0.1, 0.9, 0.2, 1); 
         }
 
         .modal-overlay.active .modal-card {
