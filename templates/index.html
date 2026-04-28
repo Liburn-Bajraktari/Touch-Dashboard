@@ -74,7 +74,7 @@
             overflow: hidden; cursor: pointer; box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
             display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
         }
-        .slider-fill { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: linear-gradient(0deg, #0284c7 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; }
+        .slider-fill { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: translateY(100%); background: linear-gradient(0deg, #0284c7 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; will-change: transform; }
         .slider-val { position: absolute; top: 1.5rem; font-weight: 800; font-size: 1.2rem; color: #ffffff; text-shadow: 0px 2px 4px rgba(0,0,0,0.9); pointer-events: none; z-index: 10; }
         .slider-icon {
             position: absolute; bottom: 1rem; background: rgba(0,0,0,0.5); border-radius: 50%; width: 3.5rem; height: 3.5rem;
@@ -101,29 +101,37 @@
         }
         
         .audio-hub-ring {
+            position: relative;
             width: 4.5rem; height: 4.5rem;
             border-radius: 50%;
             background: var(--bg-dark);
             border: 2px solid var(--accent);
             display: flex; justify-content: center; align-items: center;
             color: var(--accent);
-            box-shadow: 0 0 15px var(--accent-glow), inset 0 0 15px var(--accent-glow);
-            animation: pulse-ring 2.5s infinite alternate ease-in-out;
             transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
+        .audio-hub-ring::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            border-radius: 50%;
+            box-shadow: 0 0 22px var(--accent-glow), inset 0 0 15px var(--accent-glow);
+            animation: pulse-ring 2.5s infinite alternate ease-in-out;
+            pointer-events: none;
+        }
 
-        .audio-hub-ring i { width: 2.2rem; height: 2.2rem; }
+        .audio-hub-ring i { width: 2.2rem; height: 2.2rem; position: relative; z-index: 2; }
         
         .audio-hub-btn:active .audio-hub-ring {
             transform: rotate(90deg) scale(0.9);
             border-color: #ffffff; color: #ffffff;
             box-shadow: 0 0 25px rgba(255,255,255,0.6), inset 0 0 15px rgba(255,255,255,0.4);
-            animation: none; /* Stops breathing while pressed */
+        }
+        .audio-hub-btn:active .audio-hub-ring::before {
+            display: none; /* Stops breathing while pressed */
         }
 
         @keyframes pulse-ring {
-            0% { box-shadow: 0 0 5px var(--accent-glow), inset 0 0 5px var(--accent-glow); }
-            100% { box-shadow: 0 0 22px var(--accent-glow), inset 0 0 15px var(--accent-glow); }
+            0% { transform: scale(0.85); opacity: 0.5; }
+            100% { transform: scale(1.05); opacity: 1; }
         }
         .stat-row { display: flex; align-items: center; gap: 1rem; font-size: 1.5rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 1rem;}
         .stat-row i { color: var(--accent); width: 2rem; height: 2rem; }
@@ -165,7 +173,8 @@
             /* Set origin to center so math scales evenly */
             transform-origin: center center; 
             z-index: 10;
-            will-change: transform, opacity, filter; /* Reserve hardware memory */
+            will-change: transform, opacity; /* Hardware composite layer */
+            transform: translateZ(0); /* Promote to dedicated GPU layer */
         }
 
         /* --- Modal Animation Styles --- */
@@ -308,7 +317,10 @@
                 
                 <div class="spot-ctrl" style="margin-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 3.5rem;">
                     <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
-                    <button class="btn" id="btn-spot-play" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_play')"><i data-lucide="play"></i></button>
+                    <button class="btn" id="btn-spot-play" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_play')">
+                        <i data-lucide="play" id="icon-spot-play"></i>
+                        <i data-lucide="pause" id="icon-spot-pause" style="display: none;"></i>
+                    </button>
                     <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
                 </div>
             </div>
@@ -461,6 +473,9 @@
             }
         }
 
+        let isAnimating = false;
+        let pendingSysData = null;
+
         socket.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             const d = msg.data;
@@ -484,28 +499,47 @@
             } 
             else if (msg.type === 'hw_scan_results') {
                 currentHwDevices = d;
-                // FIX: Instead of passing 'null', we pass the names from globalCfg
                 populateAudioTab(d, globalCfg.audio_names);
             }
             else if (msg.type === 'weather_data') {
-                document.getElementById('w-temp').innerText = d.temp + '°'; 
-                document.getElementById('w-desc').innerText = d.desc;
+                requestAnimationFrame(() => {
+                    document.getElementById('w-temp').innerText = d.temp + '°'; 
+                    document.getElementById('w-desc').innerText = d.desc;
+                });
             } 
             else if (msg.type === 'speedtest_result') {
-                document.getElementById('s-dl').innerText = d.down; 
-                document.getElementById('s-ul').innerText = d.up;
+                requestAnimationFrame(() => {
+                    document.getElementById('s-dl').innerText = d.down; 
+                    document.getElementById('s-ul').innerText = d.up;
+                });
             } 
             else if (msg.type === 'sys_data') {
-                document.getElementById('sys-cpu').innerText = d.cpu + '%';
-                document.getElementById('sys-ram').innerText = d.ram + '%';
-                document.getElementById('mouse-batt').innerText = d.mouse_batt + '%';
+                if (isAnimating) {
+                    pendingSysData = d;
+                    return;
+                }
+                updateSysDataDOM(d);
+            }
+        };
+
+        function updateSysDataDOM(d) {
+            requestAnimationFrame(() => {
+                const sysCpu = document.getElementById('sys-cpu');
+                if (sysCpu.innerText !== d.cpu + '%') sysCpu.innerText = d.cpu + '%';
+                
+                const sysRam = document.getElementById('sys-ram');
+                if (sysRam.innerText !== d.ram + '%') sysRam.innerText = d.ram + '%';
+                
+                const mouseBatt = document.getElementById('mouse-batt');
+                if (mouseBatt.innerText !== d.mouse_batt + '%') mouseBatt.innerText = d.mouse_batt + '%';
                 
                 const gpuRow = document.getElementById('sys-gpu-row');
                 if (d.gpu !== null && d.gpu !== "") {
-                    gpuRow.style.display = 'flex';
-                    document.getElementById('sys-gpu').innerText = d.gpu + '%';
+                    if (gpuRow.style.display !== 'flex') gpuRow.style.display = 'flex';
+                    const sysGpu = document.getElementById('sys-gpu');
+                    if (sysGpu.innerText !== d.gpu + '%') sysGpu.innerText = d.gpu + '%';
                 } else {
-                    gpuRow.style.display = 'none';
+                    if (gpuRow.style.display !== 'none') gpuRow.style.display = 'none';
                 }
                 
                 const spotInfo = document.getElementById('spot-info');
@@ -513,27 +547,31 @@
                 const spotAuth = document.getElementById('spot-auth');
                 
                 if (d.spotify && d.spotify.status === 'Auth_Required') {
-                    if(spotEmpty) spotEmpty.style.display = 'none';
-                    if(spotInfo) spotInfo.style.display = 'none';
-                    if(spotAuth) spotAuth.style.display = 'flex';
+                    if(spotEmpty && spotEmpty.style.display !== 'none') spotEmpty.style.display = 'none';
+                    if(spotInfo && spotInfo.style.display !== 'none') spotInfo.style.display = 'none';
+                    if(spotAuth && spotAuth.style.display !== 'flex') spotAuth.style.display = 'flex';
                 } else if (d.spotify && (d.spotify.status === 'Playing' || d.spotify.status === 'Paused')) {
-                    if(spotEmpty) spotEmpty.style.display = 'none';
-                    if(spotAuth) spotAuth.style.display = 'none';
-                    if(spotInfo) spotInfo.style.display = 'flex';
-                    document.getElementById('spot-title').innerText = d.spotify.title;
-                    document.getElementById('spot-artist').innerText = d.spotify.artist;
+                    if(spotEmpty && spotEmpty.style.display !== 'none') spotEmpty.style.display = 'none';
+                    if(spotAuth && spotAuth.style.display !== 'none') spotAuth.style.display = 'none';
+                    if(spotInfo && spotInfo.style.display !== 'flex') spotInfo.style.display = 'flex';
+                    
+                    const spotTitle = document.getElementById('spot-title');
+                    if (spotTitle.innerText !== d.spotify.title) spotTitle.innerText = d.spotify.title;
+                    
+                    const spotArtist = document.getElementById('spot-artist');
+                    if (spotArtist.innerText !== d.spotify.artist) spotArtist.innerText = d.spotify.artist;
                     
                     const artImg = document.getElementById('spot-art');
                     if (d.spotify.art_url) {
-                        artImg.src = d.spotify.art_url;
-                        artImg.style.display = 'block';
+                        if (artImg.src !== d.spotify.art_url) artImg.src = d.spotify.art_url;
+                        if (artImg.style.display !== 'block') artImg.style.display = 'block';
                     } else {
-                        artImg.style.display = 'none';
+                        if (artImg.style.display !== 'none') artImg.style.display = 'none';
                     }
                 } else {
-                    if(spotEmpty) spotEmpty.style.display = 'flex';
-                    if(spotAuth) spotAuth.style.display = 'none';
-                    if(spotInfo) spotInfo.style.display = 'none';
+                    if(spotEmpty && spotEmpty.style.display !== 'flex') spotEmpty.style.display = 'flex';
+                    if(spotAuth && spotAuth.style.display !== 'none') spotAuth.style.display = 'none';
+                    if(spotInfo && spotInfo.style.display !== 'none') spotInfo.style.display = 'none';
                 }
 
                 const playBtn = document.getElementById('btn-spot-play');
@@ -547,23 +585,30 @@
                 }
                 
                 upSpk(d.audio.spk.vol); upMic(d.audio.mic.vol);
-                document.getElementById('icon-spk').classList.toggle('muted', d.audio.spk.muted);
-                document.getElementById('icon-mic').classList.toggle('muted', d.audio.mic.muted);
-                document.getElementById('btn-audio-cycle').innerText = d.audio.active_dev;
+                
+                const iconSpk = document.getElementById('icon-spk');
+                if (iconSpk.classList.contains('muted') !== d.audio.spk.muted) iconSpk.classList.toggle('muted', d.audio.spk.muted);
+                
+                const iconMic = document.getElementById('icon-mic');
+                if (iconMic.classList.contains('muted') !== d.audio.mic.muted) iconMic.classList.toggle('muted', d.audio.mic.muted);
+                
+                const btnAudioCycle = document.getElementById('btn-audio-cycle');
+                if (btnAudioCycle.innerText !== d.audio.active_dev) btnAudioCycle.innerText = d.audio.active_dev;
                 
                 if (d.discord) {
                     const bMute = document.getElementById('btn-disc-mute');
                     const bDeaf = document.getElementById('btn-disc-deaf');
-                    if (bMute) bMute.classList.toggle('muted', d.discord.mute);
-                    if (bDeaf) bDeaf.classList.toggle('muted', d.discord.deaf);
+                    if (bMute && bMute.classList.contains('muted') !== d.discord.mute) bMute.classList.toggle('muted', d.discord.mute);
+                    if (bDeaf && bDeaf.classList.contains('muted') !== d.discord.deaf) bDeaf.classList.toggle('muted', d.discord.deaf);
                 }
-            }
-        };
+            });
+        }
 
        // --- Hardware-Accelerated App Morphing (0.3s) ---
         let spOrigin = {}; 
 
         function toggleSoundpad(show) {
+            isAnimating = true;
             const spView = document.getElementById('soundpad-view');
             const spInner = document.getElementById('sp-inner');
             const cols = document.querySelectorAll('#main-view .col');
@@ -595,7 +640,6 @@
                     display: 'flex', opacity: 1, 
                     x: spOrigin.x, y: spOrigin.y, 
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
-                    borderRadius: '4rem', // Higher radius because it squishes during scale
                     backdropFilter: 'none', webkitBackdropFilter: 'none',
                     boxShadow: 'none' // Kill heavy paint shadows during movement
                 });
@@ -606,15 +650,19 @@
                 gsap.to(spView, { 
                     duration: 0.3, 
                     x: 0, y: 0, scaleX: 1, scaleY: 1, 
-                    borderRadius: '1.5rem', 
                     ease: "power3.inOut",
                     onComplete: () => {
                         // Turn heavy paints back on ONLY after motion completely stops
-                        gsap.set(spView, { 
-                            backdropFilter: 'blur(20px)', webkitBackdropFilter: 'blur(20px)',
-                            boxShadow: '0 4px 30px rgba(0, 0, 0, 0.5)'
+                        requestAnimationFrame(() => {
+                            gsap.set(spView, { 
+                                backdropFilter: 'blur(20px)', webkitBackdropFilter: 'blur(20px)',
+                                boxShadow: '0 4px 30px rgba(0, 0, 0, 0.5)'
+                            });
                         });
-                        gsap.to(spInner, { opacity: 1, duration: 0.15, ease: "power2.out" });
+                        gsap.to(spInner, { opacity: 1, duration: 0.15, ease: "power2.out", onComplete: () => {
+                            isAnimating = false;
+                            if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
+                        }});
                     }
                 });
 
@@ -631,6 +679,7 @@
                 btnBack.style.pointerEvents = 'auto';
 
             } else {
+                mainView.style.pointerEvents = 'auto';
                 // 1. Hide inner content instantly
                 gsap.to(spInner, { opacity: 0, duration: 0.1, ease: "power2.in" });
 
@@ -645,9 +694,12 @@
                     duration: 0.3, delay: 0.05,
                     x: spOrigin.x, y: spOrigin.y, 
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
-                    borderRadius: '4rem', 
                     ease: "power3.inOut", 
-                    onComplete: () => { gsap.set(spView, { display: 'none' }); }
+                    onComplete: () => { 
+                        gsap.set(spView, { display: 'none' }); 
+                        isAnimating = false;
+                        if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
+                    }
                 });
 
                 gsap.to(btn, { opacity: 1, duration: 0.15, delay: 0.1 });
@@ -719,9 +771,9 @@
 
         function renderSpGrid() {
             const grid = document.getElementById('sp-grid');
-            grid.innerHTML = '';
+            let htmlStr = '';
             spBtns.forEach((btn, idx) => {
-                grid.innerHTML += `
+                htmlStr += `
                     <button class="btn" style="height: 7rem; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.3);" 
                         onmousedown="spDown(${idx})" onmouseup="spUp(${idx})" onmouseleave="spLeave(${idx})"
                         ontouchstart="spTouchStart(event, ${idx})" ontouchend="spTouchEnd(event, ${idx})" ontouchcancel="spLeave(${idx})">
@@ -729,12 +781,13 @@
                     </button>
                 `;
             });
-            grid.innerHTML += `
+            htmlStr += `
                 <button class="btn" style="height: 7rem; border: 2px dashed var(--border); background: transparent;" 
                     onclick="openSpModal(-1)">
                     <i data-lucide="plus" style="width: 2rem; height: 2rem; color: var(--text-muted);"></i>
                 </button>
             `;
+            grid.innerHTML = htmlStr;
             lucide.createIcons();
         }
 
@@ -782,8 +835,8 @@
             
             function set(pct) { 
                 currentPct = pct; 
-                f.style.height = pct + '%'; 
-                v.innerText = pct + '%'; 
+                f.style.transform = `translateY(${100 - pct}%)`; 
+                if (v.innerText !== pct + '%') v.innerText = pct + '%'; 
             }
             
             function drag(e) {
@@ -873,12 +926,24 @@
             sendSocket('run_speedtest'); 
         }
 
+        let lastTimeStr = "";
         setInterval(() => {
             const d = new Date();
-            document.getElementById('time').innerText = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
-            document.getElementById('date-month').innerText = d.getMonth() + 1;
-            document.getElementById('date-day').innerText = d.getDate();
-            document.getElementById('date-dayname').innerText = d.toLocaleDateString([], {weekday: 'short'}).toUpperCase();
+            const timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+            if (timeStr !== lastTimeStr) {
+                lastTimeStr = timeStr;
+                requestAnimationFrame(() => {
+                    document.getElementById('time').innerText = timeStr;
+                    document.getElementById('date-month').innerText = d.getMonth() + 1;
+                    document.getElementById('date-day').innerText = d.getDate();
+                    document.getElementById('date-dayname').innerText = d.toLocaleDateString([], {weekday: 'short'}).toUpperCase();
+                });
+            }
+        }, 1000);
+    </script>
+</body>
+</html>;
+            }
         }, 1000);
     </script>
 </body>
