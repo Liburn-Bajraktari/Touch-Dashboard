@@ -720,8 +720,12 @@
                 gsap.to(elCols, { 
                     x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02,
                     onComplete: () => {
-                        // Restore main view paints
-                        gsap.set(elGlassPanels, { clearProps: "all" });
+                        // Restore main view paints safely without destroying inline layout styles
+                        elGlassPanels.forEach(p => {
+                            p.style.backdropFilter = '';
+                            p.style.webkitBackdropFilter = '';
+                            p.style.boxShadow = '';
+                        });
                     }
                 });
 
