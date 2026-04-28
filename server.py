@@ -468,11 +468,14 @@ async def callback(request: Request, code: str = None):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    # MAGIC FIX: Move all global declarations to the absolute top of the function scope
+    # SENIOR DEV FIX: All globals must be at the absolute top.
+    # We only need 'global' for variables we REBIND (using =). 
+    # config.update() is a mutation, but we'll keep it here for clarity.
     global config, weather_force_update, force_media_update, current_media_source
     
     await ws_manager.connect(websocket)
     await websocket.send_json({"type": "config_sync", "data": {"cfg": config, "hw": AudioSystem.get_hardware_sinks()}})
+    
     if last_weather_data.get("temp") != "--":
         await websocket.send_json({"type": "weather_data", "data": last_weather_data})
     
@@ -483,27 +486,20 @@ async def websocket_endpoint(websocket: WebSocket):
             msg_type, data = msg.get("type"), msg.get("data")
             
             if msg_type == 'save_config':
-                # FIX: We must declare globals at the start of the handler
-                global config, weather_force_update
+                # REMOVED: Redundant 'global' declaration that caused the SyntaxError
                 old_id, old_secret = config.get("disc_id"), config.get("disc_secret")
                 old_weather_api, old_weather_city = config.get("weather_api"), config.get("weather_city")
                 
-                # Update the local config and save to disk
                 config.update(data)
                 await asyncio.to_thread(save_config)
                 
-                # IMMEDIATE SYNC: Fetch current hardware and broadcast the new names back to the UI
+                # Immediate sync for custom names
                 audio_data = await asyncio.to_thread(AudioSystem.poll_all)
-                await ws_manager.broadcast({
-                    "type": "config_sync", 
-                    "data": {"cfg": config, "hw": audio_data['sinks']}
-                })
+                await ws_manager.broadcast({"type": "config_sync", "data": {"cfg": config, "hw": audio_data['sinks']}})
                 
-                if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"): 
-                    restart_discord_ipc()
-                if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"): 
-                    weather_force_update = True
-                    
+                if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"): restart_discord_ipc()
+                if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"): weather_force_update = True
+
             elif msg_type == 'action':
                 action = data
                 if action.startswith('spot_'):
@@ -518,7 +514,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     c = await asyncio.to_thread(sp.current_playback)
                                     if c and c.get('is_playing'): await asyncio.to_thread(sp.pause_playback)
                                     else: await asyncio.to_thread(sp.start_playback)
-                                elif action == 'spot_next': await asyncio.to_thread(sp.next_track)
+                                elif action == 'spot_next': await asyncio.to_track(sp.next_track)
                                 elif action == 'spot_prev': await asyncio.to_thread(sp.previous_track)
                                 routed_to_spot, force_media_update = True, True
                         except: pass
