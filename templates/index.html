@@ -130,8 +130,22 @@
         }
 
         /* The 3D "Push" Effect States */
-        .view-layer.hidden-under { transform: scale(0.92); opacity: 0; }
-        .view-layer.hidden-over { transform: scale(1.08); opacity: 0; }
+        .view-layer {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            transition: transform 0.25s cubic-bezier(0.1, 0.9, 0.2, 1), opacity 0.2s ease-out;
+            opacity: 0; visibility: hidden; pointer-events: none;
+        }
+
+        .view-layer.active {
+            opacity: 1; visibility: visible; pointer-events: auto;
+            transform: scale(1) translateX(0);
+        }
+
+        /* Main View pushed out to the side */
+        .view-layer.hidden-left { transform: translateX(-15%) scale(0.95); opacity: 0; }
+        
+        /* Soundpad View shrinking back to its origin button */
+        .view-layer.hidden-origin { transform: scale(0.15); opacity: 0; }
 
         /* --- Modal Animation Styles --- */
         .modal-overlay {
@@ -213,9 +227,10 @@
 
     <!-- Top Bar Core -->
     <div class="top-bar glass">
-        <div class="section batt" style="gap: 1rem;">
-            <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="opacity: 0; pointer-events: none; transition: all 0.3s ease; width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div class="section batt" style="position: relative;">
+            <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; transition: all 0.25s cubic-bezier(0.1, 0.9, 0.2, 1); width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
+            
+            <div id="batt-slide" style="display: flex; align-items: center; gap: 0.5rem; transition: transform 0.25s cubic-bezier(0.1, 0.9, 0.2, 1);">
                 <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
             </div>
         </div>
@@ -346,7 +361,7 @@
                     </div>
                     <!-- Macro 2 -->
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" onclick="toggleSoundpad(true)" style="flex: 1; height: auto; border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
+                        <button class="btn" id="btn-macro-sp" onclick="toggleSoundpad(true)" style="flex: 1; height: auto; border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
                         <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--accent); letter-spacing: 1px;">SOUNDPAD</span>
                     </div>
                     <!-- Macro 3 -->
@@ -520,32 +535,41 @@
             const mainView = document.getElementById('main-view');
             const spView = document.getElementById('soundpad-view');
             const btnBack = document.getElementById('btn-back');
+            const battSlide = document.getElementById('batt-slide');
             const title = document.getElementById('top-title');
 
             if (show) {
-                // Push Main down, Drop Soundpad in
+                // Calculate EXACT origin of the button to expand from
+                const btnRect = document.getElementById('btn-macro-sp').getBoundingClientRect();
+                const originX = btnRect.left + (btnRect.width / 2);
+                const originY = btnRect.top + (btnRect.height / 2);
+                spView.style.transformOrigin = `${originX}px ${originY}px`;
+
+                // Push Main away, Expand Soundpad from coordinates
                 mainView.classList.remove('active');
-                mainView.classList.add('hidden-under');
-                spView.classList.remove('hidden-over');
+                mainView.classList.add('hidden-left');
+                spView.classList.remove('hidden-origin');
                 spView.classList.add('active');
                 
                 btnBack.style.opacity = '1';
                 btnBack.style.pointerEvents = 'auto';
+                battSlide.style.transform = 'translateX(4.5rem)'; // Scooches the battery over
             } else {
-                // Pull Main up, Push Soundpad out
+                // Shrink Soundpad back to the button, Pull Main back
                 spView.classList.remove('active');
-                spView.classList.add('hidden-over');
-                mainView.classList.remove('hidden-under');
+                spView.classList.add('hidden-origin');
+                mainView.classList.remove('hidden-left');
                 mainView.classList.add('active');
                 
                 btnBack.style.opacity = '0';
                 btnBack.style.pointerEvents = 'none';
+                battSlide.style.transform = 'translateX(0)'; // Returns battery flush left
             }
             
             title.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
             title.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
             title.style.fontWeight = show ? '800' : '300';
-            title.style.transform = 'scale(1.05)'; // Tiny bump effect
+            title.style.transform = 'scale(1.05)';
             setTimeout(() => title.style.transform = 'scale(1)', 150);
         }
 
@@ -652,7 +676,7 @@
         }
 
         document.getElementById('modal').addEventListener('click', (e) => { if(e.target.id === 'modal') document.getElementById('modal').classList.remove('active'); });
-document.getElementById('sp-modal').addEventListener('click', (e) => { if(e.target.id === 'sp-modal') closeSpModal(); });
+        document.getElementById('sp-modal').addEventListener('click', (e) => { if(e.target.id === 'sp-modal') closeSpModal(); });
 
         let isDraggingSpk = false; let isDraggingMic = false;
         function toggleFullscreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>e); else if (document.exitFullscreen) document.exitFullscreen(); }
