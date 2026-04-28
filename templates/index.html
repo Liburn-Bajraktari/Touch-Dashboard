@@ -48,28 +48,24 @@
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
         .btn {
-            /* Upgraded hardware-tactile styling */
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%); 
+            /* Frosted 3D Hardware Layering */
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%); 
             border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+            /* Outer shadow for lift + Inner top white shadow for the 3D glass bevel */
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.15);
             border-radius: 1rem; color: var(--text-main); display: flex; justify-content: center; align-items: center;
             cursor: pointer; transition: all 0.15s ease; height: 100%; outline: none;
         }
-        .btn:active { transform: scale(0.92); background: var(--accent); box-shadow: 0 0 15px var(--accent-glow); color: #000; }
-        /* --- Subtle/Ghost Buttons (For Media & Utilities) --- */
-        .btn-flat {
-            background: rgba(255, 255, 255, 0.03) !important;
-            border: 1px solid rgba(255, 255, 255, 0.04) !important; /* Very faint outline */
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important; /* Soft outer drop shadow only */
-            border-radius: 0.85rem !important;
-        }
         
-        .btn-flat:active {
-            background: rgba(255, 255, 255, 0.08) !important;
-            transform: scale(0.92);
-            color: var(--text-main) !important;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important; /* Shadow shrinks when pressed */
+        .btn:active { 
+            transform: scale(0.92); 
+            /* Flashes brighter frost when pressed down */
+            background: rgba(255, 255, 255, 0.16); 
+            /* Shrinks outer shadow and adds a dark inner shadow so it physically looks pushed INTO the panel */
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4), inset 0 2px 5px rgba(0, 0, 0, 0.3); 
+            color: var(--text-main); 
         }
+
         #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
         .btn-top { width: 4rem; height: 3.5rem; }
@@ -337,14 +333,14 @@
                 </div>
                 
                 <div class="spot-ctrl" style="margin-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 3.5rem;">
-                    <button class="btn btn-flat" onclick="act('spot_prev')">
+                    <button class="btn" onclick="act('spot_prev')">
                         <i data-lucide="skip-back"></i>
                     </button>
-                    <button class="btn btn-flat" id="btn-spot-play" onclick="act('spot_play')">
+                    <button class="btn" id="btn-spot-play" onclick="act('spot_play')">
                         <i data-lucide="play" id="icon-spot-play"></i>
                         <i data-lucide="pause" id="icon-spot-pause" style="display: none;"></i>
                     </button>
-                    <button class="btn btn-flat" onclick="act('spot_next')">
+                    <button class="btn" onclick="act('spot_next')">
                         <i data-lucide="skip-forward"></i>
                     </button>
                 </div>
