@@ -935,7 +935,25 @@
             document.getElementById('modal').classList.add('active');
         });
 
-        function act(a) { sendSocket('action', a); }
+        // --- Action Dispatcher with Optimistic UI ---
+        function act(a) { 
+            // Instantly flip the Play/Pause icon the millisecond the screen is touched
+            // This hides the 0.5s+ latency of the Spotify REST API
+            if (a === 'spot_play') {
+                const iconPlay = document.getElementById('icon-spot-play');
+                const iconPause = document.getElementById('icon-spot-pause');
+                
+                if (iconPlay && iconPause) {
+                    const isCurrentlyPaused = (iconPlay.style.display !== 'none');
+                    // Flip the displays immediately
+                    iconPlay.style.display = isCurrentlyPaused ? 'none' : '';
+                    iconPause.style.display = isCurrentlyPaused ? '' : 'none';
+                }
+            }
+            
+            // Send the command to the server in the background
+            sendSocket('action', a); 
+        }
         function runSpeedtest() { 
             document.getElementById('s-dl').innerText = "..."; 
             document.getElementById('s-ul').innerText = "..."; 
