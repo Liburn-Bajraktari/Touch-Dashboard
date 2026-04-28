@@ -363,8 +363,12 @@
             const d = msg.data;
 
             if (msg.type === 'config_sync') {
+                globalCfg = d.cfg; // SAVE the config to our new global variable
                 currentHwDevices = d.hw;
-                populateAudioTab(d.hw, d.cfg.audio_names);
+                
+                // Use the names from the saved config
+                populateAudioTab(d.hw, globalCfg.audio_names);
+                
                 const c = d.cfg;
                 document.getElementById('cfg-weather').value = c.weather_api || '';
                 document.getElementById('cfg-city').value = c.weather_city || '';
@@ -377,8 +381,9 @@
             } 
             else if (msg.type === 'hw_scan_results') {
                 currentHwDevices = d;
-                populateAudioTab(d, null);
-            } 
+                // FIX: Instead of passing 'null', we pass the names from globalCfg
+                populateAudioTab(d, globalCfg.audio_names);
+            }
             else if (msg.type === 'weather_data') {
                 document.getElementById('w-temp').innerText = d.temp + '°'; 
                 document.getElementById('w-desc').innerText = d.desc;
@@ -473,6 +478,7 @@
 
         let spBtns = [];
         let currentHwDevices = [];
+        let globalCfg = {}; 
 
         function populateAudioTab(devices, configNames) {
             const container = document.getElementById('audio-devices-list');
