@@ -554,7 +554,7 @@
             }
         };
 
-       // --- Morphing Animation (GSAP) ---
+       // --- Hardware-Accelerated App Morphing (0.3s) ---
         let spOrigin = {}; 
 
         function toggleSoundpad(show) {
@@ -568,7 +568,7 @@
             const title = document.getElementById('top-title');
 
             if (show) {
-                // 1. Calculate the exact bounds of the button (Now accurate!)
+                // 1. Calculate bounds
                 const btnRect = btn.getBoundingClientRect();
                 const wrapRect = document.getElementById('view-wrapper').getBoundingClientRect();
                 
@@ -579,62 +579,71 @@
                     h: btnRect.height
                 };
 
-                // 2. Wrap the view tightly around the button
+                // 2. Wrap tightly (DISABLE BLUR TO PREVENT GPU FRAME DROPS)
                 gsap.set(spView, { 
                     display: 'flex', opacity: 1, 
                     top: spOrigin.t, left: spOrigin.l, 
                     width: spOrigin.w, height: spOrigin.h, 
-                    borderRadius: '1rem' 
+                    borderRadius: '1rem',
+                    backdropFilter: 'none', 
+                    webkitBackdropFilter: 'none'
                 });
                 
                 gsap.set(spInner, { opacity: 0, scale: 0.95 });
 
-                // 3. Morph the shell (Hardware Standard: 0.15s)
+                // 3. Morph the shell (0.3s Smooth)
                 gsap.to(spView, { 
-                    duration: 0.15, 
+                    duration: 0.3, 
                     top: 0, left: 0, width: '100%', height: '100%', borderRadius: '1.5rem', 
-                    ease: "power2.inOut" 
+                    ease: "power3.inOut",
+                    onComplete: () => {
+                        // Snap blur back on once the GPU stops calculating motion
+                        gsap.set(spView, { backdropFilter: 'blur(20px)', webkitBackdropFilter: 'blur(20px)' });
+                    }
                 });
                 
-                gsap.to(spInner, { opacity: 1, scale: 1, duration: 0.1, delay: 0.05, ease: "power2.out" });
+                gsap.to(spInner, { opacity: 1, scale: 1, duration: 0.2, delay: 0.1, ease: "power2.out" });
 
                 // 4. Seamless crossfade
-                gsap.to(btnIcon, { opacity: 0, duration: 0.08 });
-                gsap.to(btn, { opacity: 0, duration: 0.1 });
+                gsap.to(btnIcon, { opacity: 0, duration: 0.1 });
+                gsap.to(btn, { opacity: 0, duration: 0.15 });
 
                 // 5. Push columns out
-                gsap.to(cols[0], { x: -30, opacity: 0, duration: 0.15, ease: "power2.inOut" });
-                gsap.to(cols[1], { y: 30, opacity: 0, duration: 0.15, ease: "power2.inOut" });
-                gsap.to(cols[2], { x: 30, opacity: 0, duration: 0.15, ease: "power2.inOut" });
+                gsap.to(cols[0], { x: -30, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(cols[1], { y: 30, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(cols[2], { x: 30, opacity: 0, duration: 0.3, ease: "power3.inOut" });
 
-                // Synchronized Top Bar Opening (Matches the 0.15s shell)
-                gsap.to(battSlide, { x: '4.5rem', duration: 0.15, ease: "power2.inOut" });
-                gsap.to(btnBack, { opacity: 1, duration: 0.1, delay: 0.05 });
+                // 6. Synchronized Top Bar
+                gsap.to(battSlide, { x: '4.5rem', duration: 0.3, ease: "power3.inOut" });
+                gsap.to(btnBack, { opacity: 1, duration: 0.15, delay: 0.1 });
                 btnBack.style.pointerEvents = 'auto';
 
             } else {
-                // 1. Hide inner content instantly so layout doesn't crush
-                gsap.to(spInner, { opacity: 0, scale: 0.95, duration: 0.08, ease: "power2.in" });
+                // 1. Hide inner content
+                gsap.to(spInner, { opacity: 0, scale: 0.95, duration: 0.15, ease: "power2.in" });
 
-                // 2. Shrink shell (Hardware Standard: 0.15s)
+                // 2. Remove blur BEFORE moving to save GPU frames
+                gsap.set(spView, { backdropFilter: 'none', webkitBackdropFilter: 'none' });
+
+                // 3. Shrink shell (0.3s)
                 gsap.to(spView, { 
-                    duration: 0.15, delay: 0.02,
+                    duration: 0.3, delay: 0.05,
                     top: spOrigin.t, left: spOrigin.l, width: spOrigin.w, height: spOrigin.h, borderRadius: '1rem', 
-                    ease: "power2.inOut", 
+                    ease: "power3.inOut", 
                     onComplete: () => { gsap.set(spView, { display: 'none' }); }
                 });
 
-                // 3. Fade button back
-                gsap.to(btn, { opacity: 1, duration: 0.1, delay: 0.05 });
-                gsap.to(btnIcon, { opacity: 1, duration: 0.08, delay: 0.08 });
+                // 4. Fade button back
+                gsap.to(btn, { opacity: 1, duration: 0.15, delay: 0.1 });
+                gsap.to(btnIcon, { opacity: 1, duration: 0.15, delay: 0.15 });
 
-                // 4. Pull columns back
-                gsap.to(cols, { x: 0, y: 0, opacity: 1, duration: 0.15, ease: "power2.inOut", delay: 0.02, stagger: 0.01 });
+                // 5. Pull columns back
+                gsap.to(cols, { x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02 });
 
-                // 5. Synchronized Top Bar Closing
+                // 6. Synchronized Top Bar Closing
                 btnBack.style.pointerEvents = 'none';
-                gsap.to(btnBack, { opacity: 0, duration: 0.08, ease: "power2.out" }); // Erases the button before battery moves
-                gsap.to(battSlide, { x: 0, duration: 0.15, delay: 0.02, ease: "power2.inOut" }); // Moves exactly with columns
+                gsap.to(btnBack, { opacity: 0, duration: 0.1, ease: "power2.out" });
+                gsap.to(battSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut" });
             }
             
             title.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
