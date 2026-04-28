@@ -606,25 +606,31 @@
 
        // --- Hardware-Accelerated App Morphing (0.3s) ---
         let spOrigin = {}; 
+        
+        // Cache DOM nodes for the Soundpad Morph to avoid querying during animation
+        const elSpView = document.getElementById('soundpad-view');
+        const elSpInner = document.getElementById('sp-inner');
+        const elCols = document.querySelectorAll('#main-view .col');
+        const elMainView = document.getElementById('main-view');
+        const elBtnSp = document.getElementById('btn-macro-sp');
+        const elBtnSpIcon = elBtnSp.children[0];
+        const elBtnBack = document.getElementById('btn-back');
+        const elBattSlide = document.getElementById('batt-slide');
+        const elTopTitle = document.getElementById('top-title');
+        const elViewWrapper = document.getElementById('view-wrapper');
 
         function toggleSoundpad(show) {
             isAnimating = true;
-            const spView = document.getElementById('soundpad-view');
-            const spInner = document.getElementById('sp-inner');
-            const cols = document.querySelectorAll('#main-view .col');
-            const mainView = document.getElementById('main-view');
-            const btn = document.getElementById('btn-macro-sp');
-            const btnIcon = btn.children[0];
-            const btnBack = document.getElementById('btn-back');
-            const battSlide = document.getElementById('batt-slide');
-            const title = document.getElementById('top-title');
 
             if (show) {
-                mainView.style.pointerEvents = 'none';
-                const btnRect = btn.getBoundingClientRect();
-                const wrapRect = document.getElementById('view-wrapper').getBoundingClientRect();
+                // 1. Read Phase (No Writes yet to prevent Layout Thrashing)
+                const btnRect = elBtnSp.getBoundingClientRect();
+                const wrapRect = elViewWrapper.getBoundingClientRect();
                 
-                // 1. Calculate GPU Transform Math (Bypasses CPU entirely)
+                // 2. Write Phase
+                elMainView.style.pointerEvents = 'none';
+                
+                // Calculate GPU Transform Math (Bypasses CPU entirely)
                 const wrapCenterX = wrapRect.width / 2;
                 const wrapCenterY = wrapRect.height / 2;
                 const btnCenterX = (btnRect.left - wrapRect.left) + (btnRect.width / 2);
@@ -637,8 +643,8 @@
                     scaleY: btnRect.height / wrapRect.height
                 };
 
-                // 2. Prep the shell (Full size, but shrunk/moved via GPU transforms)
-                gsap.set(spView, { 
+                // Prep the shell (Full size, but shrunk/moved via GPU transforms)
+                gsap.set(elSpView, { 
                     display: 'flex', opacity: 1, 
                     x: spOrigin.x, y: spOrigin.y, 
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
@@ -646,79 +652,79 @@
                     boxShadow: 'none' // Kill heavy paint shadows during movement
                 });
                 
-                gsap.set(spInner, { opacity: 0 });
+                gsap.set(elSpInner, { opacity: 0 });
 
-                // 3. GPU-Only Morphing (0.3s)
-                gsap.to(spView, { 
+                // GPU-Only Morphing (0.3s)
+                gsap.to(elSpView, { 
                     duration: 0.3, 
                     x: 0, y: 0, scaleX: 1, scaleY: 1, 
                     ease: "power3.inOut",
                     onComplete: () => {
                         // Turn heavy paints back on ONLY after motion completely stops
                         requestAnimationFrame(() => {
-                            gsap.set(spView, { 
+                            gsap.set(elSpView, { 
                                 backdropFilter: 'blur(20px)', webkitBackdropFilter: 'blur(20px)',
                                 boxShadow: '0 4px 30px rgba(0, 0, 0, 0.5)'
                             });
                         });
-                        gsap.to(spInner, { opacity: 1, duration: 0.15, ease: "power2.out", onComplete: () => {
+                        gsap.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out", onComplete: () => {
                             isAnimating = false;
                             if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                         }});
                     }
                 });
 
-                // 4. Crossfades & Pushes
-                gsap.to(btnIcon, { opacity: 0, duration: 0.1 });
-                gsap.to(btn, { opacity: 0, duration: 0.15 });
+                // Crossfades & Pushes
+                gsap.to(elBtnSpIcon, { opacity: 0, duration: 0.1 });
+                gsap.to(elBtnSp, { opacity: 0, duration: 0.15 });
 
-                gsap.to(cols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
-                gsap.to(cols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
-                gsap.to(cols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(elCols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(elCols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
+                gsap.to(elCols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut" });
 
-                gsap.to(battSlide, { x: '4.5rem', duration: 0.3, ease: "power3.inOut" });
-                gsap.to(btnBack, { opacity: 1, duration: 0.15, delay: 0.1 });
-                btnBack.style.pointerEvents = 'auto';
+                gsap.to(elBattSlide, { x: '4.5rem', duration: 0.3, ease: "power3.inOut" });
+                gsap.to(elBtnBack, { opacity: 1, duration: 0.15, delay: 0.1 });
+                elBtnBack.style.pointerEvents = 'auto';
 
             } else {
-                mainView.style.pointerEvents = 'auto';
+                elMainView.style.pointerEvents = 'auto';
                 // 1. Hide inner content instantly
-                gsap.to(spInner, { opacity: 0, duration: 0.1, ease: "power2.in" });
+                gsap.to(elSpInner, { opacity: 0, duration: 0.1, ease: "power2.in" });
 
                 // 2. Kill heavy paints BEFORE moving
-                gsap.set(spView, { 
+                gsap.set(elSpView, { 
                     backdropFilter: 'none', webkitBackdropFilter: 'none',
                     boxShadow: 'none'
                 });
 
                 // 3. GPU Warp back to origin
-                gsap.to(spView, { 
+                gsap.to(elSpView, { 
                     duration: 0.3, delay: 0.05,
                     x: spOrigin.x, y: spOrigin.y, 
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
                     ease: "power3.inOut", 
                     onComplete: () => { 
-                        gsap.set(spView, { display: 'none' }); 
+                        gsap.set(elSpView, { display: 'none' }); 
                         isAnimating = false;
                         if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                     }
                 });
 
-                gsap.to(btn, { opacity: 1, duration: 0.15, delay: 0.1 });
-                gsap.to(btnIcon, { opacity: 1, duration: 0.15, delay: 0.15 });
+                gsap.to(elBtnSp, { opacity: 1, duration: 0.15, delay: 0.1 });
+                gsap.to(elBtnSpIcon, { opacity: 1, duration: 0.15, delay: 0.15 });
 
-                gsap.to(cols, { x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02 });
+                gsap.to(elCols, { x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02 });
 
-                btnBack.style.pointerEvents = 'none';
-                gsap.to(btnBack, { opacity: 0, duration: 0.1, ease: "power2.out" });
-                gsap.to(battSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut" });
+                elBtnBack.style.pointerEvents = 'none';
+                gsap.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out" });
+                gsap.to(elBattSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut" });
             }
             
-            title.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
-            title.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
-            title.style.fontWeight = show ? '800' : '300';
-            title.style.transform = 'scale(1.05)';
-            setTimeout(() => title.style.transform = 'scale(1)', 150);
+            // Sync title animation with GSAP requestAnimationFrame pipeline instead of setTimeout
+            elTopTitle.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
+            elTopTitle.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
+            elTopTitle.style.fontWeight = show ? '800' : '300';
+            gsap.fromTo(elTopTitle, { scale: 1.05 }, { scale: 1, duration: 0.15, ease: "power2.out" });
         }
 
         function switchTab(tabId) {
@@ -929,16 +935,21 @@
         }
 
         let lastTimeStr = "";
+        const elTime = document.getElementById('time');
+        const elDateMonth = document.getElementById('date-month');
+        const elDateDay = document.getElementById('date-day');
+        const elDateDayName = document.getElementById('date-dayname');
+        
         setInterval(() => {
             const d = new Date();
             const timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
             if (timeStr !== lastTimeStr) {
                 lastTimeStr = timeStr;
                 requestAnimationFrame(() => {
-                    document.getElementById('time').innerText = timeStr;
-                    document.getElementById('date-month').innerText = d.getMonth() + 1;
-                    document.getElementById('date-day').innerText = d.getDate();
-                    document.getElementById('date-dayname').innerText = d.toLocaleDateString([], {weekday: 'short'}).toUpperCase();
+                    elTime.innerText = timeStr;
+                    elDateMonth.innerText = d.getMonth() + 1;
+                    elDateDay.innerText = d.getDate();
+                    elDateDayName.innerText = d.toLocaleDateString([], {weekday: 'short'}).toUpperCase();
                 });
             }
         }, 1000);

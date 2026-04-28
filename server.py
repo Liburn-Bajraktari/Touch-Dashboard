@@ -534,7 +534,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     c = await asyncio.to_thread(sp.current_playback)
                                     if c and c.get('is_playing'): await asyncio.to_thread(sp.pause_playback)
                                     else: await asyncio.to_thread(sp.start_playback)
-                                elif action == 'spot_next': await asyncio.to_track(sp.next_track)
+                                elif action == 'spot_next': await asyncio.to_thread(sp.next_track)
                                 elif action == 'spot_prev': await asyncio.to_thread(sp.previous_track)
                                 routed_to_spot, force_media_update = True, True
                         except: pass
@@ -567,7 +567,7 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == 'run_speedtest':
                 async def run_st():
                     try:
-                        st = speedtest.Speedtest()
+                        st = await asyncio.to_thread(speedtest.Speedtest)
                         await asyncio.to_thread(st.get_best_server)
                         down, up = await asyncio.to_thread(st.download), await asyncio.to_thread(st.upload)
                         await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': round(down / 1_000_000, 1), 'up': round(up / 1_000_000, 1)}})
