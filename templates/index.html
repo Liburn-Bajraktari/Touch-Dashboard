@@ -48,7 +48,10 @@
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
         .btn {
-            background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05);
+            /* Upgraded hardware-tactile styling */
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%); 
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.08);
             border-radius: 1rem; color: var(--text-main); display: flex; justify-content: center; align-items: center;
             cursor: pointer; transition: all 0.15s ease; height: 100%; outline: none;
         }
@@ -458,7 +461,7 @@
                 navigator.serviceWorker.register('/static/sw.js').catch(err => console.log('SW setup failed', err));
             });
         }
-        
+
         lucide.createIcons();
         
         // --- NATIVE WEBSOCKET REFACTOR ---
