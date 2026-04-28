@@ -458,7 +458,8 @@
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/static/sw.js').catch(err => console.log('SW setup failed', err));
+                // Change the filename slightly or add a version query
+                navigator.serviceWorker.register('/static/sw.js?v=1.1').catch(err => console.log('SW setup failed', err));
             });
         }
 

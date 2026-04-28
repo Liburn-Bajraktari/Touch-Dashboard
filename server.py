@@ -438,8 +438,12 @@ app = FastAPI(lifespan=lifespan)
 async def index(request: Request):
     global last_host_url
     last_host_url = request.url.netloc
-    # FIX: Explicitly point to the 'templates' folder as shown in your screenshot
-    return FileResponse(os.path.join(BASE_DIR, "templates", "index.html"))
+    response = FileResponse(os.path.join(BASE_DIR, "templates", "index.html"))
+    # Instructs the WebView to re-validate the file every time
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @app.get('/favicon.ico')
 async def favicon():
@@ -448,29 +452,20 @@ async def favicon():
 
 @app.get('/manifest.json')
 async def manifest():
-    return JSONResponse({
+    # Adding a version query here tricks the PWA manager
+    return JSONResponse(content={
         "name": "Command Center Dashboard",
         "short_name": "CmdCenter",
-        "start_url": "/",
+        "start_url": "/?v=1.1", 
         "display": "standalone",
         "orientation": "landscape",
-        "background_color": "#090e17", # Matches your UI bg
-        "theme_color": "#0ea5e9",      # Matches your accent blue
+        "background_color": "#090e17",
+        "theme_color": "#0ea5e9",
         "icons": [
-            {
-                "src": "/static/icon-192.png",
-                "sizes": "192x192",
-                "type": "image/png",
-                "purpose": "any maskable" # Important for nice Android rendering
-            },
-            {
-                "src": "/static/icon-512.png",
-                "sizes": "512x512",
-                "type": "image/png",
-                "purpose": "any maskable"
-            }
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
         ]
-    })
+    }, headers={"Cache-Control": "no-cache"})
 
 @app.get('/spotify_login')
 async def spotify_login(request: Request):
