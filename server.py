@@ -452,7 +452,7 @@ async def manifest():
         "name": "Command Center Dashboard",
         "short_name": "CmdCenter",
         "start_url": "/",
-        "display": "fullscreen",
+        "display": "standalone",
         "orientation": "landscape",
         "background_color": "#090e17", # Matches your UI bg
         "theme_color": "#0ea5e9",      # Matches your accent blue

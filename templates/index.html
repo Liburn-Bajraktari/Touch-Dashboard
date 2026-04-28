@@ -11,7 +11,11 @@
 
     <link rel="apple-touch-icon" href="/static/icon-192.png">
     <link rel="manifest" href="/manifest.json">
+    
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#090e17">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <style>
@@ -894,20 +898,6 @@
 
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
         const upMic = initSlider('slide-mic', 'fill-mic', 'val-mic', 'mic', (v) => { if(v!==undefined) isDraggingMic = v; return isDraggingMic; });
-
-        // --- Auto-Fullscreen Trap ---
-        // Forces fullscreen on the very first physical interaction with the tablet
-        const enforceFullscreen = () => {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(e => e);
-            }
-            // Self-destruct the listeners so they don't fire repeatedly
-            document.removeEventListener('touchstart', enforceFullscreen);
-            document.removeEventListener('click', enforceFullscreen);
-        };
-
-        document.addEventListener('touchstart', enforceFullscreen, { passive: true });
-        document.addEventListener('click', enforceFullscreen, { passive: true });
 
        // --- Dashboard Gestures ---
         let maxTouches = 0;
