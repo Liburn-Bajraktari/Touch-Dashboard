@@ -49,6 +49,7 @@
             cursor: pointer; transition: all 0.15s ease; height: 100%; outline: none;
         }
         .btn:active { transform: scale(0.92); background: var(--accent); box-shadow: 0 0 15px var(--accent-glow); color: #000; }
+        #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
         .btn-top { width: 4rem; height: 3.5rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
@@ -204,9 +205,9 @@
     <!-- Top Bar Core -->
     <div class="top-bar glass">
         <div class="section batt" style="position: relative;">
-            <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; transition: all 0.25s cubic-bezier(0.1, 0.9, 0.2, 1); width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
+            <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
             
-            <div id="batt-slide" style="display: flex; align-items: center; gap: 0.5rem; transition: transform 0.25s cubic-bezier(0.1, 0.9, 0.2, 1);">
+            <div id="batt-slide" style="display: flex; align-items: center; gap: 0.5rem;">
                 <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
             </div>
         </div>
@@ -514,13 +515,13 @@
             const spInner = document.getElementById('sp-inner');
             const cols = document.querySelectorAll('#main-view .col');
             const btn = document.getElementById('btn-macro-sp');
-            const btnIcon = btn.children[0]; // Safely grabs the Lucide SVG
+            const btnIcon = btn.children[0];
             const btnBack = document.getElementById('btn-back');
             const battSlide = document.getElementById('batt-slide');
             const title = document.getElementById('top-title');
 
             if (show) {
-                // 1. Calculate the exact bounds of the button
+                // 1. Calculate the exact bounds of the button (Now accurate!)
                 const btnRect = btn.getBoundingClientRect();
                 const wrapRect = document.getElementById('view-wrapper').getBoundingClientRect();
                 
@@ -539,35 +540,34 @@
                     borderRadius: '1rem' 
                 });
                 
-                // Keep inner contents invisible to avoid layout crushing
                 gsap.set(spInner, { opacity: 0, scale: 0.95 });
 
-                // 3. Morph the shell to full screen (Faster, Snappier iOS timing)
+                // 3. Morph the shell
                 gsap.to(spView, { 
                     duration: 0.3, 
                     top: 0, left: 0, width: '100%', height: '100%', borderRadius: '1.5rem', 
                     ease: "power3.inOut" 
                 });
                 
-                // 4. Fade content in while expanding
                 gsap.to(spInner, { opacity: 1, scale: 1, duration: 0.2, delay: 0.1, ease: "power2.out" });
 
-                // 5. Seamless button crossfade (keeps it from looking blank)
+                // 4. Seamless crossfade
                 gsap.to(btnIcon, { opacity: 0, duration: 0.1 });
                 gsap.to(btn, { opacity: 0, duration: 0.2, delay: 0.05 });
 
-                // 6. Push columns away
+                // 5. Push columns out
                 gsap.to(cols[0], { x: -30, opacity: 0, duration: 0.25, ease: "power2.inOut" });
                 gsap.to(cols[1], { y: 30, opacity: 0, duration: 0.25, ease: "power2.inOut" });
                 gsap.to(cols[2], { x: 30, opacity: 0, duration: 0.25, ease: "power2.inOut" });
 
-                btnBack.style.opacity = '1'; btnBack.style.pointerEvents = 'auto';
-                battSlide.style.transform = 'translateX(4.5rem)';
+                // Synchronized Top Bar Opening
+                gsap.to(battSlide, { x: '4.5rem', duration: 0.3, ease: "power3.inOut" });
+                gsap.to(btnBack, { opacity: 1, duration: 0.2, delay: 0.1 });
+                btnBack.style.pointerEvents = 'auto';
+
             } else {
-                // 1. Fade out inner content first
                 gsap.to(spInner, { opacity: 0, scale: 0.95, duration: 0.15, ease: "power2.in" });
 
-                // 2. Shrink shell back to the exact button coordinates
                 gsap.to(spView, { 
                     duration: 0.3, delay: 0.05,
                     top: spOrigin.t, left: spOrigin.l, width: spOrigin.w, height: spOrigin.h, borderRadius: '1rem', 
@@ -575,15 +575,15 @@
                     onComplete: () => { gsap.set(spView, { display: 'none' }); }
                 });
 
-                // 3. Fade button back in right as the shell arrives
                 gsap.to(btn, { opacity: 1, duration: 0.2, delay: 0.1 });
                 gsap.to(btnIcon, { opacity: 1, duration: 0.15, delay: 0.2 });
 
-                // 4. Pull cols back
                 gsap.to(cols, { x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.1, stagger: 0.02 });
 
-                btnBack.style.opacity = '0'; btnBack.style.pointerEvents = 'none';
-                battSlide.style.transform = 'translateX(0)';
+                // Synchronized Top Bar Closing
+                btnBack.style.pointerEvents = 'none';
+                gsap.to(btnBack, { opacity: 0, duration: 0.1, ease: "power2.out" }); // Super fast fade
+                gsap.to(battSlide, { x: 0, duration: 0.3, delay: 0.1, ease: "power3.inOut" }); // Delayed to match columns
             }
             
             title.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
