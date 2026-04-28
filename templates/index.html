@@ -440,7 +440,7 @@
     </div>
     
     <!-- Soundpad View Overlay -->
-    <div id="soundpad-view" style="display: none; flex-direction: column;">
+    <div id="soundpad-view" style="visibility: hidden; pointer-events: none; flex-direction: column;">
         <div id="sp-inner" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%; opacity: 0;">
             <div id="sp-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.5rem; align-content: start;">
                 <!-- Buttons filled by JS -->
@@ -618,6 +618,7 @@
         const elBattSlide = document.getElementById('batt-slide');
         const elTopTitle = document.getElementById('top-title');
         const elViewWrapper = document.getElementById('view-wrapper');
+        const elGlassPanels = document.querySelectorAll('.glass');
 
         function toggleSoundpad(show) {
             isAnimating = true;
@@ -643,9 +644,12 @@
                     scaleY: btnRect.height / wrapRect.height
                 };
 
+                // Kill heavy paints on main view panels during movement
+                gsap.set(elGlassPanels, { backdropFilter: 'none', webkitBackdropFilter: 'none', boxShadow: 'none' });
+
                 // Prep the shell (Full size, but shrunk/moved via GPU transforms)
                 gsap.set(elSpView, { 
-                    display: 'flex', opacity: 1, 
+                    visibility: 'visible', pointerEvents: 'auto', opacity: 1, 
                     x: spOrigin.x, y: spOrigin.y, 
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
                     backdropFilter: 'none', webkitBackdropFilter: 'none',
@@ -704,7 +708,7 @@
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
                     ease: "power3.inOut", 
                     onComplete: () => { 
-                        gsap.set(elSpView, { display: 'none' }); 
+                        gsap.set(elSpView, { visibility: 'hidden', pointerEvents: 'none' }); 
                         isAnimating = false;
                         if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                     }
@@ -713,7 +717,13 @@
                 gsap.to(elBtnSp, { opacity: 1, duration: 0.15, delay: 0.1 });
                 gsap.to(elBtnSpIcon, { opacity: 1, duration: 0.15, delay: 0.15 });
 
-                gsap.to(elCols, { x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02 });
+                gsap.to(elCols, { 
+                    x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02,
+                    onComplete: () => {
+                        // Restore main view paints
+                        gsap.set(elGlassPanels, { clearProps: "backdropFilter,webkitBackdropFilter,boxShadow" });
+                    }
+                });
 
                 elBtnBack.style.pointerEvents = 'none';
                 gsap.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out" });
