@@ -612,6 +612,7 @@
             const spView = document.getElementById('soundpad-view');
             const spInner = document.getElementById('sp-inner');
             const cols = document.querySelectorAll('#main-view .col');
+            const mainView = document.getElementById('main-view');
             const btn = document.getElementById('btn-macro-sp');
             const btnIcon = btn.children[0];
             const btnBack = document.getElementById('btn-back');
@@ -619,6 +620,7 @@
             const title = document.getElementById('top-title');
 
             if (show) {
+                mainView.style.pointerEvents = 'none';
                 const btnRect = btn.getBoundingClientRect();
                 const wrapRect = document.getElementById('view-wrapper').getBoundingClientRect();
                 
