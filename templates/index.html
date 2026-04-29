@@ -50,28 +50,24 @@
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
         /* High-Compatibility Frosted Style */
+       /* REVERTED TO ORIGINAL FLAT STYLE + SUBTLE SHADOW */
         .btn {
-            background-color: rgba(255, 255, 255, 0.12); /* Increased from 0.03 for visibility */
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 12px; 
-            color: #f8fafc;
-            display: flex; 
-            justify-content: center; 
+            background: rgba(255, 255, 255, 0.05); /* Original opacity */
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            color: var(--text-main);
+            padding: 1rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
             align-items: center;
-            height: 100%;
-            width: 100%;
-            /* Simple shadow - more compatible than complex blurs */
-            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.5);
-            transition: background-color 0.1s ease;
-            outline: none;
-            -webkit-tap-highlight-color: transparent;
+            transition: all 0.2s;
         }
-
-        .btn:active {
-            background-color: #0ea5e9; /* Snappy feedback color */
-            color: #000000;
-            transform: scale(0.95);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+        
+        .btn:active { 
+            transform: scale(0.95); 
+            background: var(--accent); 
+            color: #000; 
         }
         #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
