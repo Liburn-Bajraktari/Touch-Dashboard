@@ -10,7 +10,7 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
 
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="manifest" href="/manifest.json?v=1.6">
+    <link rel="manifest" href="/manifest.json?v=1.8">
     
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,7 +18,7 @@
     <meta name="theme-color" content="#090e17">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-    <script src="/static/sw.js?v=1.6"></script>
+    <script src="/static/sw.js?v=1.8"></script>
     <style>
         :root {
             --bg-dark: #090e17; --panel-bg: rgba(15, 23, 42, 0.4); --border: rgba(255, 255, 255, 0.08);
@@ -50,10 +50,9 @@
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
         /* High-Compatibility Frosted Style */
-       /* REVERTED TO ORIGINAL FLAT STYLE + SUBTLE SHADOW */
         .btn {
-            background: rgba(255, 255, 255, 0.05); /* Original background */
-            border: 1px solid rgba(255, 255, 255, 0.1); /* Slightly bumped from 0.05 for visibility */
+            background: rgba(255, 255, 255, 0.05) !important; /* Original background */
+            border: 1px solid rgba(255, 255, 255, 0.15) !important; /* Slightly bumped from 0.05 for visibility */
             border-radius: 12px;
             color: var(--text-main);
             padding: 1rem;
@@ -62,7 +61,7 @@
             justify-content: center;
             align-items: center;
             transition: all 0.2s;
-            box-shadow: none; 
+            box-shadow: none !important; 
         }
         
         .btn:active { 
@@ -482,7 +481,7 @@ async function clearEverything() {
 }
 
 // Bumping this from '1.5' to '1.6' forces the tablet to wipe its own memory
-const APP_VERSION = '1.6'; 
+const APP_VERSION = '1.8'; 
 if (localStorage.getItem('app_version') !== APP_VERSION) {
     clearEverything().then(() => {
         localStorage.setItem('app_version', APP_VERSION);
