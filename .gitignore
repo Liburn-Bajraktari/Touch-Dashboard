@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 server.log
 .cache/
+__pycache__/server.cpython-314.pyc
+.cache
+server.log
+weather_cache.json
+__pycache__/server.cpython-314.pyc
