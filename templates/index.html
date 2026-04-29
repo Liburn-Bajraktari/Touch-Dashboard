@@ -64,7 +64,7 @@
             box-shadow: none !important; 
         }
         
-        .btn:active { 
+        .btn:active, .btn.active-btn { 
             transform: scale(0.95); 
             background: var(--accent); 
             color: #000; 
@@ -268,12 +268,13 @@
     <div id="sp-modal" class="modal-overlay">
         <div class="modal-card" id="sp-modal-card" style="width: 30rem;">
             <h3 style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 1.5rem;" id="sp-modal-title">Edit Button</h3>
-            <div class="form-group"><label>Button ID / Command</label><input type="text" id="sp-id-input" placeholder="e.g. 1"></div>
-            <div class="form-group"><label>Display Name</label><input type="text" id="sp-name-input" placeholder="e.g. Laugh"></div>
+            <div class="form-group"><label>Button ID / Command</label><input type="text" id="sp-id-input" placeholder="e.g. 1" oninput="checkSpInput()"></div>
+            <div class="form-group"><label>Display Name</label><input type="text" id="sp-name-input" placeholder="e.g. Laugh" oninput="checkSpInput()"></div>
+            <div id="sp-error-msg" style="color: var(--danger); font-size: 0.9rem; text-align: center; display: none; font-weight: bold; margin-top: 0.5rem;"></div>
             <div style="display: flex; gap: 1rem; margin-top: 1rem; height: 3.5rem;">
                 <button class="btn" style="flex: 1; background: var(--panel-bg);" onclick="closeSpModal()">Cancel</button>
                 <button class="btn" style="flex: 1; background: var(--danger); display: none;" id="sp-del-btn" onclick="deleteSpBtn()">Delete</button>
-                <button class="btn" style="flex: 1; background: var(--accent); color: #000; font-weight: bold;" onclick="saveSpBtn()">Save</button>
+                <button class="btn" id="sp-save-btn" style="flex: 1; background: var(--panel-bg); color: var(--text-muted); opacity: 0.5; transition: all 0.2s;" onclick="saveSpBtn()">Save</button>
             </div>
         </div>
     </div>
@@ -834,8 +835,9 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
             spBtns.forEach((btn, idx) => {
                 htmlStr += `
                     <button class="btn" style="height: 7rem; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.3);" 
-                        onmousedown="spDown(${idx})" onmouseup="spUp(${idx})" onmouseleave="spLeave(${idx})"
-                        ontouchstart="spTouchStart(event, ${idx})" ontouchend="spTouchEnd(event, ${idx})" ontouchcancel="spLeave(${idx})">
+                        onmousedown="spDown(this, ${idx})" onmouseup="spUp(this, ${idx})" onmouseleave="spLeave(this, ${idx})"
+                        ontouchstart="spDown(this, ${idx})" ontouchend="spUp(this, ${idx})" ontouchcancel="spLeave(this, ${idx})"
+                        onclick="spClick(this, ${idx})">
                         <i data-lucide="play" style="color: var(--accent);"></i><span style="font-weight: bold; font-size: 1.1rem; pointer-events: none;">${btn.name}</span>
                     </button>
                 `;
@@ -850,29 +852,110 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
             lucide.createIcons();
         }
 
-        function spLeave(idx) { if (spTimer) { clearTimeout(spTimer); spTimer = null; spCancel = true; } }
-        function spDown(idx) { spCancel = false; spTimer = setTimeout(() => { spTimer = null; spCancel = true; openSpModal(idx); }, 600); }
-        function spUp(idx) { if (spTimer) { clearTimeout(spTimer); spTimer = null; if (!spCancel) sendSocket('action', 'sp_play_' + spBtns[idx].id); } }
-        function spTouchStart(e, idx) { spDown(idx); }
-        function spTouchEnd(e, idx) { if(e.cancelable) e.preventDefault(); spUp(idx); }
+        function spLeave(btn, idx) { btn.classList.remove('active-btn'); if (spTimer) { clearTimeout(spTimer); spTimer = null; } spCancel = true; }
+        function spDown(btn, idx) { btn.classList.add('active-btn'); spCancel = false; spTimer = setTimeout(() => { spTimer = null; spCancel = true; btn.classList.remove('active-btn'); openSpModal(idx); }, 600); }
+        function spUp(btn, idx) { setTimeout(() => btn.classList.remove('active-btn'), 100); if (spTimer) { clearTimeout(spTimer); spTimer = null; } }
+        function spClick(btn, idx) {
+            if (!spCancel) {
+                sendSocket('action', 'sp_play_' + spBtns[idx].id);
+            }
+        }
+
+        function checkSpInput() {
+            const idVal = document.getElementById('sp-id-input').value.trim();
+            const nameVal = document.getElementById('sp-name-input').value.trim();
+            const btn = document.getElementById('sp-save-btn');
+            
+            // Cache drafts so they survive reloads/closes
+            localStorage.setItem('sp_draft_id', idVal);
+            localStorage.setItem('sp_draft_name', nameVal);
+
+            let isValid = true;
+            let errorReason = "";
+
+            if (idVal.length < 1 || nameVal.length < 1) {
+                isValid = false;
+                errorReason = "Both ID and Name are required.";
+            } else if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) {
+                const orig = spBtns[editingSpIdx];
+                // Check if they match exactly what is already saved
+                if (idVal === orig.id && nameVal === orig.name) {
+                    isValid = false;
+                    errorReason = "No changes made.";
+                }
+            }
+
+            btn.dataset.valid = isValid;
+            btn.dataset.error = errorReason;
+            document.getElementById('sp-error-msg').style.display = 'none'; // Hide error immediately on type
+
+            if (isValid) {
+                btn.style.setProperty('background', 'rgba(14, 165, 233, 0.1)', 'important');
+                btn.style.setProperty('border', '1px solid #7dd3fc', 'important'); // Lighter neon blue
+                btn.style.setProperty('color', 'var(--accent)', 'important');      // Default primary neon blue
+                btn.style.setProperty('box-shadow', '0 0 12px var(--accent-glow)', 'important');
+                btn.style.fontWeight = 'bold';
+                btn.style.opacity = '1';
+            } else {
+                btn.style.setProperty('background', 'var(--panel-bg)', 'important');
+                btn.style.setProperty('border', '1px solid rgba(255, 255, 255, 0.15)', 'important');
+                btn.style.setProperty('color', 'var(--text-muted)', 'important');
+                btn.style.setProperty('box-shadow', 'none', 'important');
+                btn.style.fontWeight = 'normal';
+                btn.style.opacity = '0.5';
+            }
+        }
 
         function openSpModal(idx) {
             editingSpIdx = idx;
             const isEdit = idx >= 0 && idx < spBtns.length;
             document.getElementById('sp-modal-title').innerText = isEdit ? "Edit Button" : "New Button";
-            document.getElementById('sp-id-input').value = isEdit ? spBtns[idx].id : '';
-            document.getElementById('sp-name-input').value = isEdit ? spBtns[idx].name : '';
+            
+            if (isEdit) {
+                document.getElementById('sp-id-input').value = spBtns[idx].id;
+                document.getElementById('sp-name-input').value = spBtns[idx].name;
+            } else {
+                document.getElementById('sp-id-input').value = localStorage.getItem('sp_draft_id') || '';
+                document.getElementById('sp-name-input').value = localStorage.getItem('sp_draft_name') || '';
+            }
+            
             document.getElementById('sp-del-btn').style.display = isEdit ? 'block' : 'none';
+            document.getElementById('sp-error-msg').style.display = 'none';
+            checkSpInput(); // Evaluate valid inputs to set correct state
             document.getElementById('sp-modal').classList.add('active');
         }
 
         function closeSpModal() { document.getElementById('sp-modal').classList.remove('active'); }
+        
         function saveSpBtn() {
+            const btn = document.getElementById('sp-save-btn');
+            if (btn.dataset.valid === "false") {
+                const errMsg = document.getElementById('sp-error-msg');
+                errMsg.innerText = btn.dataset.error || "Invalid input.";
+                errMsg.style.display = 'block';
+                return;
+            }
+
             const id = document.getElementById('sp-id-input').value.trim();
             const name = document.getElementById('sp-name-input').value.trim();
-            if (!id || !name) return alert("ID and Name are required.");
+            
+            // Check for duplicates
+            const dup = spBtns.find((b, i) => i !== editingSpIdx && (b.id === id || b.name.toLowerCase() === name.toLowerCase()));
+            if (dup) {
+                let msg = "Warning:\n";
+                if (dup.id === id) msg += `- The ID "${id}" is already used by "${dup.name}".\n`;
+                if (dup.name.toLowerCase() === name.toLowerCase()) msg += `- The Name "${name}" is already used.\n`;
+                msg += "\nDo you still want to save this button?";
+                if (!confirm(msg)) return;
+            }
+
             if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = {id, name};
             else spBtns.push({id, name});
+            
+            // Clear cached inputs upon successful save
+            localStorage.removeItem('sp_draft_id');
+            localStorage.removeItem('sp_draft_name');
+            
             closeSpModal(); renderSpGrid(); saveConfig();
         }
 

@@ -539,7 +539,17 @@ async def websocket_endpoint(websocket: WebSocket):
                         elif action == 'spot_prev': await asyncio.to_thread(AudioSystem.run, ['playerctl', 'previous'])
                         force_media_update = True
                 
-                elif action.startswith('sp_play_'): await asyncio.to_thread(AudioSystem.run, ['soundux', '--play', action.split('sp_play_')[1]])
+                elif action.startswith('sp_play_'): 
+                    sp_id = action.split('sp_play_')[1]
+                    if os.name == 'nt':
+                        sp_path = r"C:\Program Files\Soundpad\Soundpad.exe"
+                        if not os.path.exists(sp_path):
+                            sp_path = r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe"
+                        if os.path.exists(sp_path):
+                            await asyncio.to_thread(AudioSystem.run, [sp_path, '-rc', f'DoPlaySound({sp_id})'])
+                    else:
+                        await asyncio.to_thread(AudioSystem.run, ['soundux', '--play', sp_id])
+
                 elif action == 'disc_mute':
                     if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(mute=not disc_ipc_instance.voice_state["mute"])
                     else: await asyncio.to_thread(AudioSystem.run, ['ydotool', 'key', '29:1', '42:1', '50:1', '50:0', '42:0', '29:0']) 
@@ -550,7 +560,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif action == 'app_web': await asyncio.to_thread(AudioSystem.run, ['brave'])
                 elif action == 'app_task': await asyncio.to_thread(AudioSystem.run, ['gnome-system-monitor']) 
                 elif action == 'app_clip': await asyncio.to_thread(AudioSystem.run, ['ydotool', 'key', '119:1', '119:0'])
-                elif action == 'app_soundpad': await asyncio.to_thread(AudioSystem.run, ['soundux']) 
+                elif action == 'app_soundpad': 
+                    if os.name == 'nt':
+                        sp_path = r"C:\Program Files\Soundpad\Soundpad.exe"
+                        if not os.path.exists(sp_path):
+                            sp_path = r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe"
+                        if os.path.exists(sp_path):
+                            await asyncio.to_thread(AudioSystem.run, [sp_path])
+                    else:
+                        await asyncio.to_thread(AudioSystem.run, ['soundux']) 
                 elif action == 'audio_cycle': await asyncio.to_thread(AudioSystem.cycle_device)
                 elif action == 'audio_mute_spk': await asyncio.to_thread(AudioSystem.toggle_mute, '@DEFAULT_AUDIO_SINK@')
                 elif action == 'audio_mute_mic': await asyncio.to_thread(AudioSystem.toggle_mute, '@DEFAULT_AUDIO_SOURCE@')
