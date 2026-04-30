@@ -27,6 +27,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
 SPOTIFY_CACHE_FILE = os.path.join(BASE_DIR, ".cache")
+SOUNDS_DIR = os.path.join(BASE_DIR, "sounds")
+
+# Global Audio Process Tracker for Kill-and-Replace
+current_audio_process = None
 
 logging.basicConfig(
     filename=os.path.join(BASE_DIR, 'server.log'),
@@ -40,7 +44,9 @@ DEFAULT_CONFIG = {
     "spot_id": "", "spot_secret": "",
     "disc_id": "", "disc_secret": "",
     "audio_names": {},
-    "soundpad_buttons": []
+    "soundpad_buttons": [],
+    "local_buttons": [],
+    "sounds_path": ""
 }
 
 def load_config():
@@ -54,6 +60,33 @@ def save_config():
     with open(CONFIG_FILE, "w") as f: json.dump(config, f, indent=4)
 
 config = load_config()
+
+# --- OS DETECTION ---
+def get_os_target():
+    return "windows" if os.name == 'nt' else "linux"
+
+def get_local_sounds():
+    """Scans the dynamically configured sounds directory for audio files."""
+    sounds_dir = config.get("sounds_path", "")
+    
+    if not sounds_dir or not os.path.exists(sounds_dir):
+        return []
+        
+    allowed_exts = {'.mp3', '.wav', '.ogg'}
+    sounds = []
+    
+    try:
+        for f in os.listdir(sounds_dir):
+            ext = os.path.splitext(f)[1].lower()
+            if ext in allowed_exts:
+                sounds.append({
+                    "id": f, 
+                    "name": os.path.splitext(f)[0]
+                })
+        return sorted(sounds, key=lambda x: x['name'].lower())
+    except Exception as e:
+        logger.error(f"Failed to scan sounds directory: {e}")
+        return []
 
 # --- AUDIO SYSTEM (PipeWire/WirePlumber Wrapper) ---
 class AudioSystem:
@@ -422,17 +455,109 @@ async def fetch_weather():
             await asyncio.sleep(1)
         await do_fetch()
 
+async def pipewire_auto_router():
+    """Injects Soundboard audio directly into applications using the microphone."""
+    while True:
+        try:
+            # 1. Get Default Microphone name
+            def_src = (await asyncio.to_thread(subprocess.check_output, ['pactl', 'get-default-source'])).decode().strip()
+
+            # 2. Get Soundboard Monitor Ports
+            pw_out = (await asyncio.to_thread(subprocess.check_output, ['pw-link', '-o'])).decode()
+            sb_monitors = [p.strip() for p in pw_out.splitlines() if 'Dashboard-Soundboard' in p and 'monitor' in p]
+            
+            if not sb_monitors:
+                await asyncio.sleep(2)
+                continue
+            
+            sb_FL = sb_monitors[0]
+            sb_FR = sb_monitors[1] if len(sb_monitors) > 1 else sb_FL
+
+            # 3. Find Apps Capturing the Mic
+            pw_links = (await asyncio.to_thread(subprocess.check_output, ['pw-link', '-l'])).decode()
+            target_app_ports = []
+            is_mic_capture = False
+            
+            for line in pw_links.splitlines():
+                if not line.startswith((' ', '\t')):
+                    # Did we find the default microphone?
+                    is_mic_capture = (def_src in line and 'capture' in line)
+                elif is_mic_capture and '|->' in line:
+                    # Grab the app port connected to it
+                    app_port = line.split('|->')[1].strip()
+                    # Exclude the soundboard itself and the native headphone loopback
+                    if 'Dashboard-Soundboard' not in app_port and 'loopback' not in app_port.lower():
+                        target_app_ports.append(app_port)
+
+            # 4. Inject Audio into Apps!
+            for i, app_port in enumerate(target_app_ports):
+                src = sb_FL if i % 2 == 0 else sb_FR
+                # Run the link (fails silently if already linked, which is what we want)
+                await asyncio.to_thread(subprocess.run, ['pw-link', src, app_port], stderr=subprocess.DEVNULL)
+
+        except Exception as e:
+            logger.debug(f"PipeWire auto-router error: {e}")
+        
+        await asyncio.sleep(2) # Ticks every 2 seconds for faster injection
+
+
 # --- FASTAPI APP & ROUTES ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+    # Ensure local sounds directory exists
+    os.makedirs(SOUNDS_DIR, exist_ok=True)
+    
+    # Automated PipeWire Virtual Sink Setup
+    if get_os_target() == "linux":
+        try:
+            # 1. SAVE the real physical defaults before Linux can hijack them!
+            try:
+                real_sink = subprocess.check_output(['pactl', 'get-default-sink']).decode().strip()
+                real_src = subprocess.check_output(['pactl', 'get-default-source']).decode().strip()
+            except:
+                real_sink, real_src = "", ""
+
+            # 2. Create the Virtual Sink
+            sinks_output = subprocess.check_output(['pactl', 'list', 'short', 'sinks']).decode()
+            if 'Dashboard-Soundboard' not in sinks_output:
+                logger.info("Virtual Sink 'Dashboard-Soundboard' not found. Creating it now...")
+                subprocess.run([
+                    'pactl', 'load-module', 'module-null-sink', 
+                    'sink_name=Dashboard-Soundboard', 
+                    'sink_properties=device.description="Dashboard-Soundboard"'
+                ], check=True)
+            
+            # 3. Force Volume to 100%
+            subprocess.run(['pactl', 'set-sink-volume', 'Dashboard-Soundboard', '100%'], stderr=subprocess.DEVNULL)
+            
+            # 4. Native Loopback to Headphones (Let PipeWire handle it!)
+            modules_output = subprocess.check_output(['pactl', 'list', 'short', 'modules']).decode()
+            if 'source=Dashboard-Soundboard.monitor' not in modules_output:
+                subprocess.run(['pactl', 'load-module', 'module-loopback', 'source=Dashboard-Soundboard.monitor'], check=True)
+                logger.info("Native Audio Loopback established.")
+
+            # 5. AGGRESSIVELY RESTORE the physical defaults so Discord's mic doesn't drop
+            if real_sink and 'Dashboard' not in real_sink:
+                subprocess.run(['pactl', 'set-default-sink', real_sink], stderr=subprocess.DEVNULL)
+            if real_src and 'Dashboard' not in real_src:
+                subprocess.run(['pactl', 'set-default-source', real_src], stderr=subprocess.DEVNULL)
+                
+        except Exception as e:
+            logger.error(f"Failed to setup PipeWire virtual sink: {e}")
+
     restart_discord_ipc()
     asyncio.create_task(hardware_loop())
     asyncio.create_task(fetch_weather())
+    
+    if get_os_target() == "linux":
+        asyncio.create_task(pipewire_auto_router())
+        
     yield
     if disc_ipc_instance: disc_ipc_instance.close()
 
 app = FastAPI(lifespan=lifespan)
+
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 @app.get('/')
 async def index(request: Request):
@@ -447,12 +572,10 @@ async def index(request: Request):
 
 @app.get('/favicon.ico')
 async def favicon():
-    # Silences the 404 error in your terminal
     return JSONResponse({})
 
 @app.get('/manifest.json')
 async def manifest():
-    # Adding ?v=1.2 to the start_url tricks the PWA cache
     return JSONResponse(content={
         "name": "Command Center Dashboard",
         "short_name": "CmdCenter",
@@ -483,13 +606,11 @@ async def callback(request: Request, code: str = None):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    # SENIOR DEV FIX: All globals must be at the absolute top.
-    # We only need 'global' for variables we REBIND (using =). 
-    # config.update() is a mutation, but we'll keep it here for clarity.
-    global config, weather_force_update, force_media_update, current_media_source
+    global config, weather_force_update, force_media_update, current_media_source, current_audio_process
     
     await ws_manager.connect(websocket)
-    await websocket.send_json({"type": "config_sync", "data": {"cfg": config, "hw": AudioSystem.get_hardware_sinks()}})
+            
+    await websocket.send_json({"type": "config_sync", "data": {"cfg": config, "hw": AudioSystem.get_hardware_sinks(), "os_target": get_os_target()}})
     
     if last_weather_data.get("temp") != "--":
         await websocket.send_json({"type": "weather_data", "data": last_weather_data})
@@ -500,24 +621,47 @@ async def websocket_endpoint(websocket: WebSocket):
             msg = json.loads(text)
             msg_type, data = msg.get("type"), msg.get("data")
             
-            if msg_type == 'save_config':
-                # REMOVED: Redundant 'global' declaration that caused the SyntaxError
+            if msg_type == 'req_local_sounds':
+                sounds = await asyncio.to_thread(get_local_sounds)
+                await websocket.send_json({"type": "local_sounds_list", "data": sounds})
+            
+            elif msg_type == 'save_config':
                 old_id, old_secret = config.get("disc_id"), config.get("disc_secret")
                 old_weather_api, old_weather_city = config.get("weather_api"), config.get("weather_city")
                 
                 config.update(data)
                 await asyncio.to_thread(save_config)
                 
-                # Immediate sync for custom names
                 audio_data = await asyncio.to_thread(AudioSystem.poll_all)
-                await ws_manager.broadcast({"type": "config_sync", "data": {"cfg": config, "hw": audio_data['sinks']}})
+                await ws_manager.broadcast({"type": "config_sync", "data": {"cfg": config, "hw": audio_data['sinks'], "os_target": get_os_target()}})
                 
                 if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"): restart_discord_ipc()
                 if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"): weather_force_update = True
 
             elif msg_type == 'action':
                 action = data
-                if action.startswith('spot_'):
+                
+                # --- NATIVE KILL-AND-REPLACE AUDIO LOGIC ---
+                if action.startswith('local_play_'):
+                    filename = action.split('local_play_')[1]
+                    sounds_dir = config.get("sounds_path", "")
+                    
+                    if sounds_dir:
+                        filepath = os.path.join(sounds_dir, filename)
+                        
+                        # Kill currently playing process if active
+                        if current_audio_process is not None and current_audio_process.poll() is None:
+                            current_audio_process.terminate()
+                            current_audio_process.wait()
+                        
+                        if os.path.exists(filepath):
+                            current_audio_process = subprocess.Popen(
+                                ['pw-play', '--volume=1.0', '--target', 'Dashboard-Soundboard', filepath], 
+                                stdout=subprocess.DEVNULL, 
+                                stderr=subprocess.DEVNULL
+                            )
+                
+                elif action.startswith('spot_'):
                     routed_to_spot = False
                     if current_media_source == "spotify" and config.get("spot_id"):
                         try:
@@ -547,8 +691,6 @@ async def websocket_endpoint(websocket: WebSocket):
                             sp_path = r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe"
                         if os.path.exists(sp_path):
                             await asyncio.to_thread(AudioSystem.run, [sp_path, '-rc', f'DoPlaySound({sp_id})'])
-                    else:
-                        await asyncio.to_thread(AudioSystem.run, ['soundux', '--play', sp_id])
 
                 elif action == 'disc_mute':
                     if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(mute=not disc_ipc_instance.voice_state["mute"])
@@ -556,19 +698,19 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif action == 'disc_deaf':
                     if disc_ipc_instance and disc_ipc_instance.connected: disc_ipc_instance.set_voice(deaf=not disc_ipc_instance.voice_state["deaf"])
                     else: await asyncio.to_thread(AudioSystem.run, ['ydotool', 'key', '29:1', '42:1', '32:1', '32:0', '42:0', '29:0'])
-                elif action == 'app_term': await asyncio.to_thread(AudioSystem.run, ['alacritty']) 
-                elif action == 'app_web': await asyncio.to_thread(AudioSystem.run, ['brave'])
-                elif action == 'app_task': await asyncio.to_thread(AudioSystem.run, ['gnome-system-monitor']) 
+                elif action == 'app_term': subprocess.Popen(['alacritty'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt')) 
+                elif action == 'app_web': subprocess.Popen(['brave'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
+                elif action == 'app_task': subprocess.Popen(['gnome-system-monitor'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt')) 
                 elif action == 'app_clip': await asyncio.to_thread(AudioSystem.run, ['ydotool', 'key', '119:1', '119:0'])
                 elif action == 'app_soundpad': 
+                    # Keep Soundpad launch for Windows only; Linux no longer needs a GUI launch.
                     if os.name == 'nt':
                         sp_path = r"C:\Program Files\Soundpad\Soundpad.exe"
                         if not os.path.exists(sp_path):
                             sp_path = r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe"
                         if os.path.exists(sp_path):
-                            await asyncio.to_thread(AudioSystem.run, [sp_path])
-                    else:
-                        await asyncio.to_thread(AudioSystem.run, ['soundux']) 
+                            subprocess.Popen([sp_path])
+                            
                 elif action == 'audio_cycle': await asyncio.to_thread(AudioSystem.cycle_device)
                 elif action == 'audio_mute_spk': await asyncio.to_thread(AudioSystem.toggle_mute, '@DEFAULT_AUDIO_SINK@')
                 elif action == 'audio_mute_mic': await asyncio.to_thread(AudioSystem.toggle_mute, '@DEFAULT_AUDIO_SOURCE@')
@@ -590,7 +732,6 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect: ws_manager.disconnect(websocket)
 
 if __name__ == '__main__':
-    # We explicitly tell uvicorn to watch both the root and the templates subfolder
     uvicorn.run(
         "server:app", 
         host='0.0.0.0', 

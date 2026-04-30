@@ -38,21 +38,21 @@
         }
 
         .glass {
-            background: var(--panel-bg); 
-            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border); border-radius: 1.5rem; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border); 
+            border-radius: 1.5rem; 
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); 
         }
 
-        .top-bar { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; align-items: center; padding: 1rem 2rem; flex: 0 0 4rem; }
+        .top-bar { display: grid; grid-template-columns: 1.2fr 1.3fr 1.2fr; gap: 1.5rem; align-items: center; padding: 1rem 2rem; flex: 0 0 4rem; }
         .section { display: flex; align-items: center; gap: 1.5rem; }
         .batt { color: var(--accent); font-weight: 600; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;}
         .speed-data { text-align: right; font-size: 0.9rem; color: var(--text-muted); line-height: 1.2;}
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
-        /* High-Compatibility Frosted Style */
         .btn {
-            background: rgba(255, 255, 255, 0.05) !important; /* Original background */
-            border: 1px solid rgba(255, 255, 255, 0.15) !important; /* Slightly bumped from 0.05 for visibility */
+            background-color: #1a2235; 
+            border: 1px solid #2e3c56; 
             border-radius: 12px;
             color: var(--text-main);
             padding: 1rem;
@@ -60,14 +60,20 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            transition: all 0.2s;
-            box-shadow: none !important; 
+            min-height: 4rem;
+            width: 100%;
+            transform: translateZ(0);
+            -webkit-appearance: none;
+            appearance: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: transform 0.1s, background-color 0.1s;
         }
         
         .btn:active, .btn.active-btn { 
-            transform: scale(0.95); 
-            background: var(--accent); 
+            transform: scale(0.95) translateZ(0); 
+            background-color: var(--accent); 
             color: #000; 
+            border-color: var(--accent);
         }
         #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
@@ -75,19 +81,19 @@
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
         .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: 1.5rem; flex: 1; align-content: start;}
 
-        .grid-container { display: grid; grid-template-columns: 1.2fr 1.5fr 1fr; gap: 1.5rem; flex: 1; min-height: 0; }
-        .col { 
-            display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; 
+        .grid-container { 
+            display: grid; 
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr); 
+            gap: 1.5rem; 
+            flex: 1; 
+            min-height: 0; 
+            width: 100%;
         }
+        .col { display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; min-width: 0; width: 100%; overflow: hidden; }
         .panel { padding: 1.5rem; display: flex; flex-direction: column; }
-        .panel-top { flex: 0 0 14rem; }
-        .panel-bottom { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-
-        .widget-box { background: rgba(0,0,0,0.2); border-radius: 1rem; display: flex; flex-direction: column; justify-content: center; align-items: center; }
 
         .spot-ctrl { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 1rem; margin-top: 1.5rem; height: 4rem; width: 100%; }
 
-        /* Sliders */
         .slider-section { display: flex; flex-direction: row; justify-content: space-around; align-items: stretch; flex: 1; }
         .pro-slider {
             position: relative; flex: 0 0 5.5rem; height: 100%; background: rgba(0,0,0,0.4); border-radius: 1.5rem;
@@ -103,7 +109,6 @@
         .slider-icon.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; }
         .slider-icon:active { transform: scale(0.9); }
 
-       /* --- Audio Hub Core --- */
         .audio-switch { display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 0 0 8.5rem; }
         
         .audio-hub-btn {
@@ -114,40 +119,29 @@
             border-radius: 2.5rem;
             box-shadow: 0 0 0 1px rgba(255,255,255,0.05), inset 0 4px 20px rgba(0,0,0,0.4);
         }
-
         .audio-hub-btn:active {
             background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%) !important;
             box-shadow: 0 0 0 1px rgba(255,255,255,0.05), inset 0 4px 25px rgba(0,0,0,0.6) !important;
         }
         
         .audio-hub-ring {
-            position: relative;
-            width: 4.5rem; height: 4.5rem;
-            border-radius: 50%;
-            background: var(--bg-dark);
-            border: 2px solid var(--accent);
+            position: relative; width: 4.5rem; height: 4.5rem; border-radius: 50%;
+            background: var(--bg-dark); border: 2px solid var(--accent);
             display: flex; justify-content: center; align-items: center;
-            color: var(--accent);
-            transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+            color: var(--accent); transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         .audio-hub-ring::before {
             content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            border-radius: 50%;
-            box-shadow: 0 0 22px var(--accent-glow), inset 0 0 15px var(--accent-glow);
-            animation: pulse-ring 2.5s infinite alternate ease-in-out;
-            pointer-events: none;
+            border-radius: 50%; box-shadow: 0 0 22px var(--accent-glow), inset 0 0 15px var(--accent-glow);
+            animation: pulse-ring 2.5s infinite alternate ease-in-out; pointer-events: none;
         }
-
         .audio-hub-ring i { width: 2.2rem; height: 2.2rem; position: relative; z-index: 2; }
         
         .audio-hub-btn:active .audio-hub-ring {
-            transform: rotate(90deg) scale(0.9);
-            border-color: #ffffff; color: #ffffff;
+            transform: rotate(90deg) scale(0.9); border-color: #ffffff; color: #ffffff;
             box-shadow: 0 0 25px rgba(255,255,255,0.6), inset 0 0 15px rgba(255,255,255,0.4);
         }
-        .audio-hub-btn:active .audio-hub-ring::before {
-            display: none; /* Stops breathing while pressed */
-        }
+        .audio-hub-btn:active .audio-hub-ring::before { display: none; }
 
         @keyframes pulse-ring {
             0% { transform: scale(0.85); opacity: 0.5; }
@@ -170,57 +164,48 @@
         input, select { width: 100%; padding: 1rem; border-radius: 0.5rem; border: none; background: #1e293b; color: white; font-size: 1.1rem; outline: none; }
         .hw-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: center; }
 
-        /* Scrollbars */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
 
-        /* --- View Containers --- */
-        #view-wrapper {
-            flex: 1; position: relative; min-height: 0; width: 100%;
-        }
+        #view-wrapper { flex: 1; position: relative; min-height: 0; width: 100%; }
+        #main-view { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
-        #main-view {
-            width: 100%; height: 100%; position: absolute; top: 0; left: 0;
+        /* Seamless Infinite Marquee */
+        .marquee-wrapper { width: 100%; overflow: hidden; white-space: nowrap; display: block; position: relative; min-width: 0; }
+        .marquee-content { display: inline-block; white-space: nowrap; width: auto; }
+        .animate-marquee { animation: marquee-infinite 15s linear infinite; }
+        
+        @keyframes marquee-infinite {
+            0% { transform: translateX(0); }
+            20% { transform: translateX(0); } /* Pauses for 3s (20% of 15s) */
+            100% { transform: translateX(-50%); }
         }
 
        #soundpad-view {
             position: absolute; visibility: hidden; pointer-events: none; overflow: hidden; display: flex;
-            /* Lock to full screen permanently to bypass CPU Layout math */
             top: 0; left: 0; width: 100%; height: 100%; 
             background: var(--panel-bg); 
             border: 1px solid var(--border); 
-            /* Set origin to center so math scales evenly */
             transform-origin: center center; 
             z-index: 10;
-            will-change: transform, opacity; /* Hardware composite layer */
-            transform: translateZ(0); /* Promote to dedicated GPU layer */
+            will-change: transform, opacity;
+            transform: translateZ(0); 
         }
 
-        /* --- Modal Animation Styles --- */
         .modal-overlay {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
             background: rgba(0,0,0,0.8); backdrop-filter: blur(10px);
             z-index: 999; display: flex; justify-content: center; align-items: center;
             opacity: 0; visibility: hidden;
-            /* Fades the background in 0.15s */
             transition: opacity 0.15s ease-out, visibility 0.15s ease-out; 
         }
-        
-        .modal-overlay.active {
-            opacity: 1; visibility: visible;
-        }
-
+        .modal-overlay.active { opacity: 1; visibility: visible; }
         .modal-overlay .modal-card {
-            /* Reduced vertical travel distance so it snaps into place faster */
             transform: scale(0.95) translateY(1rem); 
-            /* Pops the menu in a snappy 0.2s */
             transition: transform 0.2s cubic-bezier(0.1, 0.9, 0.2, 1); 
         }
-
-        .modal-overlay.active .modal-card {
-            transform: scale(1) translateY(0);
-        }
+        .modal-overlay.active .modal-card { transform: scale(1) translateY(0); }
     </style>
 </head>
 <body id="body">
@@ -233,6 +218,7 @@
                 <button class="tab" onclick="switchTab('tab-weather')">Weather</button>
                 <button class="tab" onclick="switchTab('tab-discord')">Discord</button>
                 <button class="tab" onclick="switchTab('tab-aud')">Audio Routing</button>
+                <button class="tab" id="tab-btn-sb" onclick="switchTab('tab-sb')" style="display: none;">Soundboard</button>
             </div>
 
             <div id="tab-spotify" class="tab-content active">
@@ -260,15 +246,27 @@
                 </div>
             </div>
 
+            <div id="tab-sb" class="tab-content">
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0 0 1rem 0;">Absolute path to your audio files.</p>
+                <div class="form-group">
+                    <label>Local Sounds Directory</label>
+                    <input type="text" id="cfg-sounds-path" placeholder="/home/glassbane/Music/Sounds">
+                </div>
+            </div>
+
             <button class="btn" style="background: var(--accent); color: #000; font-weight: bold; height: 4rem; margin-top: 1rem;" onclick="saveConfig()">Save & Apply</button>
         </div>
     </div>
 
-    <!-- Soundpad Edit Modal -->
+    <!-- Soundpad/Soundboard Edit Modal -->
     <div id="sp-modal" class="modal-overlay">
         <div class="modal-card" id="sp-modal-card" style="width: 30rem;">
             <h3 style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 1.5rem;" id="sp-modal-title">Edit Button</h3>
-            <div class="form-group"><label>Button ID / Command</label><input type="text" id="sp-id-input" placeholder="e.g. 1" oninput="checkSpInput()"></div>
+            <div class="form-group">
+                <label>Audio File / Command</label>
+                <input type="text" id="sp-id-input" placeholder="e.g. 1" oninput="checkSpInput()">
+                <select id="sp-id-select" onchange="checkSpInput()" style="display: none;"></select>
+            </div>
             <div class="form-group"><label>Display Name</label><input type="text" id="sp-name-input" placeholder="e.g. Laugh" oninput="checkSpInput()"></div>
             <div id="sp-error-msg" style="color: var(--danger); font-size: 0.9rem; text-align: center; display: none; font-weight: bold; margin-top: 0.5rem;"></div>
             <div style="display: flex; gap: 1rem; margin-top: 1rem; height: 3.5rem;">
@@ -283,7 +281,6 @@
     <div class="top-bar glass">
         <div class="section batt" style="position: relative;">
             <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
-            
             <div id="batt-slide" style="display: flex; align-items: center; gap: 0.5rem;">
                 <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
             </div>
@@ -292,7 +289,6 @@
         <div class="section" style="justify-content: flex-end;">
             <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
             <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
-            <!-- <button class="btn btn-top" onclick="toggleFullscreen()"><i data-lucide="maximize"></i></button> -->
             <button class="btn btn-top" style="color: #ef4444;"><i data-lucide="power"></i></button>
         </div>
     </div>
@@ -305,9 +301,7 @@
             <div class="glass panel spotify" style="flex: 1; background: rgba(10, 15, 25, 0.5); padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 0;">
                 <h3 style="color: rgba(255,255,255,0.4); margin: 0 auto; text-align: center; width: 100%; font-size: 0.75rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;">NOW PLAYING</h3>
                 
-                <div id="spot-empty" style="flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 1.2rem; font-weight: 500;">
-                    NOTHING PLAYING
-                </div>
+                <div id="spot-empty" style="flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 1.2rem; font-weight: 500;">NOTHING PLAYING</div>
                 
                 <div id="spot-auth" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; width: 100%;">
                     <style>
@@ -321,28 +315,34 @@
                     <button class="btn spot-login-btn" onclick="window.location.href='/spotify_login'">
                         <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
                             <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.48.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.48-1.02.659-1.56.3z"/>
-                        </svg>
-                        CONNECT SPOTIFY
+                        </svg>CONNECT SPOTIFY
                     </button>
                 </div>
 
-                <div id="spot-info" style="display: none; flex: 1; flex-direction: column; align-items: center; justify-content: space-between; width: 100%; min-height: 0; margin-top: 1rem;">
-                    <div style="flex: 1; width: 100%; min-height: 0; display: flex; justify-content: center; align-items: center;">
-                        <img id="spot-art" src="" style="max-height: 100%; max-width: 100%; aspect-ratio: 1/1; border-radius: 0.75rem; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;">
+                <div id="spot-info" style="display: none; height: 14.5rem; width: 100%; flex-direction: column; align-items: center; justify-content: flex-start; margin-top: 0.5rem; overflow: hidden; flex: none;">
+                    <!-- Constrained Art Box -->
+                    <div style="height: 9.5rem; width: 100%; display: flex; justify-content: center; align-items: center; margin-bottom: 0.8rem; flex: none; overflow: hidden;">
+                        <img id="spot-art" src="" style="max-height: 100%; max-width: 100%; border-radius: 0.75rem; object-fit: contain; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;">
                     </div>
-                    <div style="width: 100%; text-align: center; margin-top: 1rem; flex-shrink: 0;">
-                        <span id="spot-title" style="font-size: 1.4rem; font-weight: 800; color: #ffffff; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
-                        <span id="spot-artist" style="color: #64748b; font-size: 1rem; font-weight: 500; margin-top: 0.4rem; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
+                    
+                    <!-- Text Area - Force zero min-width to prevent stretch -->
+                    <div style="width: 100%; min-width: 0; text-align: center; flex: none; overflow: hidden; padding: 0 1rem;">
+                        <div class="marquee-wrapper">
+                            <div id="wrapper-title" class="marquee-content"><span id="spot-title" style="font-size: 1.3rem; font-weight: 800; color: #ffffff;"></span></div>
+                        </div>
+                        <div class="marquee-wrapper" style="margin-top: 0.3rem;">
+                            <div id="wrapper-artist" class="marquee-content"><span id="spot-artist" style="color: #64748b; font-size: 1rem; font-weight: 500;"></span></div>
+                        </div>
                     </div>
                 </div>
                 
                 <div class="spot-ctrl" style="margin-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 3.5rem;">
-                    <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
-                    <button class="btn" id="btn-spot-play" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_play')">
+                    <button class="btn" style="background-color: #141b2d; border: 1px solid #2e3c56; border-radius: 0.75rem;" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
+                    <button class="btn" id="btn-spot-play" style="background-color: #141b2d; border: 1px solid #2e3c56; border-radius: 0.75rem;" onclick="act('spot_play')">
                         <i data-lucide="play" id="icon-spot-play"></i>
                         <i data-lucide="pause" id="icon-spot-pause" style="display: none;"></i>
                     </button>
-                    <button class="btn" style="background: rgba(255, 255, 255, 0.03); border: none; border-radius: 0.75rem;" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
+                    <button class="btn" style="background-color: #141b2d; border: 1px solid #2e3c56; border-radius: 0.75rem;" onclick="act('spot_next')"><i data-lucide="skip-forward"></i></button>
                 </div>
             </div>
 
@@ -361,20 +361,15 @@
         <div class="col">
             <div class="glass panel" style="flex: 0 0 14rem; justify-content: center; align-items: center; display: flex; flex-direction: column; gap: 1.5rem;">
                 <div style="display: flex; justify-content: center; align-items: center; width: 100%;">
-                    
                     <div style="position: relative;">
-                        
                         <div id="time" style="font-size: clamp(4rem, 6vw, 5.5rem); font-weight: 700; letter-spacing: -2px; line-height: 1;">00:00</div>
-                        
                         <div style="position: absolute; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 1.5rem; display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 1.3rem; color: var(--text-muted); line-height: 1;">
                             <div id="date-day">-</div>
                             <div style="color: var(--border); font-size: 1rem; margin: 0.1rem 0;">/</div>
                             <div id="date-month">-</div>
                             <div id="date-dayname" style="background: var(--text-main); color: var(--bg-dark); padding: 0.15rem 0.6rem; border-radius: 1rem; font-size: 0.75rem; margin-top: 0.4rem; letter-spacing: 1px;">---</div>
                         </div>
-                        
                     </div>
-                    
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <i data-lucide="cloud" style="width: 3rem; height: 3rem; color: var(--accent);"></i>
@@ -395,11 +390,9 @@
                 <div class="audio-switch">
                     <button class="btn audio-hub-btn" onclick="act('audio_cycle')">
                         <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 800; letter-spacing: 2px;">OUTPUT</span>
-                        
                         <div class="audio-hub-ring">
                             <i data-lucide="audio-lines"></i>
                         </div>
-                        
                         <span id="btn-audio-cycle" style="font-size: 0.9rem; font-weight: 700; color: var(--text-main); letter-spacing: 1px; text-align: center; line-height: 1.2; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">DEVICE</span>
                     </button>
                 </div>
@@ -414,38 +407,51 @@
 
         <!-- Right Column -->
         <div class="col">
-            <div class="glass panel" style="flex: 1;">
+            <div class="glass panel" style="flex: 0 0 auto;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">MACROS & APPS</h3>
-                <div class="btn-grid" style="grid-template-columns: repeat(3, 1fr); grid-auto-rows: 6rem; gap: 1.5rem; flex: 1;">
-                    <!-- Macro 1 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">CLIP</span>
+                <div class="btn-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 1rem; flex: 1;">
+                    <!-- Macro 1: CLIP -->
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
+                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">CLIP</span>
                     </div>
-                    <!-- Macro 2 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" id="btn-macro-sp" onclick="toggleSoundpad(true)" style="flex: 1; height: auto; border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--accent); letter-spacing: 1px;">SOUNDPAD</span>
+                    <!-- Macro 2: SOUNDBOARD -->
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" id="btn-macro-sp" onclick="toggleSoundpad(true)" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
+                        <span id="label-macro-sp" style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--accent); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">SOUNDBOARD</span>
                     </div>
-                    <!-- Macro 3 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">TERM</span>
+                    <!-- Macro 3: TERM -->
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
+                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">TERM</span>
                     </div>
-                    <!-- Macro 4 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_web')"><i data-lucide="globe"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">BROWSER</span>
+                    <!-- Macro 4: BROWSER -->
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_web')"><i data-lucide="globe"></i></button>
+                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">BROWSER</span>
                     </div>
-                    <!-- Macro 5 -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto;" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); letter-spacing: 1px;">TASK MGR</span>
+                    <!-- Macro 5: TASK MGR -->
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
+                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">TASK MGR</span>
                     </div>
-                    <!-- Placeholder -->
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; height: 100%;">
-                        <button class="btn" style="flex: 1; height: auto; opacity: 0.1; cursor: default;"></button>
-                        <span style="text-align: center; font-size: 0.75rem; font-weight: 700; color: transparent; letter-spacing: 1px;">NONE</span>
+                    
+                    <!-- Placeholders 6 through 9 -->
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
+                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
+                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
+                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
+                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
+                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
                     </div>
                 </div>
             </div>
@@ -470,28 +476,28 @@
     </div>
     </div>
     <script>
-async function clearEverything() {
-    if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (let r of registrations) { await r.unregister(); }
-    }
-    if ('caches' in window) {
-        const keys = await caches.keys();
-        for (let k of keys) { await caches.delete(k); }
-    }
-}
+        try {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(function(regs) {
+                    for(let i = 0; i < regs.length; i++) regs[i].unregister();
+                }).catch(function(e){});
+            }
+        } catch(err) {}
 
-// Bumping this from '1.5' to '1.6' forces the tablet to wipe its own memory
-const APP_VERSION = '1.8'; 
-if (localStorage.getItem('app_version') !== APP_VERSION) {
-    clearEverything().then(() => {
-        localStorage.setItem('app_version', APP_VERSION);
-        window.location.reload(true);
-    });
-}
-        lucide.createIcons();
+        try {
+            if ('caches' in window) {
+                caches.keys().then(function(names) {
+                    for(let i = 0; i < names.length; i++) caches.delete(names[i]);
+                }).catch(function(e){});
+            }
+        } catch(err) {}
+
+        try {
+            setTimeout(() => {
+                lucide.createIcons();
+            }, 100);
+        } catch(err) { console.log("Icon load delayed"); }
         
-        // --- NATIVE WEBSOCKET REFACTOR ---
         const socket = new WebSocket(`ws://${location.host}/ws`);
         let hasDisconnected = false;
 
@@ -499,14 +505,13 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
             hasDisconnected = true; 
             document.getElementById('top-title').innerText = "RECONNECTING...";
             document.getElementById('top-title').style.color = "var(--danger)";
-            setTimeout(() => { window.location.reload(); }, 2000); // Polls to refresh when server restarts
+            setTimeout(() => { window.location.reload(); }, 2000); 
         };
 
         socket.onopen = () => { 
             if (hasDisconnected) window.location.reload(); 
         };
 
-        // Helper to send JSON actions
         function sendSocket(type, data = null) {
             if (socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({ type: type, data: data }));
@@ -516,16 +521,17 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
         let isAnimating = false;
         let pendingSysData = null;
         let spotifyLock = 0;
+        let osTarget = 'windows';
 
         socket.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             const d = msg.data;
 
             if (msg.type === 'config_sync') {
-                globalCfg = d.cfg; // SAVE the config to our new global variable
+                globalCfg = d.cfg; 
                 currentHwDevices = d.hw;
+                osTarget = d.os_target || 'windows';
                 
-                // Use the names from the saved config
                 populateAudioTab(d.hw, globalCfg.audio_names);
                 
                 const c = d.cfg;
@@ -535,7 +541,19 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                 document.getElementById('cfg-spot-secret').value = c.spot_secret || '';
                 document.getElementById('cfg-disc-id').value = c.disc_id || '';
                 document.getElementById('cfg-disc-secret').value = c.disc_secret || '';
-                spBtns = c.soundpad_buttons || [];
+                document.getElementById('cfg-sounds-path').value = c.sounds_path || '';
+                if (osTarget === 'linux') {
+                    document.getElementById('tab-btn-sb').style.display = 'block';
+                    spBtns = c.local_buttons || [];
+                    const spLabel = document.getElementById('label-macro-sp');
+                    if(spLabel) spLabel.innerText = 'SOUNDBOARD';
+                    sendSocket('req_local_sounds');
+                } else {
+                    document.getElementById('tab-btn-sb').style.display = 'none';
+                    spBtns = c.soundpad_buttons || [];
+                    const spLabel = document.getElementById('label-macro-sp');
+                    if(spLabel) spLabel.innerText = 'SOUNDPAD';
+                }
                 renderSpGrid();
             } 
             else if (msg.type === 'hw_scan_results') {
@@ -554,6 +572,28 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                     document.getElementById('s-ul').innerText = d.up;
                 });
             } 
+            else if (msg.type === 'local_sounds_list') {
+                const select = document.getElementById('sp-id-select');
+                if (select) {
+                    select.innerHTML = '<option value="">Select an audio file...</option>';
+                    const containerWidth = select.parentElement.clientWidth || 300;
+                    const maxChars = Math.max(20, Math.floor(containerWidth / 10)); 
+                    d.forEach(s => {
+                        const idStr = s.id.toString();
+                        let displayStr = idStr;
+                        if (displayStr.length > maxChars) displayStr = displayStr.substring(0, maxChars - 3) + "...";
+                        const opt = document.createElement('option');
+                        opt.value = s.id;
+                        opt.innerText = displayStr;
+                        opt.dataset.name = s.name;
+                        select.appendChild(opt);
+                    });
+                    if (osTarget === 'linux') {
+                        const draftId = localStorage.getItem('sp_draft_id');
+                        if (draftId) select.value = draftId;
+                    }
+                }
+            }
             else if (msg.type === 'sys_data') {
                 if (isAnimating) {
                     pendingSysData = d;
@@ -603,24 +643,63 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                     if (spotArtist.innerText !== d.spotify.artist) spotArtist.innerText = d.spotify.artist;
                     
                     const artImg = document.getElementById('spot-art');
-                    if (d.spotify.art_url) {
-                        if (artImg.src !== d.spotify.art_url) artImg.src = d.spotify.art_url;
-                        if (artImg.style.display !== 'block') artImg.style.display = 'block';
+                    const newArtUrl = d.spotify.art_url || "";
+                    
+                    // 1. Robust Artwork Loading
+                    if (newArtUrl.trim() !== "" && newArtUrl !== "None") {
+                        if (artImg.src !== newArtUrl) {
+                            // Don't hide the old image until the new one is ready to prevent flickering
+                            const tempImg = new Image();
+                            tempImg.onload = () => {
+                                artImg.src = newArtUrl;
+                                artImg.style.display = 'block';
+                            };
+                            tempImg.onerror = () => {
+                                // If load fails, keep old art or hide if nothing was there
+                                if (!artImg.src) artImg.style.display = 'none';
+                            };
+                            tempImg.src = newArtUrl;
+                        }
                     } else {
-                        if (artImg.style.display !== 'none') artImg.style.display = 'none';
+                        artImg.style.display = 'none';
+                        artImg.src = "";
                     }
+
+                    // 2. Seamless Phone-Style Marquee
+                    [{id: 'spot-title', text: d.spotify.title, wrap: 'wrapper-title'}, 
+                     {id: 'spot-artist', text: d.spotify.artist, wrap: 'wrapper-artist'}].forEach(item => {
+                        const el = document.getElementById(item.id);
+                        const wrap = document.getElementById(item.wrap);
+                        
+                        // Only update if the content has actually changed
+                        if (el.getAttribute('data-last-text') !== item.text) {
+                            wrap.classList.remove('animate-marquee');
+                            el.innerText = item.text;
+                            el.setAttribute('data-last-text', item.text);
+                            
+                            // Small timeout to allow the browser to calculate real text width
+                            setTimeout(() => {
+                                const containerWidth = wrap.parentElement.clientWidth;
+                                // If text is wider than the glass container (plus a small buffer)
+                                if (wrap.scrollWidth > containerWidth + 2) {
+                                    const spacer = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
+                                    // Double the text with a gap to create the infinite loop effect
+                                    el.innerHTML = `<span>${item.text}</span>${spacer}<span>${item.text}</span>${spacer}`;
+                                    wrap.classList.add('animate-marquee');
+                                }
+                            }, 200);
+                        }
+                    });
                 } else {
                     if(spotEmpty && spotEmpty.style.display !== 'flex') spotEmpty.style.display = 'flex';
                     if(spotAuth && spotAuth.style.display !== 'none') spotAuth.style.display = 'none';
                     if(spotInfo && spotInfo.style.display !== 'none') spotInfo.style.display = 'none';
                 }
 
-                // Hardware-Optimized Icon Swap (Zero DOM Injection)
                 const iconPlay = document.getElementById('icon-spot-play');
                 const iconPause = document.getElementById('icon-spot-pause');
                 
                 if (iconPlay && iconPause) {
-                    // THE FIX: Only allow the server to overwrite the UI if the lock has expired
                     if (Date.now() > spotifyLock) {
                         const isPlaying = d.spotify && d.spotify.status === 'Playing';
                         
@@ -654,10 +733,8 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
             });
         }
 
-       // --- Hardware-Accelerated App Morphing (0.3s) ---
         let spOrigin = {}; 
         
-        // Cache DOM nodes for the Soundpad Morph to avoid querying during animation
         const elSpView = document.getElementById('soundpad-view');
         const elSpInner = document.getElementById('sp-inner');
         const elCols = document.querySelectorAll('#main-view .col');
@@ -691,7 +768,6 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                     scaleY: btnRect.height / wrapRect.height
                 };
 
-                // Kill heavy paints only on main view to save GPU bandwidth during transition
                 gsap.set(elMainGlassPanels, { backdropFilter: 'none', webkitBackdropFilter: 'none', boxShadow: 'none' });
 
                 gsap.set(elSpView, { 
@@ -700,7 +776,7 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                     scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
                     backdropFilter: 'none', webkitBackdropFilter: 'none',
                     boxShadow: 'none',
-                    willChange: 'transform, opacity' // Boost hardware acceleration
+                    willChange: 'transform, opacity' 
                 });
 
                 gsap.set(elSpInner, { opacity: 0 });
@@ -774,7 +850,7 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                 gsap.to(elBattSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut", clearProps: 'transform,willChange' });
             }
 
-            elTopTitle.innerText = show ? 'SOUNDPAD' : 'COMMAND CENTER';
+            elTopTitle.innerText = show ? (osTarget === 'linux' ? 'SOUNDBOARD' : 'SOUNDPAD') : 'COMMAND CENTER';
             elTopTitle.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
             elTopTitle.style.fontWeight = show ? '800' : '300';
             gsap.fromTo(elTopTitle, { scale: 1.05 }, { scale: 1, duration: 0.15, ease: "power2.out", clearProps: 'scale' });
@@ -812,16 +888,22 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                 }
             });
 
-            sendSocket('save_config', {
+            const data = {
                 weather_api: document.getElementById('cfg-weather').value,
                 weather_city: document.getElementById('cfg-city').value,
                 spot_id: document.getElementById('cfg-spot-id').value,
                 spot_secret: document.getElementById('cfg-spot-secret').value,
                 disc_id: document.getElementById('cfg-disc-id').value,
                 disc_secret: document.getElementById('cfg-disc-secret').value,
-                audio_names: audio_names,
-                soundpad_buttons: spBtns
-            });
+                sounds_path: document.getElementById('cfg-sounds-path').value,
+                audio_names: audio_names
+            };
+            if (osTarget === 'linux') {
+                data.local_buttons = spBtns;
+            } else {
+                data.soundpad_buttons = spBtns;
+            }
+            sendSocket('save_config', data);
             document.getElementById('modal').classList.remove('active');
         }
 
@@ -834,7 +916,7 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
             let htmlStr = '';
             spBtns.forEach((btn, idx) => {
                 htmlStr += `
-                    <button class="btn" style="height: 7rem; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.3);" 
+                    <button class="btn" style="height: 7rem; flex-direction: column; gap: 0.5rem; background-color: #1a2235; border: 1px solid #2e3c56;" 
                         onmousedown="spDown(this, ${idx})" onmouseup="spUp(this, ${idx})" onmouseleave="spLeave(this, ${idx})"
                         ontouchstart="spDown(this, ${idx})" ontouchend="spUp(this, ${idx})" ontouchcancel="spLeave(this, ${idx})"
                         onclick="spClick(this, ${idx})">
@@ -843,13 +925,14 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                 `;
             });
             htmlStr += `
-                <button class="btn" style="height: 7rem; border: 2px dashed var(--border); background: transparent;" 
+                <button class="btn" style="height: 7rem; border: 2px dashed #38bdf8; background-color: #0f172a;" 
                     onclick="openSpModal(-1)">
-                    <i data-lucide="plus" style="width: 2rem; height: 2rem; color: var(--text-muted);"></i>
+                    <i data-lucide="plus" style="width: 2rem; height: 2rem; color: #38bdf8;"></i>
                 </button>
             `;
             grid.innerHTML = htmlStr;
-            lucide.createIcons();
+            
+            try { setTimeout(() => { lucide.createIcons(); }, 50); } catch(err) {}
         }
 
         function spLeave(btn, idx) { btn.classList.remove('active-btn'); if (spTimer) { clearTimeout(spTimer); spTimer = null; } spCancel = true; }
@@ -857,16 +940,29 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
         function spUp(btn, idx) { setTimeout(() => btn.classList.remove('active-btn'), 100); if (spTimer) { clearTimeout(spTimer); spTimer = null; } }
         function spClick(btn, idx) {
             if (!spCancel) {
-                sendSocket('action', 'sp_play_' + spBtns[idx].id);
+                if (osTarget === 'linux') {
+                    sendSocket('action', 'local_play_' + spBtns[idx].id);
+                } else {
+                    sendSocket('action', 'sp_play_' + spBtns[idx].id);
+                }
             }
         }
 
         function checkSpInput() {
-            const idVal = document.getElementById('sp-id-input').value.trim();
-            const nameVal = document.getElementById('sp-name-input').value.trim();
+            const idVal = osTarget === 'linux' ? (document.getElementById('sp-id-select').value || '') : document.getElementById('sp-id-input').value.trim();
+            let nameVal = document.getElementById('sp-name-input').value.trim();
+            if (osTarget === 'linux' && document.activeElement === document.getElementById('sp-id-select')) {
+                const sel = document.getElementById('sp-id-select');
+                if (sel.selectedIndex > 0) {
+                    const optName = sel.options[sel.selectedIndex].dataset.name || '';
+                    if (nameVal === '' || nameVal === localStorage.getItem('sp_draft_name')) {
+                        document.getElementById('sp-name-input').value = optName;
+                        nameVal = optName;
+                    }
+                }
+            }
             const btn = document.getElementById('sp-save-btn');
             
-            // Cache drafts so they survive reloads/closes
             localStorage.setItem('sp_draft_id', idVal);
             localStorage.setItem('sp_draft_name', nameVal);
 
@@ -878,7 +974,6 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                 errorReason = "Both ID and Name are required.";
             } else if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) {
                 const orig = spBtns[editingSpIdx];
-                // Check if they match exactly what is already saved
                 if (idVal === orig.id && nameVal === orig.name) {
                     isValid = false;
                     errorReason = "No changes made.";
@@ -887,12 +982,12 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
 
             btn.dataset.valid = isValid;
             btn.dataset.error = errorReason;
-            document.getElementById('sp-error-msg').style.display = 'none'; // Hide error immediately on type
+            document.getElementById('sp-error-msg').style.display = 'none'; 
 
             if (isValid) {
                 btn.style.setProperty('background', 'rgba(14, 165, 233, 0.1)', 'important');
-                btn.style.setProperty('border', '1px solid #7dd3fc', 'important'); // Lighter neon blue
-                btn.style.setProperty('color', 'var(--accent)', 'important');      // Default primary neon blue
+                btn.style.setProperty('border', '1px solid #7dd3fc', 'important'); 
+                btn.style.setProperty('color', 'var(--accent)', 'important');      
                 btn.style.setProperty('box-shadow', '0 0 12px var(--accent-glow)', 'important');
                 btn.style.fontWeight = 'bold';
                 btn.style.opacity = '1';
@@ -907,21 +1002,38 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
         }
 
         function openSpModal(idx) {
+            if (osTarget === 'linux') {
+                // Guardrail: Force user to set path before adding sounds
+                if (!globalCfg.sounds_path || globalCfg.sounds_path.trim() === '') {
+                    alert("Path for sounds not set. Please set the absolute path to your sounds folder in the Settings menu.");
+                    return; // Abort opening the modal
+                }
+                sendSocket('req_local_sounds');
+            }
             editingSpIdx = idx;
             const isEdit = idx >= 0 && idx < spBtns.length;
             document.getElementById('sp-modal-title').innerText = isEdit ? "Edit Button" : "New Button";
+
+            let targetId = isEdit ? spBtns[idx].id : (localStorage.getItem('sp_draft_id') || '');
+            if (osTarget === 'linux') {                
+                document.getElementById('sp-id-input').style.display = 'none';
+                document.getElementById('sp-id-select').style.display = 'block';
+                document.getElementById('sp-id-select').value = targetId;
+            } else {
+                document.getElementById('sp-id-select').style.display = 'none';
+                document.getElementById('sp-id-input').style.display = 'block';
+                document.getElementById('sp-id-input').value = targetId;
+            }
             
             if (isEdit) {
-                document.getElementById('sp-id-input').value = spBtns[idx].id;
                 document.getElementById('sp-name-input').value = spBtns[idx].name;
             } else {
-                document.getElementById('sp-id-input').value = localStorage.getItem('sp_draft_id') || '';
                 document.getElementById('sp-name-input').value = localStorage.getItem('sp_draft_name') || '';
             }
             
             document.getElementById('sp-del-btn').style.display = isEdit ? 'block' : 'none';
             document.getElementById('sp-error-msg').style.display = 'none';
-            checkSpInput(); // Evaluate valid inputs to set correct state
+            checkSpInput(); 
             document.getElementById('sp-modal').classList.add('active');
         }
 
@@ -936,10 +1048,9 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                 return;
             }
 
-            const id = document.getElementById('sp-id-input').value.trim();
+            const id = osTarget === 'linux' ? document.getElementById('sp-id-select').value : document.getElementById('sp-id-input').value.trim();
             const name = document.getElementById('sp-name-input').value.trim();
             
-            // Check for duplicates
             const dup = spBtns.find((b, i) => i !== editingSpIdx && (b.id === id || b.name.toLowerCase() === name.toLowerCase()));
             if (dup) {
                 let msg = "Warning:\n";
@@ -952,7 +1063,6 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
             if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = {id, name};
             else spBtns.push({id, name});
             
-            // Clear cached inputs upon successful save
             localStorage.removeItem('sp_draft_id');
             localStorage.removeItem('sp_draft_name');
             
@@ -973,7 +1083,7 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
         function initSlider(sId, fId, vId, type, dCheck) {
             const s = document.getElementById(sId), f = document.getElementById(fId), v = document.getElementById(vId);
             let lastEmit = 0; let currentPct = 0;
-            let rAF = null; // Rendering Frame ID
+            let rAF = null; 
             
             function set(pct) { 
                 currentPct = pct; 
@@ -988,12 +1098,11 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                 let pct = 100 - (((clientY - r.top) / r.height) * 100);
                 pct = Math.max(0, Math.min(100, Math.round(pct)));
                 
-                // Hardware Acceleration: Queues the visual update to the exact refresh rate of the monitor
                 if (rAF) cancelAnimationFrame(rAF);
                 rAF = requestAnimationFrame(() => set(pct));
                 
                 const now = Date.now();
-                if (now - lastEmit > 80) { // Bumped timeout slightly to save network load
+                if (now - lastEmit > 80) { 
                     sendSocket('set_volume', {type: type, val: pct});
                     lastEmit = now;
                 }
@@ -1017,28 +1126,24 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });
         const upMic = initSlider('slide-mic', 'fill-mic', 'val-mic', 'mic', (v) => { if(v!==undefined) isDraggingMic = v; return isDraggingMic; });
 
-       // --- Dashboard Gestures ---
         let maxTouches = 0;
         let lastTapTime = 0;
         let lastTapFingers = 0;
 
         document.addEventListener('touchstart', (e) => {
             if(e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
-            // Record the highest number of fingers on the screen during this touch
             maxTouches = Math.max(maxTouches, e.touches.length);
         }, { passive: false });
 
         document.addEventListener('touchend', (e) => {
             if(e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
             
-            // Wait until ALL fingers have left the glass
             if (e.touches.length > 0) return; 
 
             const now = Date.now();
             const tapGap = now - lastTapTime;
 
             if (tapGap > 0 && tapGap < 400) {
-                // It's a double tap! Check the max fingers used across both taps
                 if (maxTouches === 2 || lastTapFingers === 2) {
                     e.preventDefault();
                     document.getElementById('modal').classList.add('active');
@@ -1046,13 +1151,13 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
                     e.preventDefault();
                     toggleFullscreen();
                 }
-                lastTapTime = 0; // Reset
+                lastTapTime = 0; 
             } else {
                 lastTapTime = now;
                 lastTapFingers = maxTouches;
             }
             
-            maxTouches = 0; // Reset for next interaction
+            maxTouches = 0; 
         });
 
         document.addEventListener('dblclick', (e) => {
@@ -1061,10 +1166,9 @@ if (localStorage.getItem('app_version') !== APP_VERSION) {
             document.getElementById('modal').classList.add('active');
         });
 
-        // --- Action Dispatcher with Optimistic UI ---
         function act(a) { 
             if (a === 'spot_play') {
-                spotifyLock = Date.now() + 1500; // Lock out server updates for 1.5s
+                spotifyLock = Date.now() + 1500; 
                 
                 const iconPlay = document.getElementById('icon-spot-play');
                 const iconPause = document.getElementById('icon-spot-pause');
