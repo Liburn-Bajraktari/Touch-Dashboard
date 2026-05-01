@@ -8,3 +8,4 @@ __pycache__/server.cpython-314.pyc
 server.log
 weather_cache.json
 config.json
+discord_documentation_links.txt
