@@ -568,6 +568,10 @@ async def hardware_loop():
     global mpris_burst_active
     last_gpu_check, gpu_cache = 0, ""
     
+    last_audio_check = 0
+    audio_cache = {"spk": {"vol": 0, "muted": False}, "mic": {"vol": 0, "muted": False}, "active_dev": "NONE"}
+    batt_cache = "--"
+
     # Helper to safely read the battery file off the main thread
     def read_batt():
         try:
@@ -577,12 +581,18 @@ async def hardware_loop():
     while True:
         curr_time = time.time()
         
-        # Audio Polling
-        audio_data = await asyncio.to_thread(AudioSystem.poll_all)
-        curr_sinks = audio_data['sinks']
-        if [s['raw_name'] for s in curr_sinks] != [s['raw_name'] for s in last_audio_devs]:
-            last_audio_devs = curr_sinks
-            await ws_manager.broadcast({"type": "hw_scan_results", "data": curr_sinks})
+        # HARDWARE POLLING (Strictly locked to 1.0s to prevent CPU spikes during media bursts!)
+        if curr_time - last_audio_check >= 1.0:
+            audio_data = await asyncio.to_thread(AudioSystem.poll_all)
+            curr_sinks = audio_data['sinks']
+            if [s['raw_name'] for s in curr_sinks] != [s['raw_name'] for s in last_audio_devs]:
+                last_audio_devs = curr_sinks
+                await ws_manager.broadcast({"type": "hw_scan_results", "data": curr_sinks})
+            
+            # Update our caches
+            audio_cache = {"spk": audio_data['spk'], "mic": audio_data['mic'], "active_dev": audio_data['active_sink_name']}
+            batt_cache = await asyncio.to_thread(read_batt)
+            last_audio_check = curr_time
 
         # Spotify Polling (Now using the blazing fast cached object)
         if curr_time - last_spotify_check > 3.0 or force_media_update:
@@ -608,9 +618,6 @@ async def hardware_loop():
                     gpu_cache = str(util.gpu)
                 except: gpu_cache = ""
             last_gpu_check = curr_time
-
-        # Battery Polling (Async Disk I/O)
-        mouse_batt = await asyncio.to_thread(read_batt)
 
         # Determine Discord state
         disc_has_token = bool(config.get("disc_token", ""))
@@ -650,10 +657,13 @@ async def hardware_loop():
         await ws_manager.broadcast({
             "type": "sys_data",
             "data": {
-                "cpu": psutil.cpu_percent(interval=None), "ram": psutil.virtual_memory().percent,
-                "gpu": gpu_cache if gpu_cache else None, "mouse_batt": mouse_batt, "spotify": media,
+                "cpu": psutil.cpu_percent(interval=None), 
+                "ram": psutil.virtual_memory().percent,
+                "gpu": gpu_cache if gpu_cache else None, 
+                "mouse_batt": batt_cache, 
+                "spotify": media,
                 "discord": disc_state,
-                "audio": {"spk": audio_data['spk'], "mic": audio_data['mic'], "active_dev": audio_data['active_sink_name']}
+                "audio": {"spk": audio_cache['spk'], "mic": audio_cache['mic'], "active_dev": audio_cache['active_dev']}
             }
         })
         
