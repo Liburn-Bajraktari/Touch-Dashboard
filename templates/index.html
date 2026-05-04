@@ -20,6 +20,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="/static/sw.js?v=1.8"></script>
     <style>
+        /* --- Theme --- */
         :root {
             --bg-dark: #090e17; --panel-bg: rgba(15, 23, 42, 0.4); --border: rgba(255, 255, 255, 0.08);
             --accent: #0ea5e9; --accent-glow: rgba(14, 165, 233, 0.4);
@@ -151,21 +152,21 @@
         .stat-row i { color: var(--accent); width: 2rem; height: 2rem; }
         .stat-val { font-weight: 700; margin-left: auto; }
 
-        /* --- Dynamic Media Layout --- */
+        /* --- Media Layout --- */
         .spotify { transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
         #spot-info { height: 14.5rem; transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
         .spot-art-box { height: 9.5rem; width: 100%; display: flex; justify-content: center; align-items: center; margin-bottom: 0.8rem; flex: none; overflow: hidden; transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
         .spot-text-box { width: 100%; min-width: 0; text-align: center; flex: none; overflow: hidden; padding: 0 1rem; transition: transform 0.4s ease; }
         #spot-title, #spot-artist { transition: font-size 0.4s ease; }
 
-        /* Expanded State (Triggered when Discord is offline) */
+        /* Fill the space when Discord is offline. */
         .spotify.expanded #spot-info { height: 20rem; margin-top: 1rem; }
         .spotify.expanded .spot-art-box { height: 14rem; margin-bottom: 1.5rem; }
         .spotify.expanded #spot-title { font-size: 1.6rem !important; }
         .spotify.expanded #spot-artist { font-size: 1.15rem !important; }
         .spotify.expanded .spot-text-box { transform: translateY(0.5rem); }
 
-        /* --- Settings UI --- */
+        /* --- Settings --- */
         .modal-card { background: #0f172a; padding: 2rem; border-radius: 1.5rem; width: 45rem; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem;}
         .tabs { display: flex; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
         .tab { background: none; border: none; color: var(--text-muted); font-size: 1.2rem; font-weight: bold; cursor: pointer; padding: 0.5rem 1rem; transition: 0.2s; }
@@ -185,7 +186,7 @@
         #view-wrapper { flex: 1; position: relative; min-height: 0; width: 100%; }
         #main-view { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
-        /* Seamless Infinite Marquee */
+        /* Seamless marquee */
         .marquee-wrapper { width: 100%; overflow: hidden; white-space: nowrap; display: block; position: relative; min-width: 0; }
         .marquee-content { display: inline-block; white-space: nowrap; width: auto; }
         .animate-marquee { animation: marquee-infinite 15s linear infinite; }
@@ -224,7 +225,7 @@
 </head>
 <body id="body">
 
-    <!-- Tabbed Settings Modal -->
+    <!-- --- Settings Modal --- -->
     <div id="modal" class="modal-overlay">
         <div class="modal-card" id="modal-card">
             <div class="tabs">
@@ -267,7 +268,7 @@
                 <div class="form-group"><label>Discord Client Secret</label><input type="password" id="cfg-disc-secret"></div>
                 <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem;">For full integration, create a Discord Developer Application and enter credentials here.</p>
                 <div id="disc-warning-container" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); padding: 1rem; border-radius: 0.5rem; margin-top: 0.5rem;">
-                    <p style="color: var(--text-main); font-size: 0.85rem; margin: 0; font-weight: bold;">⚠️ Vesktop / arRPC Detected</p>
+                    <p style="color: var(--text-main); font-size: 0.85rem; margin: 0; font-weight: bold;">Warning: Vesktop / arRPC Detected</p>
                     <p style="color: var(--text-muted); font-size: 0.8rem; margin: 0.5rem 0 0 0;">This client does not support Voice Control over IPC. The dashboard is using an automated keyboard macro (Ctrl+Shift+M / Ctrl+Shift+D) as a fallback.</p>
                     <p style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">You MUST map 'Ctrl+Shift+M' and 'Ctrl+Shift+D' as Global Keybinds in your Discord/Vesktop settings for this to work while unfocused.</p>
                 </div>
@@ -297,7 +298,6 @@
             <div id="tab-aud" class="tab-content">
                 <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0 0 1rem 0;">Auto-detected output devices. Enter a custom name to override defaults.</p>
                 <div id="audio-devices-list" style="display: flex; flex-direction: column; gap: 1rem; max-height: 25rem; overflow-y: auto;">
-                    <!-- Filled by JS -->
                 </div>
             </div>
 
@@ -313,7 +313,7 @@
         </div>
     </div>
 
-    <!-- Soundpad/Soundboard Edit Modal -->
+    <!-- --- Soundboard Modal --- -->
     <div id="sp-modal" class="modal-overlay">
         <div class="modal-card" id="sp-modal-card" style="width: 30rem;">
             <h3 style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 1.5rem;" id="sp-modal-title">Edit Button</h3>
@@ -332,7 +332,7 @@
         </div>
     </div>
 
-    <!-- Top Bar Core -->
+    <!-- --- Top Bar --- -->
     <div class="top-bar glass">
         <div class="section batt" style="position: relative;">
             <button class="btn" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; width: 3.5rem; height: 3.5rem; border-radius: 1rem;"><i data-lucide="arrow-left"></i></button>
@@ -348,10 +348,9 @@
         </div>
     </div>
 
-    <!-- Main View -->
+    <!-- --- Main View --- -->
     <div id="view-wrapper">
     <div class="grid-container view-layer active" id="main-view">
-        <!-- Left Column -->
         <div class="col">
             <div class="glass panel spotify" style="flex: 1; background: rgba(10, 15, 25, 0.5); padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 0;">
                 <h3 style="color: rgba(255,255,255,0.4); margin: 0 auto; text-align: center; width: 100%; font-size: 0.75rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;">NOW PLAYING</h3>
@@ -359,12 +358,10 @@
                 <div id="spot-empty" style="flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 1.2rem; font-weight: 500;">NOTHING PLAYING</div>                
 
                 <div id="spot-info" style="display: none; width: 100%; flex-direction: column; align-items: center; justify-content: flex-start; margin-top: 0.5rem; overflow: hidden; flex: none;">
-                    <!-- Constrained Art Box -->
                     <div class="spot-art-box">
                         <img id="spot-art" src="" style="max-height: 100%; max-width: 100%; border-radius: 0.75rem; object-fit: contain; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;">
                     </div>
                     
-                    <!-- Text Area -->
                     <div class="spot-text-box">
                         <div class="marquee-wrapper">
                             <div id="wrapper-title" class="marquee-content"><span id="spot-title" style="font-size: 1.3rem; font-weight: 800; color: #ffffff;"></span></div>
@@ -396,7 +393,6 @@
             </div>
         </div>
 
-        <!-- Center Column -->
         <div class="col">
             <div class="glass panel" style="flex: 0 0 14rem; justify-content: center; align-items: center; display: flex; flex-direction: column; gap: 1.5rem;">
                 <div style="display: flex; justify-content: center; align-items: center; width: 100%;">
@@ -413,7 +409,7 @@
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <i data-lucide="cloud" style="width: 3rem; height: 3rem; color: var(--accent);"></i>
                     <div style="display: flex; flex-direction: column;">
-                        <div id="w-temp" style="font-size: 2.5rem; font-weight: bold; line-height: 1;">--°</div>
+                        <div id="w-temp" style="font-size: 2.5rem; font-weight: bold; line-height: 1;">--&deg;</div>
                         <div id="w-desc" style="color: var(--text-muted); text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;">--</div>
                     </div>
                 </div>
@@ -444,38 +440,31 @@
             </div>
         </div>
 
-        <!-- Right Column -->
         <div class="col">
             <div class="glass panel" style="flex: 0 0 auto;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">MACROS & APPS</h3>
                 <div class="btn-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 1rem; flex: 1;">
-                    <!-- Macro 1: CLIP -->
                     <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
                         <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
                         <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">CLIP</span>
                     </div>
-                    <!-- Macro 2: SOUNDBOARD -->
                     <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
                         <button class="btn" id="btn-macro-sp" onclick="toggleSoundpad(true)" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
                         <span id="label-macro-sp" style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--accent); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">SOUNDBOARD</span>
                     </div>
-                    <!-- Macro 3: TERM -->
                     <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
                         <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
                         <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">TERM</span>
                     </div>
-                    <!-- Macro 4: BROWSER -->
                     <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
                         <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_web')"><i data-lucide="globe"></i></button>
                         <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">BROWSER</span>
                     </div>
-                    <!-- Macro 5: TASK MGR -->
                     <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
                         <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
                         <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">TASK MGR</span>
                     </div>
                     
-                    <!-- Placeholders 6 through 9 -->
                     <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0;">
                         <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
                         <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
@@ -505,16 +494,16 @@
         </div>
     </div>
     
-    <!-- Soundpad View Overlay -->
+    <!-- --- Soundboard View --- -->
     <div id="soundpad-view" style="visibility: hidden; pointer-events: none; flex-direction: column;">
         <div id="sp-inner" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%; opacity: 0;">
             <div id="sp-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.5rem; align-content: start;">
-                <!-- Buttons filled by JS -->
             </div>
         </div>
     </div>
     </div>
     <script>
+        // --- Startup ---
         try {
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.getRegistrations().then(function(regs) {
@@ -565,6 +554,7 @@
         let osTarget = 'windows';
         let currentDiscordAuthUrl = "";
 
+        // --- WebSocket Messages ---
         socket.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             const d = msg.data;
@@ -604,7 +594,7 @@
             }
             else if (msg.type === 'weather_data') {
                 requestAnimationFrame(() => {
-                    document.getElementById('w-temp').innerText = d.temp + '°'; 
+                    document.getElementById('w-temp').innerText = d.temp + '\u00b0';
                     document.getElementById('w-desc').innerText = d.desc;
                 });
             } 
@@ -645,6 +635,7 @@
             }
         };
 
+        // --- System Data Rendering ---
         function updateSysDataDOM(d) {
             requestAnimationFrame(() => {
                 const sysCpu = document.getElementById('sys-cpu');
@@ -679,7 +670,7 @@
                     const spotArtist = document.getElementById('spot-artist');
                     if (spotArtist.innerText !== d.spotify.artist) spotArtist.innerText = d.spotify.artist;
                     
-                    // --- THUMBNAIL LOGIC ---
+                    // Keep previous art while local players finish writing new cover files.
                     const artImg = document.getElementById('spot-art');
                     const newArtUrl = d.spotify.art_url || "";
                     
@@ -689,12 +680,10 @@
                     };
 
                     if (newArtUrl === "WAITING") {
-                        // Do nothing! Keep the previous image on screen to prevent flickering while we search
                     } else if (newArtUrl.trim() !== "" && newArtUrl !== "None") {
                         if (artImg.getAttribute('data-src') !== newArtUrl) {
                             artImg.setAttribute('data-src', newArtUrl);
                             
-                            // PRO FIX: Only append cache-busters to our local API. Spotify CDNs reject invalid queries!
                             let finalUrl = newArtUrl;
                             if (finalUrl.includes('/api/local_art')) {
                                 finalUrl += "&_cb=" + Date.now();
@@ -709,7 +698,7 @@
                         artImg.removeAttribute('src'); 
                     }
 
-                    // --- ROBUST MARQUEE LOGIC ---
+                    // Restart marquee only when the rendered text changes.
                     [{id: 'spot-title', text: d.spotify.title, wrap: 'wrapper-title'}, 
                      {id: 'spot-artist', text: d.spotify.artist, wrap: 'wrapper-artist'}].forEach(item => {
                         
@@ -718,35 +707,27 @@
                         const outer = wrapNode.parentElement;
                         
                         if (el.getAttribute('data-last-text') !== item.text) {
-                            // 1. Reset animation instantly
                             wrapNode.classList.remove('animate-marquee');
                             
-                            // 2. Set pure text
                             el.innerHTML = ''; 
                             el.textContent = item.text; 
                             el.setAttribute('data-last-text', item.text);
                             
-                            // Force a CSS reflow so the browser registers the animation stop
                             void wrapNode.offsetWidth;
                             
-                            // 3. Give the browser 50ms to render the new text and calculate true widths
                             setTimeout(() => {
                                 if (wrapNode.scrollWidth > outer.clientWidth) {
-                                    // 4. Create seamless loop using non-breaking spaces for a guaranteed gap
                                     const spacer = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0';
                                     const fullText = item.text + spacer;
                                     
-                                    // 5. Duplicate it inside the span
                                     el.innerHTML = `<span>${fullText}</span><span>${fullText}</span>`;
                                     
-                                    // 6. Restart the animation!
                                     wrapNode.classList.add('animate-marquee');
                                 }
                             }, 50);
                         }
                     });
                 } else {
-                    // Fallback to local media/empty state if Spotify is stopped or not connected
                     if(spotEmpty && spotEmpty.style.display !== 'flex') spotEmpty.style.display = 'flex';
                     if(spotInfo && spotInfo.style.display !== 'none') spotInfo.style.display = 'none';
                 }
@@ -779,14 +760,14 @@
                 const btnAudioCycle = document.getElementById('btn-audio-cycle');
                 if (btnAudioCycle.innerText !== d.audio.active_dev) btnAudioCycle.innerText = d.audio.active_dev;
                 
-                // --- DISCORD VISIBILITY LOGIC ---
                 if (d.discord) {
                     const panelDiscord = document.getElementById('panel-discord');
                     const btnDiscAuth = document.getElementById('btn-disc-auth');
                     const discGroup = document.getElementById('disc-connected-group');
                     const discWarning = document.getElementById('disc-warning-container');
+                    const targetSettingsState = d.discord.authorized ? 'connected' : 'auth_required';
+                    currentDiscordAuthUrl = d.discord.auth_url || "";
                     
-                    // 1. Main Panel Visibility (Strictly tied to active connection)
                     const spotifyPanel = document.querySelector('.spotify');
                     if (d.discord.connected) {
                         if (typeof window.discordDisconnectCount === 'undefined') window.discordDisconnectCount = 0;
@@ -818,13 +799,11 @@
                         }
                     }
                     
-                    // 2. Settings Button Visibility (Credential Manager ONLY)
                     if (d.discord.authorized) {
                         if (btnDiscAuth) btnDiscAuth.style.display = 'none';
                         if (discGroup) {
                             discGroup.style.display = 'flex';
                             
-                            // Set the HTML once and lock it to prevent DOM thrashing
                             const statusContainer = discGroup.querySelector('div');
                             if (statusContainer && !statusContainer.dataset.locked) {
                                 statusContainer.innerHTML = `<svg viewBox="0 0 127.14 96.36" width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;">
@@ -838,13 +817,11 @@
                         if (btnDiscAuth) btnDiscAuth.style.display = 'flex';
                         if (discGroup) {
                             discGroup.style.display = 'none';
-                            // Unlock the state in case they clear it and authorize again
                             const statusContainer = discGroup.querySelector('div');
                             if (statusContainer) statusContainer.dataset.locked = "false";
                         }
                     }
 
-                    // Handle the Vesktop warning separately (it reacts to live connection only)
                     if (discWarning) {
                         const showWarning = (d.discord.connected && !d.discord.voice_supported) ? 'block' : 'none';
                         if (discWarning.style.display !== showWarning) {
@@ -852,7 +829,6 @@
                         }
                     }
 
-                    // Handle inner text swapping separately, also with DOM-thrashing protection
                     if (targetSettingsState === 'connected') {
                         const statusContainer = discGroup.querySelector('div');
                         if (statusContainer) {
@@ -874,7 +850,6 @@
                             }
                         }
                         
-                        // Handle the warning separately 
                         if (discWarning) {
                             const showWarning = (d.discord.connected && !d.discord.voice_supported) ? 'block' : 'none';
                             if (discWarning.style.display !== showWarning) {
@@ -884,7 +859,6 @@
                     }
                 }
 
-                // --- SPOTIFY VISIBILITY LOGIC ---
                 const btnSpotAuth = document.getElementById('btn-spot-auth');
                 const spotGroup = document.getElementById('spot-connected-group');
                 
@@ -899,6 +873,7 @@
             });
         }
 
+        // --- Soundboard View ---
         let spOrigin = {}; 
         
         const elSpView = document.getElementById('soundpad-view');
@@ -1021,6 +996,8 @@
             elTopTitle.style.fontWeight = show ? '800' : '300';
             gsap.fromTo(elTopTitle, { scale: 1.05 }, { scale: 1, duration: 0.15, ease: "power2.out", clearProps: 'scale' });
         }
+
+        // --- Settings ---
         function switchTab(tabId) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -1073,6 +1050,7 @@
             document.getElementById('modal').classList.remove('active');
         }
 
+        // --- Soundboard Buttons ---
         let editingSpIdx = -1;
         let spTimer = null;
         let spCancel = false;
@@ -1169,10 +1147,9 @@
 
         function openSpModal(idx) {
             if (osTarget === 'linux') {
-                // Guardrail: Force user to set path before adding sounds
                 if (!globalCfg.sounds_path || globalCfg.sounds_path.trim() === '') {
                     alert("Path for sounds not set. Please set the absolute path to your sounds folder in the Settings menu.");
-                    return; // Abort opening the modal
+                    return;
                 }
                 sendSocket('req_local_sounds');
             }
@@ -1243,6 +1220,7 @@
         document.getElementById('modal').addEventListener('click', (e) => { if(e.target.id === 'modal') document.getElementById('modal').classList.remove('active'); });
         document.getElementById('sp-modal').addEventListener('click', (e) => { if(e.target.id === 'sp-modal') closeSpModal(); });
 
+        // --- Input Handling ---
         let isDraggingSpk = false; let isDraggingMic = false;
         function toggleFullscreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>e); else if (document.exitFullscreen) document.exitFullscreen(); }
 
@@ -1332,7 +1310,13 @@
             document.getElementById('modal').classList.add('active');
         });
 
+        // --- Actions ---
         function act(a) { 
+            if (a === 'disc_auth' && currentDiscordAuthUrl) {
+                window.location.href = currentDiscordAuthUrl;
+                return;
+            }
+
             if (a === 'spot_play') {
                 spotifyLock = Date.now() + 1500; 
                 
@@ -1351,7 +1335,6 @@
                 const bMute = document.getElementById('btn-disc-mute');
                 const bDeaf = document.getElementById('btn-disc-deaf');
                 if (bMute && bDeaf) {
-                    // Discord rule: if you are deafened, un-muting removes deafen too
                     if (bDeaf.classList.contains('muted')) {
                         bDeaf.classList.remove('muted');
                         bMute.classList.add('muted'); 
@@ -1365,14 +1348,11 @@
                 const bMute = document.getElementById('btn-disc-mute');
                 const bDeaf = document.getElementById('btn-disc-deaf');
                 if (bMute && bDeaf) {
-                    // Discord rule: deafening automatically mutes you too
                     if (!bDeaf.classList.contains('muted')) {
-                        // Turning deafen ON: Remember if we were already muted
                         preDeafenMute = bMute.classList.contains('muted'); 
                         bDeaf.classList.add('muted');
                         bMute.classList.add('muted');
                     } else {
-                        // Turning deafen OFF: Restore the previous mute state
                         bDeaf.classList.remove('muted');
                         if (!preDeafenMute) {
                             bMute.classList.remove('muted');
@@ -1390,6 +1370,7 @@
             sendSocket('run_speedtest'); 
         }
 
+        // --- Clock ---
         let lastTimeStr = "";
         const elTime = document.getElementById('time');
         const elDateMonth = document.getElementById('date-month');

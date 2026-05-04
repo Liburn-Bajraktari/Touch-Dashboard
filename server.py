@@ -24,14 +24,14 @@ from fastapi.staticfiles import StaticFiles
 import pynvml
 import hashlib
 
-# --- CONFIGURATION MANAGER ---
+# --- Configuration ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
 SPOTIFY_CACHE_FILE = os.path.join(BASE_DIR, ".cache")
 SOUNDS_DIR = os.path.join(BASE_DIR, "sounds")
+CONFIG_LOCK = threading.RLock()
 
-# Global Audio Process Tracker for Kill-and-Replace
 current_audio_process = None
 
 logging.basicConfig(
@@ -51,10 +51,8 @@ DEFAULT_CONFIG = {
     "sounds_path": ""
 }
 
-# Global Spotify OAuth Instance Tracker
 global_sp_oauth = None
 
-# Global NVML (GPU) Hardware Handle
 has_nvml = False
 nvml_handle = None
 try:
@@ -72,11 +70,15 @@ def load_config():
     return DEFAULT_CONFIG
 
 def save_config():
-    with open(CONFIG_FILE, "w") as f: json.dump(config, f, indent=4)
+    with CONFIG_LOCK:
+        tmp_file = f"{CONFIG_FILE}.tmp"
+        with open(tmp_file, "w") as f:
+            json.dump(config, f, indent=4)
+        os.replace(tmp_file, CONFIG_FILE)
 
 config = load_config()
 
-# --- OS DETECTION ---
+# --- Platform ---
 def get_os_target():
     return "windows" if os.name == 'nt' else "linux"
 
@@ -103,7 +105,40 @@ def get_local_sounds():
         logger.error(f"Failed to scan sounds directory: {e}")
         return []
 
-# --- MACRO SYSTEM (evdev fallback) ---
+# --- Local Soundboard ---
+def resolve_sound_path(filename):
+    sounds_dir = config.get("sounds_path", "")
+    if not sounds_dir:
+        return None
+
+    base_path = os.path.realpath(sounds_dir)
+    candidate = os.path.realpath(os.path.join(base_path, filename))
+    if candidate != base_path and candidate.startswith(base_path + os.sep) and os.path.isfile(candidate):
+        return candidate
+    return None
+
+def play_local_sound(filename):
+    global current_audio_process
+    filepath = resolve_sound_path(filename)
+    if not filepath:
+        logger.warning(f"Rejected local sound path outside configured directory: {filename}")
+        return
+
+    if current_audio_process is not None and current_audio_process.poll() is None:
+        current_audio_process.terminate()
+        try:
+            current_audio_process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            current_audio_process.kill()
+            current_audio_process.wait(timeout=1)
+
+    current_audio_process = subprocess.Popen(
+        ['pw-play', '--volume=1.0', '--target', 'Dashboard-Soundboard', filepath],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+# --- Macros ---
 class MacroSystem:
     _ui = None
     
@@ -133,7 +168,7 @@ class MacroSystem:
         except Exception as e:
             logger.error(f"MacroSystem failed: {e}")
 
-# --- AUDIO SYSTEM (PipeWire/WirePlumber Wrapper) ---
+# --- Audio ---
 class AudioSystem:
     @staticmethod
     def run(cmd):
@@ -166,13 +201,12 @@ class AudioSystem:
                     continue
                 
                 if section == 'sinks':
-                    clean = line.replace('│', '').replace('├─', '').replace('└─', '').strip()
+                    clean = line.translate(str.maketrans('', '', '\u2502\u251c\u2514\u2500')).strip()
                     if not clean: continue
                     match = re.search(r'^(\*)?\s*(\d+)\.\s+([^\[]+)', clean)
                     if match:
                         is_active, dev_id, raw_name = bool(match.group(1)), match.group(2), match.group(3).strip()
                         
-                        # --- Hide the Virtual Soundboard from the UI ---
                         if "Dashboard-Soundboard" in raw_name:
                             continue
                             
@@ -212,6 +246,7 @@ class AudioSystem:
                     break
         AudioSystem.run(['wpctl', 'set-default', next_sink['id']])
 
+# --- Discord IPC ---
 class DiscordIPC:
     def __init__(self, client_id, client_secret):
         self.client_id = client_id
@@ -221,9 +256,9 @@ class DiscordIPC:
         self.connected = False
         self.running = False
         self.voice_state = {"mute": False, "deaf": False}
-        self.voice_supported = False # Flag if IPC supports voice settings
-        self.auth_pending = False # Flag for FastAPI to check
-        self.pre_deafen_mute = False # Tracks mute state before a deafen action
+        self.voice_supported = False
+        self.auth_pending = False
+        self.pre_deafen_mute = False
 
     def get_pipe_paths(self):
         paths_found = []
@@ -232,7 +267,6 @@ class DiscordIPC:
                 paths_found.append(r'\\.\pipe\discord-ipc-0')
             return paths_found
         
-        # Linux paths
         env_vars = ['XDG_RUNTIME_DIR', 'TMPDIR', 'TMP', 'TEMP']
         paths = [os.environ.get(v) for v in env_vars if os.environ.get(v)]
         paths.extend([f"/run/user/{os.getuid()}", "/tmp"])
@@ -240,7 +274,6 @@ class DiscordIPC:
         for base_path in paths:
             for i in range(10):
                 path = os.path.join(base_path, f"discord-ipc-{i}")
-                # Flatpak/Snap sandboxed paths
                 flatpak_path = os.path.join(base_path, "app/com.discordapp.Discord", f"discord-ipc-{i}")
                 
                 if os.path.exists(path) and path not in paths_found: paths_found.append(path)
@@ -260,22 +293,21 @@ class DiscordIPC:
                     self.sock.connect(pipe_path)
                     self.sock.settimeout(2.0)
                 
-                # Handshake
                 self.send(0, {"v": 1, "client_id": self.client_id})
                 res = self.recv()
                 if not res:
                     self.close()
                     continue
                     
-                # Skip arRPC because it intercepts IPC but doesn't support Voice Commands
+                # arRPC exposes IPC but not the voice commands this dashboard needs.
                 if res.get("data", {}).get("user", {}).get("username") == "arrpc":
                     logger.info(f"Skipping {pipe_path} because it is arRPC (unsupported voice IPC).")
                     self.close()
                     continue
                 
                 if not self.access_token:
-                    self.auth_pending = True # Signal frontend to show auth button
-                    self.connected = True # Must stay connected to receive IPC AUTHORIZE
+                    self.auth_pending = True
+                    self.connected = True
                     return True
                 
                 self.authenticate()
@@ -319,7 +351,6 @@ class DiscordIPC:
         try:
             header = self.sock_recv(8)
             if not header or len(header) < 8: 
-                # Connection closed or incomplete header
                 return None
             opcode, length = struct.unpack("<II", header)
             payload = self.sock_recv(length)
@@ -353,8 +384,9 @@ class DiscordIPC:
             r = requests.post("https://discord.com/api/oauth2/token", data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=5)
             if r.status_code == 200:
                 self.access_token = r.json().get("access_token")
-                config["disc_token"] = self.access_token
-                save_config()
+                with CONFIG_LOCK:
+                    config["disc_token"] = self.access_token
+                    save_config()
                 self.auth_pending = False
                 return True
             logger.error(f"Discord Token Exchange Failed: {r.text}")
@@ -365,18 +397,16 @@ class DiscordIPC:
     def authenticate(self):
         self.send(1, {"cmd": "AUTHENTICATE", "args": {"access_token": self.access_token}, "nonce": str(uuid.uuid4())})
         
-        # Wait for authentication to complete before sending dependent commands
         auth_res = self.recv()
         if auth_res and auth_res.get("evt") == "ERROR":
             logger.error(f"Discord IPC Auth Error: {auth_res}")
-            self.access_token = "" # Invalidate token
+            self.access_token = ""
             self.auth_pending = True
             return
 
         self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_SETTINGS_UPDATE", "args": {}, "nonce": str(uuid.uuid4())})
         self.send(1, {"cmd": "GET_VOICE_SETTINGS", "args": {}, "nonce": "GET_VOICE"})
         
-        # Consume the two responses to update state immediately
         for _ in range(2):
             res = self.recv()
             if res and res.get("cmd") == "GET_VOICE_SETTINGS" and res.get("evt") != "ERROR":
@@ -427,7 +457,7 @@ class DiscordIPC:
                     self.close()
                     time.sleep(2)
             else:
-                 time.sleep(2) # Sleep if auth is pending
+                 time.sleep(2)
 
     def set_voice(self, mute=None, deaf=None):
         if not self.connected: return
@@ -441,10 +471,12 @@ def restart_discord_ipc():
     if disc_ipc_instance:
         disc_ipc_instance.running = False
         disc_ipc_instance.close()
+        disc_ipc_instance = None
     if config.get("disc_id") and config.get("disc_secret"):
         disc_ipc_instance = DiscordIPC(config["disc_id"], config["disc_secret"])
         threading.Thread(target=disc_ipc_instance.loop, daemon=True).start()
 
+# --- Spotify ---
 def get_sp_oauth():
     global global_sp_oauth
     if not config.get("spot_id") or not config.get("spot_secret"): return None
@@ -460,12 +492,12 @@ def get_sp_oauth():
         )
     return global_sp_oauth
 
-# --- MEDIA ENGINES ---
-def get_spotify_api_meta(): # Removed host_url argument
+# --- Media Metadata ---
+def get_spotify_api_meta():
     sp_oauth = get_sp_oauth()
     if not sp_oauth: return None
     try:
-        token_info = sp_oauth.get_cached_token() # Uses the cached global object!
+        token_info = sp_oauth.get_cached_token()
         if not token_info: return {"status": "Auth_Required", "artist": "", "title": "Spotify Not Authorized", "art_url": ""}
         
         sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3)
@@ -502,33 +534,30 @@ def get_local_mpris_meta():
 
         current_song = f"{artist}-{title}"
 
-        # 1. Detect a song change and trigger Burst Mode
+        # Some players expose cover art before the file is fully written.
         if current_song != last_mpris_title:
             last_mpris_title = current_song
             mpris_burst_active = True
             mpris_burst_start = time.time()
             last_art_url = "WAITING"
 
-        # 2. Handle Burst Mode Polling
         if mpris_burst_active:
             if raw_art_url.startswith('file://'):
                 path = urllib.parse.unquote(raw_art_url.replace('file://', ''))
-                # Only accept the file if it actually has data
                 if os.path.exists(path) and os.path.getsize(path) > 0:
                     last_mpris_path = path
                     mod_time = str(os.path.getmtime(path))
                     f_size = str(os.path.getsize(path))
                     song_hash = hashlib.md5((current_song + mod_time + f_size).encode()).hexdigest()
                     last_art_url = f"/api/local_art?h={song_hash}"
-                    mpris_burst_active = False # Got it! Stop bursting.
+                    mpris_burst_active = False
                 elif time.time() - mpris_burst_start > 6.0:
                     last_art_url = ""
-                    mpris_burst_active = False # 6-second timeout. Give up.
+                    mpris_burst_active = False
             else:
                 last_art_url = raw_art_url
                 mpris_burst_active = False
         else:
-            # 3. Failsafe: if the file updates peacefully while out of burst mode
             if raw_art_url.startswith('file://'):
                 path = urllib.parse.unquote(raw_art_url.replace('file://', ''))
                 if os.path.exists(path) and os.path.getsize(path) > 0:
@@ -541,12 +570,23 @@ def get_local_mpris_meta():
         return {"status": status, "artist": artist, "title": title, "art_url": last_art_url}
     except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
 
-# --- STATE MANAGERS & FASTAPI WEBSOCKET MANAGER ---
+# --- Shared State ---
 force_media_update, current_media_source = False, "local"
 spotify_cache, last_spotify_check, last_audio_devs = None, 0, []
 last_weather_data = {"temp": "--", "desc": "--", "timestamp": 0}
 weather_update_event = asyncio.Event()
 last_host_url = "127.0.0.1:5000"
+index_template_cache = {"mtime": 0.0, "html": ""}
+speedtest_lock = asyncio.Lock()
+
+def load_index_template():
+    path = os.path.join(BASE_DIR, "templates", "index.html")
+    mtime = os.path.getmtime(path)
+    if index_template_cache["mtime"] != mtime:
+        with open(path, "r", encoding="utf-8") as f:
+            index_template_cache["html"] = f.read()
+        index_template_cache["mtime"] = mtime
+    return index_template_cache["html"]
 
 class ConnectionManager:
     def __init__(self): self.active_connections: list[WebSocket] = []
@@ -556,13 +596,19 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections: self.active_connections.remove(websocket)
     async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            try: await connection.send_json(message)
-            except: pass
+        stale_connections = []
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.debug(f"WebSocket broadcast failed; dropping stale connection: {e}")
+                stale_connections.append(connection)
+        for connection in stale_connections:
+            self.disconnect(connection)
 
 ws_manager = ConnectionManager()
 
-# --- BACKGROUND ASYNC TASKS ---
+# --- Background Tasks ---
 async def hardware_loop():
     global last_spotify_check, spotify_cache, last_audio_devs, force_media_update, current_media_source
     global mpris_burst_active
@@ -572,7 +618,6 @@ async def hardware_loop():
     audio_cache = {"spk": {"vol": 0, "muted": False}, "mic": {"vol": 0, "muted": False}, "active_dev": "NONE"}
     batt_cache = "--"
 
-    # Helper to safely read the battery file off the main thread
     def read_batt():
         try:
             with open("/tmp/g502_battery.txt", "r") as f: return f.read().strip()
@@ -581,7 +626,7 @@ async def hardware_loop():
     while True:
         curr_time = time.time()
         
-        # HARDWARE POLLING (Strictly locked to 1.0s to prevent CPU spikes during media bursts!)
+        # Keep hardware polling slower during short media-art bursts.
         if curr_time - last_audio_check >= 1.0:
             audio_data = await asyncio.to_thread(AudioSystem.poll_all)
             curr_sinks = audio_data['sinks']
@@ -589,19 +634,16 @@ async def hardware_loop():
                 last_audio_devs = curr_sinks
                 await ws_manager.broadcast({"type": "hw_scan_results", "data": curr_sinks})
             
-            # Update our caches
             audio_cache = {"spk": audio_data['spk'], "mic": audio_data['mic'], "active_dev": audio_data['active_sink_name']}
             batt_cache = await asyncio.to_thread(read_batt)
             last_audio_check = curr_time
 
-        # Spotify Polling (Now using the blazing fast cached object)
         if curr_time - last_spotify_check > 3.0 or force_media_update:
             if force_media_update: await asyncio.sleep(0.4)
             spotify_cache = await asyncio.to_thread(get_spotify_api_meta) 
             last_spotify_check = time.time()
             force_media_update = False
 
-        # Context Routing
         media = spotify_cache
         if not media or media['status'] != 'Playing':
             local_media = await asyncio.to_thread(get_local_mpris_meta)
@@ -610,7 +652,6 @@ async def hardware_loop():
             else: current_media_source = "spotify"
         else: current_media_source = "spotify"
 
-        # GPU Polling (Direct RAM Read via NVML)
         if curr_time - last_gpu_check > 2.0:
             if has_nvml:
                 try:
@@ -619,19 +660,15 @@ async def hardware_loop():
                 except: gpu_cache = ""
             last_gpu_check = curr_time
 
-        # Determine Discord state
         disc_has_token = bool(config.get("disc_token", ""))
         disc_has_creds = bool(config.get("disc_id")) and bool(config.get("disc_secret"))
         
-        # Build the auth URL completely independently of the socket
         fallback_auth_url = ""
         if disc_has_creds and not disc_has_token:
-            # Manually generate it so it works even if Discord is offline
             scopes = "rpc rpc.voice.read rpc.voice.write"
             redirect_uri = urllib.parse.quote("http://127.0.0.1:5000/disc_callback")
             fallback_auth_url = f"https://discord.com/api/oauth2/authorize?client_id={config['disc_id']}&redirect_uri={redirect_uri}&response_type=code&scope={scopes}"
 
-        # Baseline state, fully decoupled from the active socket
         disc_state = {
             "mute": False, 
             "deaf": False, 
@@ -650,7 +687,6 @@ async def hardware_loop():
                 disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
                 disc_state["deaf"] = disc_ipc_instance.voice_state.get("deaf", False)
             
-            # Only send auth URL if we don't have a token AND the socket is waiting for one
             if not disc_has_token and disc_ipc_instance.auth_pending:
                 disc_state["auth_url"] = disc_ipc_instance.get_auth_url()
 
@@ -667,7 +703,6 @@ async def hardware_loop():
             }
         })
         
-        # --- DYNAMIC BURST SLEEP ---
         sleep_duration = 0.2 if mpris_burst_active else 1.0
         await asyncio.sleep(sleep_duration)
 async def fetch_weather():
@@ -677,7 +712,6 @@ async def fetch_weather():
         global last_weather_data
         if config.get("weather_api") and config.get("weather_city"):
             try:
-                # Push only the blocking HTTP request to the background thread
                 res = await asyncio.to_thread(
                     requests.get, 
                     "http://api.openweathermap.org/data/2.5/weather", 
@@ -689,7 +723,6 @@ async def fetch_weather():
                     last_weather_data = {"temp": round(res_data["main"]["temp"]), "desc": res_data["weather"][0]["description"].title(), "timestamp": time.time()}
                     with open(WEATHER_CACHE_FILE, "w") as f: json.dump(last_weather_data, f)
                     
-                    # We can now safely broadcast natively in the async loop
                     await ws_manager.broadcast({"type": "weather_data", "data": last_weather_data})
             except Exception as e:
                 logger.debug(f"Weather fetch error: {e}")
@@ -712,15 +745,31 @@ async def fetch_weather():
             pass 
         await do_fetch()
 
+# --- PipeWire Routing ---
 async def pipewire_auto_router():
     """Injects Soundboard audio directly into applications using the microphone."""
+    async def check_output_limited(cmd, timeout=2):
+        return await asyncio.to_thread(
+            subprocess.check_output,
+            cmd,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout
+        )
+
+    async def run_limited(cmd, timeout=2):
+        return await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout
+        )
+
     while True:
         try:
-            # 1. Get Default Microphone name
-            def_src = (await asyncio.to_thread(subprocess.check_output, ['pactl', 'get-default-source'])).decode().strip()
+            def_src = (await check_output_limited(['pactl', 'get-default-source'])).decode().strip()
 
-            # 2. Get Soundboard Monitor Ports
-            pw_out = (await asyncio.to_thread(subprocess.check_output, ['pw-link', '-o'])).decode()
+            pw_out = (await check_output_limited(['pw-link', '-o'])).decode()
             sb_monitors = [p.strip() for p in pw_out.splitlines() if 'Dashboard-Soundboard' in p and 'monitor' in p]
             
             if not sb_monitors:
@@ -730,27 +779,21 @@ async def pipewire_auto_router():
             sb_FL = sb_monitors[0]
             sb_FR = sb_monitors[1] if len(sb_monitors) > 1 else sb_FL
 
-            # 3. Find Apps Capturing the Mic
-            pw_links = (await asyncio.to_thread(subprocess.check_output, ['pw-link', '-l'])).decode()
+            pw_links = (await check_output_limited(['pw-link', '-l'])).decode()
             target_app_ports = []
             is_mic_capture = False
             
             for line in pw_links.splitlines():
                 if not line.startswith((' ', '\t')):
-                    # Did we find the default microphone?
                     is_mic_capture = (def_src in line and 'capture' in line)
                 elif is_mic_capture and '|->' in line:
-                    # Grab the app port connected to it
                     app_port = line.split('|->')[1].strip()
-                    # Exclude the soundboard itself and the native headphone loopback
                     if 'Dashboard-Soundboard' not in app_port and 'loopback' not in app_port.lower():
                         target_app_ports.append(app_port)
 
-            # 4. Inject Audio into Apps!
             for i, app_port in enumerate(target_app_ports):
                 src = sb_FL if i % 2 == 0 else sb_FR
-                # Run the link (fails silently if already linked, which is what we want)
-                await asyncio.to_thread(subprocess.run, ['pw-link', src, app_port], stderr=subprocess.DEVNULL)
+                await run_limited(['pw-link', src, app_port])
 
         except Exception as e:
             logger.debug(f"PipeWire auto-router error: {e}")
@@ -758,46 +801,52 @@ async def pipewire_auto_router():
         await asyncio.sleep(5) 
 
 
-# --- FASTAPI APP & ROUTES ---
+# --- FastAPI App ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure local sounds directory exists
     os.makedirs(SOUNDS_DIR, exist_ok=True)
+
+    def check_output_limited(cmd, timeout=3):
+        return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=timeout)
+
+    def run_limited(cmd, timeout=3, check=False):
+        return subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            check=check
+        )
     
-    # Automated PipeWire Virtual Sink Setup
     if get_os_target() == "linux":
         try:
-            # 1. SAVE the real physical defaults before Linux can hijack them!
+            # Preserve the real defaults before creating the virtual sink.
             try:
-                real_sink = subprocess.check_output(['pactl', 'get-default-sink']).decode().strip()
-                real_src = subprocess.check_output(['pactl', 'get-default-source']).decode().strip()
+                real_sink = check_output_limited(['pactl', 'get-default-sink']).decode().strip()
+                real_src = check_output_limited(['pactl', 'get-default-source']).decode().strip()
             except:
                 real_sink, real_src = "", ""
 
-            # 2. Create the Virtual Sink
-            sinks_output = subprocess.check_output(['pactl', 'list', 'short', 'sinks']).decode()
+            sinks_output = check_output_limited(['pactl', 'list', 'short', 'sinks']).decode()
             if 'Dashboard-Soundboard' not in sinks_output:
                 logger.info("Virtual Sink 'Dashboard-Soundboard' not found. Creating it now...")
-                subprocess.run([
+                run_limited([
                     'pactl', 'load-module', 'module-null-sink', 
                     'sink_name=Dashboard-Soundboard', 
                     'sink_properties=device.description="Dashboard-Soundboard"'
                 ], check=True)
             
-            # 3. Force Volume to 100%
-            subprocess.run(['pactl', 'set-sink-volume', 'Dashboard-Soundboard', '100%'], stderr=subprocess.DEVNULL)
+            run_limited(['pactl', 'set-sink-volume', 'Dashboard-Soundboard', '100%'])
             
-            # 4. Native Loopback to Headphones (Let PipeWire handle it!)
-            modules_output = subprocess.check_output(['pactl', 'list', 'short', 'modules']).decode()
+            modules_output = check_output_limited(['pactl', 'list', 'short', 'modules']).decode()
             if 'source=Dashboard-Soundboard.monitor' not in modules_output:
-                subprocess.run(['pactl', 'load-module', 'module-loopback', 'source=Dashboard-Soundboard.monitor'], check=True)
+                run_limited(['pactl', 'load-module', 'module-loopback', 'source=Dashboard-Soundboard.monitor'], check=True)
                 logger.info("Native Audio Loopback established.")
 
-            # 5. AGGRESSIVELY RESTORE the physical defaults so Discord's mic doesn't drop
             if real_sink and 'Dashboard' not in real_sink:
-                subprocess.run(['pactl', 'set-default-sink', real_sink], stderr=subprocess.DEVNULL)
+                run_limited(['pactl', 'set-default-sink', real_sink])
             if real_src and 'Dashboard' not in real_src:
-                subprocess.run(['pactl', 'set-default-source', real_src], stderr=subprocess.DEVNULL)
+                run_limited(['pactl', 'set-default-source', real_src])
                 
         except Exception as e:
             logger.error(f"Failed to setup PipeWire virtual sink: {e}")
@@ -816,6 +865,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
+# --- Routes ---
 @app.get('/api/local_art')
 async def serve_local_art():
     global last_mpris_path
@@ -828,18 +878,8 @@ async def index(request: Request):
     global last_host_url
     last_host_url = request.url.netloc
     
-    with open(os.path.join(BASE_DIR, "templates", "index.html"), "r") as f:
-        html = f.read()
+    html = load_index_template()
 
-    # Wait up to 3.0 seconds for the background Discord thread to establish the initial connection
-    # This prevents the UI from loading without the Discord panel if the connection is just a split-second away.
-    if disc_ipc_instance and not disc_ipc_instance.connected and not disc_ipc_instance.auth_pending:
-        for _ in range(30):
-            if disc_ipc_instance.connected or disc_ipc_instance.auth_pending:
-                break
-            await asyncio.sleep(0.1)
-
-    # Pre-render Discord state to prevent layout shift / flashing
     if disc_ipc_instance and disc_ipc_instance.connected:
         html = html.replace('id="panel-discord" class="glass panel" style="display: none;', 'id="panel-discord" class="glass panel" style="display: flex;')
         if disc_ipc_instance.voice_state.get("mute", False):
@@ -848,7 +888,6 @@ async def index(request: Request):
             html = html.replace('class="btn" id="btn-disc-deaf"', 'class="btn muted" id="btn-disc-deaf"')
 
     response = HTMLResponse(content=html)
-    # FORCES WEBVIEW TO CHECK SERVER EVERY TIME
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -894,7 +933,6 @@ async def discord_callback(request: Request, code: str = None):
     if not code or not disc_ipc_instance:
         return RedirectResponse('/')
     
-    # Process the code in a background thread to avoid blocking FastAPI
     success = await asyncio.to_thread(disc_ipc_instance.exchange_code, code)
     if success:
         logger.info("Discord authorization successful!")
@@ -903,18 +941,20 @@ async def discord_callback(request: Request, code: str = None):
         
     return RedirectResponse('/')
 
+# --- WebSocket ---
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     global config, weather_force_update, force_media_update, current_media_source, current_audio_process, global_sp_oauth
     
     await ws_manager.connect(websocket)
-            
-    await websocket.send_json({"type": "config_sync", "data": {"cfg": config, "hw": AudioSystem.get_hardware_sinks(), "os_target": get_os_target()}})
-    
-    if last_weather_data.get("temp") != "--":
-        await websocket.send_json({"type": "weather_data", "data": last_weather_data})
     
     try:
+        initial_hardware = await asyncio.to_thread(AudioSystem.get_hardware_sinks)
+        await websocket.send_json({"type": "config_sync", "data": {"cfg": config, "hw": initial_hardware, "os_target": get_os_target()}})
+
+        if last_weather_data.get("temp") != "--":
+            await websocket.send_json({"type": "weather_data", "data": last_weather_data})
+
         while True:
             text = await websocket.receive_text()
             msg = json.loads(text)
@@ -929,10 +969,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 old_weather_api, old_weather_city = config.get("weather_api"), config.get("weather_city")
                 old_spot_id = config.get("spot_id")
 
-                config.update(data)
+                with CONFIG_LOCK:
+                    config.update(data)
                 await asyncio.to_thread(save_config)
 
-                # If Spotify credentials change, force a rebuild of the object
                 if old_spot_id != config.get("spot_id"):
                     global_sp_oauth = None
                 
@@ -946,25 +986,9 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == 'action':
                 action = data
                 
-                # --- NATIVE KILL-AND-REPLACE AUDIO LOGIC ---
                 if action.startswith('local_play_'):
-                    filename = action.split('local_play_')[1]
-                    sounds_dir = config.get("sounds_path", "")
-                    
-                    if sounds_dir:
-                        filepath = os.path.join(sounds_dir, filename)
-                        
-                        # Kill currently playing process if active
-                        if current_audio_process is not None and current_audio_process.poll() is None:
-                            current_audio_process.terminate()
-                            current_audio_process.wait()
-                        
-                        if os.path.exists(filepath):
-                            current_audio_process = subprocess.Popen(
-                                ['pw-play', '--volume=1.0', '--target', 'Dashboard-Soundboard', filepath], 
-                                stdout=subprocess.DEVNULL, 
-                                stderr=subprocess.DEVNULL
-                            )
+                    filename = action.removeprefix('local_play_')
+                    await asyncio.to_thread(play_local_sound, filename)
                 
                 elif action.startswith('spot_'):
                     routed_to_spot = False
@@ -999,15 +1023,17 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 elif action == 'spot_clear_auth':
                     global_sp_oauth = None 
-                    config["spot_token"] = ""
+                    with CONFIG_LOCK:
+                        config["spot_token"] = ""
+                        save_config()
                     if os.path.exists(SPOTIFY_CACHE_FILE):
                         try: os.remove(SPOTIFY_CACHE_FILE)
                         except: pass
-                    save_config()
 
                 elif action == 'disc_clear_auth':
-                    config["disc_token"] = ""
-                    save_config()
+                    with CONFIG_LOCK:
+                        config["disc_token"] = ""
+                        save_config()
                     restart_discord_ipc()
 
                 elif action == 'disc_auth':
@@ -1027,11 +1053,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         is_mute = disc_ipc_instance.voice_state.get("mute", False)
                         
                         if is_deaf:
-                            # If deafened, clicking Mute toggles deafen OFF, but leaves mute ON
                             disc_ipc_instance.set_voice(deaf=False, mute=True)
                             disc_ipc_instance.pre_deafen_mute = True
                         else:
-                            # Normal mute toggle
                             disc_ipc_instance.set_voice(mute=not is_mute)
                             disc_ipc_instance.pre_deafen_mute = not is_mute
                 
@@ -1041,25 +1065,22 @@ async def websocket_endpoint(websocket: WebSocket):
                         is_mute = disc_ipc_instance.voice_state.get("mute", False)
                         
                         if not is_deaf:
-                            # Turning deafen ON: remember current mute state, set both to True
                             disc_ipc_instance.pre_deafen_mute = is_mute
                             disc_ipc_instance.set_voice(deaf=True, mute=True)
                         else:
-                            # Turning deafen OFF: set deaf to False, restore mute to pre-deafen state
                             restore_mute = getattr(disc_ipc_instance, "pre_deafen_mute", False)
                             disc_ipc_instance.set_voice(deaf=False, mute=restore_mute)
                 
                 elif action == 'disc_cam':
-                    pass # IPC does not support camera
+                    pass
                 
                 elif action == 'disc_screen':
-                    pass # IPC does not support screen share
+                    pass
                 elif action == 'app_term': subprocess.Popen(['alacritty'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt')) 
                 elif action == 'app_web': subprocess.Popen(['brave'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
                 elif action == 'app_task': subprocess.Popen(['gnome-system-monitor'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt')) 
                 elif action == 'app_clip': await asyncio.to_thread(MacroSystem.send_keys, 119)
                 elif action == 'app_soundpad': 
-                    # Keep Soundpad launch for Windows only; Linux no longer needs a GUI launch.
                     if os.name == 'nt':
                         sp_path = r"C:\Program Files\Soundpad\Soundpad.exe"
                         if not os.path.exists(sp_path):
@@ -1077,15 +1098,24 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif msg_type == 'run_speedtest':
                 async def run_st():
-                    try:
-                        st = await asyncio.to_thread(speedtest.Speedtest)
-                        await asyncio.to_thread(st.get_best_server)
-                        down, up = await asyncio.to_thread(st.download), await asyncio.to_thread(st.upload)
-                        await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': round(down / 1_000_000, 1), 'up': round(up / 1_000_000, 1)}})
-                    except: await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': 'ERR', 'up': 'ERR'}})
+                    if speedtest_lock.locked():
+                        await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': 'BUSY', 'up': 'BUSY'}})
+                        return
+                    async with speedtest_lock:
+                        try:
+                            st = await asyncio.to_thread(speedtest.Speedtest)
+                            await asyncio.to_thread(st.get_best_server)
+                            down, up = await asyncio.to_thread(st.download), await asyncio.to_thread(st.upload)
+                            await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': round(down / 1_000_000, 1), 'up': round(up / 1_000_000, 1)}})
+                        except: await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': 'ERR', 'up': 'ERR'}})
                 asyncio.create_task(run_st())
 
-    except WebSocketDisconnect: ws_manager.disconnect(websocket)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WebSocket handler error: {e}")
+    finally:
+        ws_manager.disconnect(websocket)
 
 if __name__ == '__main__':
     uvicorn.run(
