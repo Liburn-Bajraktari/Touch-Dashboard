@@ -1,0 +1,17 @@
+{
+  "name": "touch-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native Android wrapper for Touch Dashboard",
+  "scripts": {
+    "prepare:capacitor": "node scripts/prepare-capacitor-web.js",
+    "cap:sync": "npm run prepare:capacitor && npx cap sync android",
+    "android:debug": "bash scripts/build-android.sh debug",
+    "android:release": "bash scripts/build-android.sh release"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1"
+  }
+}

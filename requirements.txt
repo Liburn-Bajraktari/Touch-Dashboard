@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+requests
+psutil
+speedtest-cli
+spotipy
+pynvml
+pywebview
+pystray
+Pillow
+pyinstaller
+evdev; sys_platform == "linux"

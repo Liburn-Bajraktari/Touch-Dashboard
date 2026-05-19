@@ -5,27 +5,256 @@ import time
 import logging
 import threading
 import subprocess
-import requests
-import psutil
-import speedtest
-import spotipy
 import re
 import socket
 import struct
 import uuid
 import base64
 import urllib.parse
+import argparse
+import sys
+import importlib.util
+import site
+import shutil
+
+RUNTIME_DEPENDENCIES = [
+    ("fastapi", "fastapi"),
+    ("uvicorn", "uvicorn[standard]"),
+    ("requests", "requests"),
+    ("psutil", "psutil"),
+    ("speedtest", "speedtest-cli"),
+    ("spotipy", "spotipy"),
+    ("webview", "pywebview"),
+    ("pystray", "pystray"),
+    ("PIL", "Pillow"),
+    ("pynvml", "pynvml"),
+]
+
+if sys.platform.startswith("linux"):
+    RUNTIME_DEPENDENCIES.append(("evdev", "evdev"))
+
+
+def ensure_runtime_dependencies():
+    missing_packages = [
+        package_name
+        for module_name, package_name in RUNTIME_DEPENDENCIES
+        if importlib.util.find_spec(module_name) is None
+    ]
+    if not missing_packages:
+        return
+
+    if getattr(sys, "frozen", False):
+        show_dependency_notice(
+            missing_packages,
+            "Touch Dashboard is missing bundled dependencies and cannot repair a packaged build automatically.\n"
+            "Please reinstall the app or rebuild it with the listed dependencies included.",
+        )
+        raise SystemExit("Touch Dashboard packaged build is missing dependencies: " + ", ".join(missing_packages))
+
+    if os.environ.get("TOUCH_DASHBOARD_SKIP_AUTO_INSTALL") == "1":
+        show_dependency_notice(
+            missing_packages,
+            "Automatic dependency installation is disabled by TOUCH_DASHBOARD_SKIP_AUTO_INSTALL=1.\n"
+            "Install the listed dependencies manually.",
+        )
+        raise SystemExit("Touch Dashboard dependencies are missing and auto-install is disabled: " + ", ".join(missing_packages))
+
+    if not request_dependency_install_permission(missing_packages):
+        raise SystemExit(
+            "Touch Dashboard cannot start because required Python dependencies are missing: "
+            + ", ".join(missing_packages)
+        )
+
+    print("Touch Dashboard: installing missing Python dependencies: " + ", ".join(missing_packages), flush=True)
+    in_virtualenv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    cmd = [sys.executable, "-m", "pip", "install"]
+    if not in_virtualenv:
+        cmd.append("--user")
+    cmd.extend(missing_packages)
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Failed to install missing Python dependencies. "
+            "Run `pip install -r requirements.txt` manually, or set TOUCH_DASHBOARD_SKIP_AUTO_INSTALL=1 to disable auto-install."
+        )
+
+    try:
+        site.main()
+    except Exception:
+        pass
+    importlib.invalidate_caches()
+
+
+def format_dependency_message(missing_packages, lead):
+    return (
+        lead
+        + "\n\nMissing dependencies:\n\n"
+        + "\n".join(f"- {pkg}" for pkg in missing_packages)
+    )
+
+
+def show_dependency_popup(title, message):
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        messagebox.showinfo(title, message, parent=root)
+        root.destroy()
+        return True
+    except Exception as e:
+        print(f"Touch Dashboard: dependency popup failed: {e}", flush=True)
+
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, title, 0x40)
+            return True
+        except Exception as e:
+            print(f"Touch Dashboard: native dependency popup failed: {e}", flush=True)
+
+    if sys.platform.startswith("linux") and not is_linux_cli_launch():
+        if shutil.which("zenity"):
+            try:
+                subprocess.run(["zenity", "--info", "--title", title, "--text", message], check=False)
+                return True
+            except Exception as e:
+                print(f"Touch Dashboard: zenity dependency popup failed: {e}", flush=True)
+        if shutil.which("kdialog"):
+            try:
+                subprocess.run(["kdialog", "--title", title, "--msgbox", message], check=False)
+                return True
+            except Exception as e:
+                print(f"Touch Dashboard: kdialog dependency popup failed: {e}", flush=True)
+
+    return False
+
+
+def show_dependency_notice(missing_packages, lead):
+    message = format_dependency_message(missing_packages, lead)
+    shown = False
+    if not is_linux_cli_launch():
+        shown = show_dependency_popup("Touch Dashboard Dependencies", message)
+    print(message, flush=True)
+    return shown
+
+
+def is_linux_cli_launch():
+    if not sys.platform.startswith("linux"):
+        return False
+    if "--server-only" in sys.argv or "--reload" in sys.argv:
+        return True
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def request_dependency_install_permission(missing_packages):
+    message = format_dependency_message(
+        missing_packages,
+        "Touch Dashboard needs to install these missing Python dependencies.",
+    ) + "\n\nDo you agree to install them now?"
+
+    print(message, flush=True)
+
+    if not is_linux_cli_launch():
+        if ask_dependency_popup("Touch Dashboard Dependencies", message) is True:
+            return True
+        if ask_dependency_popup.last_result is False:
+            return False
+
+    try:
+        answer = input("Install missing dependencies? [y/N]: ").strip().lower()
+    except EOFError:
+        return False
+    return answer in {"y", "yes"}
+
+
+def ask_dependency_popup(title, message):
+    ask_dependency_popup.last_result = None
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        approved = messagebox.askyesno(title, message, parent=root)
+        root.destroy()
+        ask_dependency_popup.last_result = approved
+        return approved
+    except Exception as e:
+        print(f"Touch Dashboard: dependency permission popup failed: {e}", flush=True)
+
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            result = ctypes.windll.user32.MessageBoxW(None, message, title, 0x24)
+            approved = result == 6
+            ask_dependency_popup.last_result = approved
+            return approved
+        except Exception as e:
+            print(f"Touch Dashboard: native dependency permission popup failed: {e}", flush=True)
+
+    if sys.platform.startswith("linux") and not is_linux_cli_launch():
+        if shutil.which("zenity"):
+            try:
+                result = subprocess.run(["zenity", "--question", "--title", title, "--text", message], check=False)
+                approved = result.returncode == 0
+                ask_dependency_popup.last_result = approved
+                return approved
+            except Exception as e:
+                print(f"Touch Dashboard: zenity dependency permission popup failed: {e}", flush=True)
+        if shutil.which("kdialog"):
+            try:
+                result = subprocess.run(["kdialog", "--title", title, "--yesno", message], check=False)
+                approved = result.returncode == 0
+                ask_dependency_popup.last_result = approved
+                return approved
+            except Exception as e:
+                print(f"Touch Dashboard: kdialog dependency permission popup failed: {e}", flush=True)
+
+    return None
+
+
+ask_dependency_popup.last_result = None
+
+
+ensure_runtime_dependencies()
+
+import requests
+import psutil
+import speedtest
+import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from contextlib import asynccontextmanager
 import uvicorn
 from fastapi.staticfiles import StaticFiles 
-import pynvml
 import hashlib
 
+try:
+    import webview
+except ImportError:
+    webview = None
+
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+except ImportError:
+    pystray = None
+    Image = None
+    ImageDraw = None
+
+try:
+    import pynvml
+except ImportError:
+    pynvml = None
+
 # --- Configuration ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+RESOURCE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
 SPOTIFY_CACHE_FILE = os.path.join(BASE_DIR, ".cache")
@@ -33,6 +262,7 @@ SOUNDS_DIR = os.path.join(BASE_DIR, "sounds")
 CONFIG_LOCK = threading.RLock()
 
 current_audio_process = None
+uvicorn_server = None
 
 logging.basicConfig(
     filename=os.path.join(BASE_DIR, 'server.log'),
@@ -56,9 +286,10 @@ global_sp_oauth = None
 has_nvml = False
 nvml_handle = None
 try:
-    pynvml.nvmlInit()
-    nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-    has_nvml = True
+    if pynvml is not None:
+        pynvml.nvmlInit()
+        nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        has_nvml = True
 except Exception as e:
     logger.error(f"NVML Init failed: {e}")
 
@@ -580,7 +811,7 @@ index_template_cache = {"mtime": 0.0, "html": ""}
 speedtest_lock = asyncio.Lock()
 
 def load_index_template():
-    path = os.path.join(BASE_DIR, "templates", "index.html")
+    path = os.path.join(RESOURCE_DIR, "templates", "index.html")
     mtime = os.path.getmtime(path)
     if index_template_cache["mtime"] != mtime:
         with open(path, "r", encoding="utf-8") as f:
@@ -590,6 +821,8 @@ def load_index_template():
 
 class ConnectionManager:
     def __init__(self): self.active_connections: list[WebSocket] = []
+    def has_clients(self):
+        return bool(self.active_connections)
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
@@ -625,6 +858,10 @@ async def hardware_loop():
         
     while True:
         curr_time = time.time()
+
+        if not ws_manager.has_clients():
+            await asyncio.sleep(2.0)
+            continue
         
         # Keep hardware polling slower during short media-art bursts.
         if curr_time - last_audio_check >= 1.0:
@@ -852,18 +1089,24 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to setup PipeWire virtual sink: {e}")
 
     restart_discord_ipc()
-    asyncio.create_task(hardware_loop())
-    asyncio.create_task(fetch_weather())
+    app.state.background_tasks = [
+        asyncio.create_task(hardware_loop(), name="hardware_loop"),
+        asyncio.create_task(fetch_weather(), name="fetch_weather"),
+    ]
     
     if get_os_target() == "linux":
-        asyncio.create_task(pipewire_auto_router())
+        app.state.background_tasks.append(asyncio.create_task(pipewire_auto_router(), name="pipewire_auto_router"))
         
     yield
+    for task in getattr(app.state, "background_tasks", []):
+        task.cancel()
+    if getattr(app.state, "background_tasks", []):
+        await asyncio.gather(*app.state.background_tasks, return_exceptions=True)
     if disc_ipc_instance: disc_ipc_instance.close()
 
 app = FastAPI(lifespan=lifespan)
 
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(RESOURCE_DIR, "static")), name="static")
 
 # --- Routes ---
 @app.get('/api/local_art')
@@ -1117,11 +1360,198 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         ws_manager.disconnect(websocket)
 
-if __name__ == '__main__':
-    uvicorn.run(
-        "server:app", 
-        host='0.0.0.0', 
-        port=5000, 
-        reload=True, 
-        reload_dirs=[BASE_DIR, os.path.join(BASE_DIR, "templates")]
+def get_lan_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip_addr = sock.getsockname()[0]
+            if ip_addr and not ip_addr.startswith("127."):
+                return ip_addr
+    except Exception:
+        pass
+
+    try:
+        hostname = socket.gethostname()
+        for ip_addr in socket.gethostbyname_ex(hostname)[2]:
+            if ip_addr and not ip_addr.startswith("127.") and "." in ip_addr:
+                return ip_addr
+    except Exception:
+        pass
+
+    return "127.0.0.1"
+
+
+def stop_fastapi_server():
+    if uvicorn_server is not None:
+        uvicorn_server.should_exit = True
+
+
+def run_fastapi_server(host='0.0.0.0', port=5000, reload=False):
+    global uvicorn_server
+    if reload:
+        uvicorn.run(
+            "server:app",
+            host=host,
+            port=port,
+            reload=True,
+            reload_dirs=[BASE_DIR, os.path.join(RESOURCE_DIR, "templates")],
+        )
+    else:
+        config_obj = uvicorn.Config(app, host=host, port=port, reload=False, log_level="info")
+        uvicorn_server = uvicorn.Server(config_obj)
+        uvicorn_server.run()
+
+
+class DesktopTrayApp:
+    def __init__(self, port=5000):
+        self.port = port
+        self.local_ip = get_lan_ip()
+        self.window = None
+        self.icon = None
+        self.window_visible = False
+        self.shutting_down = False
+        self.tray_available = False
+        self.lock = threading.RLock()
+
+    def make_icon_image(self):
+        image = Image.new("RGBA", (64, 64), (9, 14, 23, 255))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((10, 10, 54, 54), radius=12, fill=(14, 165, 233, 255))
+        draw.rounded_rectangle((18, 18, 46, 46), radius=7, fill=(15, 23, 42, 255))
+        draw.rectangle((24, 24, 40, 30), fill=(248, 250, 252, 255))
+        draw.rectangle((24, 34, 40, 40), fill=(248, 250, 252, 255))
+        return image
+
+    def build_menu(self):
+        return pystray.Menu(
+            pystray.MenuItem(self._toggle_label, self.toggle_window, default=True),
+            pystray.MenuItem(f"Local IP: {self.local_ip}", lambda icon, item: None, enabled=False),
+            pystray.MenuItem("Quit", self.quit),
+        )
+
+    def _toggle_label(self, item):
+        return "Hide Dashboard" if self.window_visible else "Show Dashboard"
+
+    def start_tray(self):
+        self.icon = pystray.Icon("Touch Dashboard", self.make_icon_image(), "Touch Dashboard", self.build_menu())
+        try:
+            self.icon.run_detached()
+            self.tray_available = True
+        except Exception as e:
+            self.tray_available = False
+            logger.error(f"Tray startup failed; showing dashboard window directly after GUI starts: {e}")
+
+    def on_webview_ready(self):
+        if self.tray_available:
+            self.hide_window()
+        else:
+            self.show_window()
+
+    def attach_window(self, window):
+        self.window = window
+        try:
+            self.window.events.closing += self.on_window_closing
+        except Exception as e:
+            logger.debug(f"Could not attach window close handler: {e}")
+
+    def on_window_closing(self):
+        if self.shutting_down:
+            return True
+        self.hide_window()
+        return False
+
+    def toggle_window(self, icon=None, item=None):
+        with self.lock:
+            if self.window_visible:
+                self.hide_window()
+            else:
+                self.show_window()
+            if self.icon:
+                self.icon.update_menu()
+
+    def show_window(self):
+        if not self.window:
+            return
+        try:
+            self.window.show()
+            self.window.restore()
+        except Exception:
+            try:
+                self.window.show()
+            except Exception as e:
+                logger.error(f"Failed to show dashboard window: {e}")
+                return
+        self.window_visible = True
+
+    def hide_window(self):
+        if not self.window:
+            return
+        try:
+            self.window.hide()
+            self.window_visible = False
+        except Exception as e:
+            logger.error(f"Failed to hide dashboard window: {e}")
+
+    def quit(self, icon=None, item=None):
+        with self.lock:
+            self.shutting_down = True
+            stop_fastapi_server()
+            if self.icon:
+                self.icon.stop()
+            if self.window:
+                try:
+                    self.window.destroy()
+                except Exception as e:
+                    logger.debug(f"Window destroy failed during quit: {e}")
+
+
+def launch_desktop(host='0.0.0.0', port=5000):
+    if webview is None or pystray is None or Image is None:
+        logger.warning("pywebview, pystray, or Pillow is not installed; starting FastAPI without a tray window.")
+        run_fastapi_server(host=host, port=port, reload=False)
+        return
+
+    server_thread = threading.Thread(
+        target=run_fastapi_server,
+        kwargs={"host": host, "port": port, "reload": False},
+        daemon=True,
+        name="touch-dashboard-fastapi",
     )
+    server_thread.start()
+    time.sleep(1.0)
+
+    desktop_app = DesktopTrayApp(port=port)
+    window_kwargs = {
+        "title": "Touch Dashboard",
+        "url": f"http://127.0.0.1:{port}",
+        "frameless": True,
+        "width": 1280,
+        "height": 800,
+        "hidden": True,
+    }
+    try:
+        window = webview.create_window(**window_kwargs)
+    except TypeError:
+        window_kwargs.pop("hidden", None)
+        window = webview.create_window(**window_kwargs)
+    desktop_app.attach_window(window)
+    desktop_app.start_tray()
+    webview.start(desktop_app.on_webview_ready)
+    stop_fastapi_server()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Touch Dashboard desktop/server launcher")
+    parser.add_argument("--server-only", action="store_true", help="Run FastAPI without opening a PyWebView window")
+    parser.add_argument("--host", default="0.0.0.0", help="FastAPI bind host")
+    parser.add_argument("--port", type=int, default=5000, help="FastAPI bind port")
+    parser.add_argument("--reload", action="store_true", help="Enable uvicorn reload for development server-only runs")
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    if args.server_only:
+        run_fastapi_server(host=args.host, port=args.port, reload=args.reload)
+    else:
+        launch_desktop(host=args.host, port=args.port)

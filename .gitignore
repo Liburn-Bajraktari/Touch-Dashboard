@@ -11,3 +11,12 @@ config.json
 discord_documentation_links.txt
 discord_documentation_links.md
 server_logic_performance_fixes.md
+build/
+dist/
+node_modules/
+www/
+android/
+pkg/
+src/
+touch-dashboard-*.tar.gz
+*.pkg.tar.*

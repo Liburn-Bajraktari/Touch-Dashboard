@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Dashboard</title>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/x-icon" href="static/favicon.ico">
 
-    <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="static/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="static/icon-512.png">
 
-    <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="manifest" href="/manifest.json?v=1.8">
+    <link rel="apple-touch-icon" href="static/icon-192.png">
+    <link rel="manifest" href="manifest.json?v=1.8">
     
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,14 +18,15 @@
     <meta name="theme-color" content="#090e17">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-    <script src="/static/sw.js?v=1.8"></script>
+    <script src="static/sw.js?v=1.8"></script>
     <style>
         /* --- Theme --- */
         :root {
-            --bg-dark: #090e17; --panel-bg: rgba(15, 23, 42, 0.4); --border: rgba(255, 255, 255, 0.08);
-            --accent: #0ea5e9; --accent-glow: rgba(14, 165, 233, 0.4);
-            --danger: #ef4444; --danger-glow: rgba(239, 68, 68, 0.4);
-            --text-main: #f8fafc; --text-muted: #64748b;
+            --bg-dark: #070b12; --panel-bg: rgba(13, 19, 31, 0.72); --border: rgba(255, 255, 255, 0.11);
+            --accent: #22d3ee; --accent-strong: #38bdf8; --accent-glow: rgba(34, 211, 238, 0.32);
+            --danger: #fb7185; --danger-glow: rgba(251, 113, 133, 0.32);
+            --text-main: #f8fafc; --text-muted: #8b9bb2; --surface: rgba(10, 16, 28, 0.86);
+            --radius: 10px; --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
         }
 
         * { box-sizing: border-box; user-select: none; -webkit-user-drag: none; -webkit-tap-highlight-color: transparent; outline: none; }
@@ -33,28 +34,34 @@
 
         body {
             margin: 0; padding: 1.5rem;
-            background: linear-gradient(135deg, var(--bg-dark) 0%, #111827 100%); color: var(--text-main);
+            background:
+                linear-gradient(135deg, rgba(34, 211, 238, 0.08), transparent 32%),
+                linear-gradient(225deg, rgba(99, 102, 241, 0.09), transparent 34%),
+                linear-gradient(180deg, #070b12 0%, #0b1220 58%, #070b12 100%);
+            color: var(--text-main);
             font-family: system-ui, -apple-system, sans-serif;
             height: 100vh; overflow: hidden; display: flex; flex-direction: column; gap: 1.5rem;
         }
 
         .glass {
-            background: rgba(15, 23, 42, 0.8);
+            background: linear-gradient(180deg, rgba(18, 27, 43, 0.86), rgba(9, 14, 24, 0.76));
             border: 1px solid var(--border); 
-            border-radius: 1.5rem; 
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); 
+            border-radius: var(--radius); 
+            box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.06);
+            backdrop-filter: blur(18px) saturate(1.15);
+            -webkit-backdrop-filter: blur(18px) saturate(1.15);
         }
 
-        .top-bar { display: grid; grid-template-columns: 1.2fr 1.3fr 1.2fr; gap: 1.5rem; align-items: center; padding: 1rem 2rem; flex: 0 0 4rem; }
+        .top-bar { display: grid; grid-template-columns: 1.2fr 1.3fr 1.2fr; gap: 1.5rem; align-items: center; padding: 0.9rem 1.25rem; flex: 0 0 4rem; }
         .section { display: flex; align-items: center; gap: 1.5rem; }
         .batt { color: var(--accent); font-weight: 600; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;}
         .speed-data { text-align: right; font-size: 0.9rem; color: var(--text-muted); line-height: 1.2;}
         .speed-data span { color: var(--text-main); font-weight: 600; }
 
         .btn {
-            background-color: #1a2235; 
-            border: 1px solid #2e3c56; 
-            border-radius: 12px;
+            background: linear-gradient(180deg, rgba(31, 42, 62, 0.92), rgba(17, 24, 39, 0.92));
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: var(--radius);
             color: var(--text-main);
             padding: 1rem;
             cursor: pointer;
@@ -66,9 +73,10 @@
             transform: translateZ(0);
             -webkit-appearance: none;
             appearance: none;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            transition: transform 0.1s, background-color 0.1s;
+            box-shadow: 0 10px 26px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.05);
+            transition: transform 0.12s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
         }
+        .btn:hover { border-color: rgba(34, 211, 238, 0.42); box-shadow: 0 14px 32px rgba(0,0,0,0.32), 0 0 0 1px rgba(34, 211, 238, 0.08); }
         
         .btn:active, .btn.active-btn { 
             transform: scale(0.95) translateZ(0); 
@@ -77,7 +85,7 @@
             border-color: var(--accent);
         }
         #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
-        .btn.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; border-color: transparent; }
+        .btn.muted { background: linear-gradient(180deg, #fb7185, #e11d48); box-shadow: 0 0 22px var(--danger-glow); color: #18040a; border-color: transparent; }
         .btn-top { width: 4rem; height: 3.5rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
         .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: 1.5rem; flex: 1; align-content: start;}
@@ -92,16 +100,17 @@
         }
         .col { display: flex; flex-direction: column; gap: 1.5rem; height: 100%; min-height: 0; min-width: 0; width: 100%; overflow: hidden; }
         .panel { padding: 1.5rem; display: flex; flex-direction: column; }
+        #panel-discord { overflow: hidden; will-change: opacity, flex-basis, transform; }
 
         .spot-ctrl { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 1rem; margin-top: 1.5rem; height: 4rem; width: 100%; }
 
         .slider-section { display: flex; flex-direction: row; justify-content: space-around; align-items: stretch; flex: 1; }
         .pro-slider {
-            position: relative; flex: 0 0 5.5rem; height: 100%; background: rgba(0,0,0,0.4); border-radius: 1.5rem;
+            position: relative; flex: 0 0 5.5rem; height: 100%; background: rgba(0,0,0,0.38); border-radius: var(--radius);
             overflow: hidden; cursor: pointer; box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
             display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
         }
-        .slider-fill { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: translateY(100%); background: linear-gradient(0deg, #0284c7 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; will-change: transform; }
+        .slider-fill { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: translateY(100%); background: linear-gradient(0deg, #0891b2 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; will-change: transform; }
         .slider-val { position: absolute; top: 1.5rem; font-weight: 800; font-size: 1.2rem; color: #ffffff; text-shadow: 0px 2px 4px rgba(0,0,0,0.9); pointer-events: none; z-index: 10; }
         .slider-icon {
             position: absolute; bottom: 1rem; background: rgba(0,0,0,0.5); border-radius: 50%; width: 3.5rem; height: 3.5rem;
@@ -116,8 +125,8 @@
             width: 100%; height: 13rem;
             flex-direction: column; gap: 1rem;
             background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%);
-            border: none; 
-            border-radius: 2.5rem;
+            border: 1px solid rgba(148, 163, 184, 0.13);
+            border-radius: var(--radius);
             box-shadow: 0 0 0 1px rgba(255,255,255,0.05), inset 0 4px 20px rgba(0,0,0,0.4);
         }
         .audio-hub-btn:active {
@@ -148,7 +157,7 @@
             0% { transform: scale(0.85); opacity: 0.5; }
             100% { transform: scale(1.05); opacity: 1; }
         }
-        .stat-row { display: flex; align-items: center; gap: 1rem; font-size: 1.5rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 1rem;}
+        .stat-row { display: flex; align-items: center; gap: 1rem; font-size: 1.5rem; background: rgba(0,0,0,0.22); padding: 1.5rem; border-radius: var(--radius);}
         .stat-row i { color: var(--accent); width: 2rem; height: 2rem; }
         .stat-val { font-weight: 700; margin-left: auto; }
 
@@ -167,7 +176,7 @@
         .spotify.expanded .spot-text-box { transform: translateY(0.5rem); }
 
         /* --- Settings --- */
-        .modal-card { background: #0f172a; padding: 2rem; border-radius: 1.5rem; width: 45rem; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem;}
+        .modal-card { background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(8, 13, 23, 0.98)); padding: 2rem; border-radius: var(--radius); width: 45rem; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow);}
         .tabs { display: flex; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
         .tab { background: none; border: none; color: var(--text-muted); font-size: 1.2rem; font-weight: bold; cursor: pointer; padding: 0.5rem 1rem; transition: 0.2s; }
         .tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
@@ -176,7 +185,8 @@
         
         .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
         .form-group label { color: var(--text-muted); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;}
-        input, select { width: 100%; padding: 1rem; border-radius: 0.5rem; border: none; background: #1e293b; color: white; font-size: 1.1rem; outline: none; }
+        input, select { width: 100%; padding: 1rem; border-radius: var(--radius); border: 1px solid rgba(148, 163, 184, 0.18); background: #111827; color: white; font-size: 1.1rem; outline: none; }
+        input:focus, select:focus { border-color: rgba(34, 211, 238, 0.55); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12); }
         .hw-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: center; }
 
         ::-webkit-scrollbar { width: 8px; }
@@ -221,9 +231,29 @@
             transition: transform 0.2s cubic-bezier(0.1, 0.9, 0.2, 1); 
         }
         .modal-overlay.active .modal-card { transform: scale(1) translateY(0); }
+        #ip-modal .modal-card { width: min(30rem, calc(100vw - 2rem)); }
+        #ip-modal h3 { margin: 0; color: var(--text-main); font-size: 1.5rem; }
+        #ip-modal p { margin: 0; color: var(--text-muted); font-size: 0.95rem; line-height: 1.4; }
+        #ip-error { min-height: 1.2rem; color: var(--danger); font-size: 0.9rem; font-weight: bold; }
+        #ip-actions { display: flex; gap: 1rem; height: 3.5rem; }
     </style>
 </head>
 <body id="body">
+
+    <div id="ip-modal" class="modal-overlay">
+        <div class="modal-card">
+            <h3>Enter Desktop IP Address</h3>
+            <p>Use the Local IP shown in the Touch Dashboard tray menu.</p>
+            <div class="form-group">
+                <label>Desktop IP Address</label>
+                <input type="text" id="ip-input" placeholder="192.168.1.50">
+            </div>
+            <div id="ip-error"></div>
+            <div id="ip-actions">
+                <button class="btn" id="ip-connect-btn" style="flex: 1; background: var(--accent); color: #000; font-weight: bold;">Connect</button>
+            </div>
+        </div>
+    </div>
 
     <!-- --- Settings Modal --- -->
     <div id="modal" class="modal-overlay">
@@ -241,7 +271,7 @@
                 <div class="form-group"><label>Spotify Client Secret</label><input type="password" id="cfg-spot-secret"></div>
                 
                 <div style="display: flex; gap: 1rem; margin-top: 0.5rem; align-items: center; height: 3.5rem;">
-                    <button class="btn" id="btn-spot-auth" style="flex: 1; background: #1DB954; color: #000; font-weight: bold; height: 100%; min-height: 0;" onclick="window.location.href='/spotify_login'">
+                    <button class="btn" id="btn-spot-auth" style="flex: 1; background: #1DB954; color: #000; font-weight: bold; height: 100%; min-height: 0;" onclick="goToServerPath('/spotify_login')">
                         <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="margin-right: 0.5rem;"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.48.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.48-1.02.659-1.56.3z"/></svg>CONNECT SPOTIFY
                     </button>
                     
@@ -526,24 +556,137 @@
             }, 100);
         } catch(err) { console.log("Icon load delayed"); }
         
-        const socket = new WebSocket(`ws://${location.host}/ws`);
+        const SERVER_IP_KEY = 'server_ip';
+        let dashboardServerHost = '';
+        let socket = null;
+        let socketConnectTimer = null;
+        let socketAttemptId = 0;
         let hasDisconnected = false;
+        let reconnectTimer = null;
 
-        socket.onclose = () => { 
-            hasDisconnected = true; 
-            document.getElementById('top-title').innerText = "RECONNECTING...";
-            document.getElementById('top-title').style.color = "var(--danger)";
-            setTimeout(() => { window.location.reload(); }, 2000); 
-        };
+        function isCapacitorRuntime() {
+            return Boolean(window.Capacitor) || location.protocol === 'capacitor:' || location.protocol === 'file:';
+        }
 
-        socket.onopen = () => { 
-            if (hasDisconnected) window.location.reload(); 
-        };
+        function normalizeServerIp(rawIp) {
+            if (!rawIp) return '';
+            return rawIp.trim().replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
+        }
+
+        function getSocketHost(serverIp) {
+            return isCapacitorRuntime() ? `${serverIp}:5000` : location.host;
+        }
+
+        function closePendingSocket() {
+            if (socketConnectTimer) {
+                clearTimeout(socketConnectTimer);
+                socketConnectTimer = null;
+            }
+            if (socket && socket.readyState !== WebSocket.CLOSED) {
+                socket.onopen = null;
+                socket.onclose = null;
+                socket.onerror = null;
+                socket.onmessage = null;
+                try { socket.close(); } catch(err) {}
+            }
+            socket = null;
+        }
+
+        function showIpModal(message = '', value = '') {
+            const modal = document.getElementById('ip-modal');
+            const input = document.getElementById('ip-input');
+            const error = document.getElementById('ip-error');
+            input.value = value || '';
+            error.innerText = message;
+            modal.classList.add('active');
+            setTimeout(() => input.focus(), 50);
+        }
+
+        function hideIpModal() {
+            document.getElementById('ip-modal').classList.remove('active');
+        }
+
+        function handleSocketFailure(failedIp, message = 'Connection failed or timed out') {
+            if (!isCapacitorRuntime()) {
+                closePendingSocket();
+                hasDisconnected = true;
+                const topTitle = document.getElementById('top-title');
+                topTitle.innerText = "RECONNECTING...";
+                topTitle.style.color = "var(--danger)";
+                if (!reconnectTimer) {
+                    reconnectTimer = setTimeout(() => { window.location.reload(); }, 2000);
+                }
+                return;
+            }
+            closePendingSocket();
+            showIpModal(message, failedIp);
+        }
+
+        function connectDashboardSocket(serverIp = '') {
+            closePendingSocket();
+            const attemptId = ++socketAttemptId;
+            const normalizedIp = normalizeServerIp(serverIp);
+            dashboardServerHost = getSocketHost(normalizedIp);
+            const socketProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+            const nextSocket = new WebSocket(`${socketProtocol}://${dashboardServerHost}/ws`);
+            socket = nextSocket;
+
+            if (isCapacitorRuntime()) {
+                socketConnectTimer = setTimeout(() => {
+                    if (attemptId === socketAttemptId && nextSocket.readyState !== WebSocket.OPEN) {
+                        handleSocketFailure(normalizedIp, 'Connection failed or timed out');
+                    }
+                }, 4000);
+            }
+
+            nextSocket.onopen = () => {
+                if (attemptId !== socketAttemptId) return;
+                if (socketConnectTimer) {
+                    clearTimeout(socketConnectTimer);
+                    socketConnectTimer = null;
+                }
+                socket = nextSocket;
+                if (isCapacitorRuntime()) {
+                    localStorage.setItem(SERVER_IP_KEY, normalizedIp);
+                    hideIpModal();
+                } else if (hasDisconnected) {
+                    window.location.reload();
+                }
+            };
+
+            nextSocket.onclose = () => {
+                if (attemptId !== socketAttemptId) return;
+                handleSocketFailure(normalizedIp);
+            };
+
+            nextSocket.onerror = () => {
+                if (attemptId !== socketAttemptId) return;
+                handleSocketFailure(normalizedIp);
+            };
+
+            attachSocketMessageHandler(nextSocket);
+        }
+
+        function connectFromIpModal() {
+            const input = document.getElementById('ip-input');
+            const ip = normalizeServerIp(input.value);
+            if (!ip) {
+                showIpModal('Enter the desktop IP address', input.value);
+                return;
+            }
+            document.getElementById('ip-error').innerText = 'Connecting...';
+            connectDashboardSocket(ip);
+        }
 
         function sendSocket(type, data = null) {
-            if (socket.readyState === WebSocket.OPEN) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({ type: type, data: data }));
             }
+        }
+
+        function goToServerPath(path) {
+            const target = isCapacitorRuntime() ? `http://${dashboardServerHost}${path}` : path;
+            window.location.href = target;
         }
 
         let isAnimating = false;
@@ -553,9 +696,74 @@
         let preDeafenMute = false;
         let osTarget = 'windows';
         let currentDiscordAuthUrl = "";
+        let discordPanelVisible = false;
+        let discordPanelAnimating = false;
+
+        const dom = {
+            topTitle: document.getElementById('top-title'),
+            sysCpu: document.getElementById('sys-cpu'),
+            sysRam: document.getElementById('sys-ram'),
+            mouseBatt: document.getElementById('mouse-batt'),
+            gpuRow: document.getElementById('sys-gpu-row'),
+            sysGpu: document.getElementById('sys-gpu'),
+            spotInfo: document.getElementById('spot-info'),
+            spotEmpty: document.getElementById('spot-empty'),
+            spotTitle: document.getElementById('spot-title'),
+            spotArtist: document.getElementById('spot-artist'),
+            spotArt: document.getElementById('spot-art'),
+            iconSpotPlay: document.getElementById('icon-spot-play'),
+            iconSpotPause: document.getElementById('icon-spot-pause'),
+            iconSpk: document.getElementById('icon-spk'),
+            iconMic: document.getElementById('icon-mic'),
+            btnAudioCycle: document.getElementById('btn-audio-cycle'),
+            panelDiscord: document.getElementById('panel-discord'),
+            btnDiscAuth: document.getElementById('btn-disc-auth'),
+            discGroup: document.getElementById('disc-connected-group'),
+            discWarning: document.getElementById('disc-warning-container'),
+            spotifyPanel: document.querySelector('.spotify'),
+            btnSpotAuth: document.getElementById('btn-spot-auth'),
+            spotGroup: document.getElementById('spot-connected-group')
+        };
+
+        function setText(el, value) {
+            if (el && el.innerText !== value) el.innerText = value;
+        }
+
+        function setDisplay(el, value) {
+            if (el && el.style.display !== value) el.style.display = value;
+        }
+
+        function setDiscordPanelVisible(show) {
+            if (!dom.panelDiscord || discordPanelVisible === show) return;
+            if (window.gsap) gsap.killTweensOf(dom.panelDiscord);
+            discordPanelVisible = show;
+            discordPanelAnimating = true;
+            if (show) {
+                dom.panelDiscord.style.display = 'flex';
+                dom.spotifyPanel?.classList.remove('expanded');
+                if (window.gsap) {
+                    gsap.fromTo(dom.panelDiscord, { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.22, ease: "power2.out", onComplete: () => { discordPanelAnimating = false; } });
+                } else {
+                    dom.panelDiscord.style.opacity = '1';
+                    discordPanelAnimating = false;
+                }
+            } else {
+                dom.spotifyPanel?.classList.add('expanded');
+                if (window.gsap) {
+                    gsap.to(dom.panelDiscord, { autoAlpha: 0, y: 10, duration: 0.18, ease: "power2.in", onComplete: () => {
+                        dom.panelDiscord.style.display = 'none';
+                        discordPanelAnimating = false;
+                    }});
+                } else {
+                    dom.panelDiscord.style.display = 'none';
+                    discordPanelAnimating = false;
+                }
+            }
+        }
 
         // --- WebSocket Messages ---
-        socket.onmessage = (event) => {
+        function attachSocketMessageHandler(targetSocket) {
+            targetSocket.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             const d = msg.data;
 
@@ -633,45 +841,49 @@
                 }
                 updateSysDataDOM(d);
             }
-        };
+            };
+        }
+
+        document.getElementById('ip-connect-btn').addEventListener('click', connectFromIpModal);
+        document.getElementById('ip-input').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') connectFromIpModal();
+        });
+
+        if (isCapacitorRuntime()) {
+            const cachedIp = normalizeServerIp(localStorage.getItem(SERVER_IP_KEY));
+            if (cachedIp) {
+                connectDashboardSocket(cachedIp);
+            } else {
+                showIpModal('', '');
+            }
+        } else {
+            connectDashboardSocket();
+        }
 
         // --- System Data Rendering ---
         function updateSysDataDOM(d) {
             requestAnimationFrame(() => {
-                const sysCpu = document.getElementById('sys-cpu');
-                if (sysCpu.innerText !== d.cpu + '%') sysCpu.innerText = d.cpu + '%';
-                
-                const sysRam = document.getElementById('sys-ram');
-                if (sysRam.innerText !== d.ram + '%') sysRam.innerText = d.ram + '%';
-                
-                const mouseBatt = document.getElementById('mouse-batt');
-                if (mouseBatt.innerText !== d.mouse_batt + '%') mouseBatt.innerText = d.mouse_batt + '%';
-                
-                const gpuRow = document.getElementById('sys-gpu-row');
+                setText(dom.sysCpu, d.cpu + '%');
+                setText(dom.sysRam, d.ram + '%');
+                setText(dom.mouseBatt, d.mouse_batt + '%');
+
+                const gpuRow = dom.gpuRow;
                 if (d.gpu !== null && d.gpu !== "") {
-                    if (gpuRow.style.display !== 'flex') gpuRow.style.display = 'flex';
-                    const sysGpu = document.getElementById('sys-gpu');
-                    if (sysGpu.innerText !== d.gpu + '%') sysGpu.innerText = d.gpu + '%';
+                    setDisplay(gpuRow, 'flex');
+                    setText(dom.sysGpu, d.gpu + '%');
                 } else {
-                    if (gpuRow.style.display !== 'none') gpuRow.style.display = 'none';
+                    setDisplay(gpuRow, 'none');
                 }
                 
-                const spotInfo = document.getElementById('spot-info');
-                const spotEmpty = document.getElementById('spot-empty');
-                const spotAuth = document.getElementById('spot-auth');
-                
                 if (d.spotify && (d.spotify.status === 'Playing' || d.spotify.status === 'Paused')) {
-                    if(spotEmpty && spotEmpty.style.display !== 'none') spotEmpty.style.display = 'none';
-                    if(spotInfo && spotInfo.style.display !== 'flex') spotInfo.style.display = 'flex';
+                    setDisplay(dom.spotEmpty, 'none');
+                    setDisplay(dom.spotInfo, 'flex');
                     
-                    const spotTitle = document.getElementById('spot-title');
-                    if (spotTitle.innerText !== d.spotify.title) spotTitle.innerText = d.spotify.title;
-                    
-                    const spotArtist = document.getElementById('spot-artist');
-                    if (spotArtist.innerText !== d.spotify.artist) spotArtist.innerText = d.spotify.artist;
+                    setText(dom.spotTitle, d.spotify.title);
+                    setText(dom.spotArtist, d.spotify.artist);
                     
                     // Keep previous art while local players finish writing new cover files.
-                    const artImg = document.getElementById('spot-art');
+                    const artImg = dom.spotArt;
                     const newArtUrl = d.spotify.art_url || "";
                     
                     artImg.onerror = function() { 
@@ -728,55 +940,42 @@
                         }
                     });
                 } else {
-                    if(spotEmpty && spotEmpty.style.display !== 'flex') spotEmpty.style.display = 'flex';
-                    if(spotInfo && spotInfo.style.display !== 'none') spotInfo.style.display = 'none';
+                    setDisplay(dom.spotEmpty, 'flex');
+                    setDisplay(dom.spotInfo, 'none');
                 }
 
-                const iconPlay = document.getElementById('icon-spot-play');
-                const iconPause = document.getElementById('icon-spot-pause');
-                
-                if (iconPlay && iconPause) {
+                if (dom.iconSpotPlay && dom.iconSpotPause) {
                     if (Date.now() > spotifyLock) {
                         const isPlaying = d.spotify && d.spotify.status === 'Playing';
                         
                         if (isPlaying) {
-                            if (iconPlay.style.display !== 'none') iconPlay.style.display = 'none';
-                            if (iconPause.style.display === 'none') iconPause.style.display = '';
+                            setDisplay(dom.iconSpotPlay, 'none');
+                            if (dom.iconSpotPause.style.display === 'none') dom.iconSpotPause.style.display = '';
                         } else {
-                            if (iconPlay.style.display === 'none') iconPlay.style.display = '';
-                            if (iconPause.style.display !== 'none') iconPause.style.display = 'none';
+                            if (dom.iconSpotPlay.style.display === 'none') dom.iconSpotPlay.style.display = '';
+                            setDisplay(dom.iconSpotPause, 'none');
                         }
                     }
                 }
                 
                 upSpk(d.audio.spk.vol); upMic(d.audio.mic.vol);
                 
-                const iconSpk = document.getElementById('icon-spk');
-                if (iconSpk.classList.contains('muted') !== d.audio.spk.muted) iconSpk.classList.toggle('muted', d.audio.spk.muted);
-                
-                const iconMic = document.getElementById('icon-mic');
-                if (iconMic.classList.contains('muted') !== d.audio.mic.muted) iconMic.classList.toggle('muted', d.audio.mic.muted);
-                
-                const btnAudioCycle = document.getElementById('btn-audio-cycle');
-                if (btnAudioCycle.innerText !== d.audio.active_dev) btnAudioCycle.innerText = d.audio.active_dev;
+                if (dom.iconSpk && dom.iconSpk.classList.contains('muted') !== d.audio.spk.muted) dom.iconSpk.classList.toggle('muted', d.audio.spk.muted);
+                if (dom.iconMic && dom.iconMic.classList.contains('muted') !== d.audio.mic.muted) dom.iconMic.classList.toggle('muted', d.audio.mic.muted);
+                setText(dom.btnAudioCycle, d.audio.active_dev);
                 
                 if (d.discord) {
-                    const panelDiscord = document.getElementById('panel-discord');
-                    const btnDiscAuth = document.getElementById('btn-disc-auth');
-                    const discGroup = document.getElementById('disc-connected-group');
-                    const discWarning = document.getElementById('disc-warning-container');
+                    const panelDiscord = dom.panelDiscord;
+                    const btnDiscAuth = dom.btnDiscAuth;
+                    const discGroup = dom.discGroup;
+                    const discWarning = dom.discWarning;
                     const targetSettingsState = d.discord.authorized ? 'connected' : 'auth_required';
                     currentDiscordAuthUrl = d.discord.auth_url || "";
                     
-                    const spotifyPanel = document.querySelector('.spotify');
                     if (d.discord.connected) {
                         if (typeof window.discordDisconnectCount === 'undefined') window.discordDisconnectCount = 0;
                         window.discordDisconnectCount = 0;
-                        
-                        if (panelDiscord && panelDiscord.style.display !== 'flex') {
-                            panelDiscord.style.display = 'flex';
-                            if (spotifyPanel) spotifyPanel.classList.remove('expanded');
-                        }
+                        setDiscordPanelVisible(true);
                         
                         const bMute = document.getElementById('btn-disc-mute');
                         const bDeaf = document.getElementById('btn-disc-deaf');
@@ -793,16 +992,13 @@
                     } else {
                         if (typeof window.discordDisconnectCount === 'undefined') window.discordDisconnectCount = 0;
                         window.discordDisconnectCount++;
-                        if (window.discordDisconnectCount >= 3 && panelDiscord && panelDiscord.style.display !== 'none') {
-                            panelDiscord.style.display = 'none';
-                            if (spotifyPanel) spotifyPanel.classList.add('expanded');
-                        }
+                        if (window.discordDisconnectCount >= 3) setDiscordPanelVisible(false);
                     }
                     
                     if (d.discord.authorized) {
-                        if (btnDiscAuth) btnDiscAuth.style.display = 'none';
+                        setDisplay(btnDiscAuth, 'none');
                         if (discGroup) {
-                            discGroup.style.display = 'flex';
+                            setDisplay(discGroup, 'flex');
                             
                             const statusContainer = discGroup.querySelector('div');
                             if (statusContainer && !statusContainer.dataset.locked) {
@@ -814,9 +1010,9 @@
                             }
                         }
                     } else {
-                        if (btnDiscAuth) btnDiscAuth.style.display = 'flex';
+                        setDisplay(btnDiscAuth, 'flex');
                         if (discGroup) {
-                            discGroup.style.display = 'none';
+                            setDisplay(discGroup, 'none');
                             const statusContainer = discGroup.querySelector('div');
                             if (statusContainer) statusContainer.dataset.locked = "false";
                         }
@@ -859,15 +1055,12 @@
                     }
                 }
 
-                const btnSpotAuth = document.getElementById('btn-spot-auth');
-                const spotGroup = document.getElementById('spot-connected-group');
-                
                 if (d.spotify && d.spotify.status !== 'Auth_Required') {
-                    if (btnSpotAuth) btnSpotAuth.style.display = 'none';
-                    if (spotGroup) spotGroup.style.display = 'flex';
+                    setDisplay(dom.btnSpotAuth, 'none');
+                    setDisplay(dom.spotGroup, 'flex');
                 } else {
-                    if (btnSpotAuth) btnSpotAuth.style.display = 'flex';
-                    if (spotGroup) spotGroup.style.display = 'none';
+                    setDisplay(dom.btnSpotAuth, 'flex');
+                    setDisplay(dom.spotGroup, 'none');
                 }
 
             });

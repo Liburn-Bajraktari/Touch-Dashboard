@@ -8,7 +8,7 @@ The code itself is mostly AI-generated, but the logic is human-reviewed. It curr
 
 ## What It Does
 
-Touch Dashboard runs a local FastAPI server and serves a touch-friendly web interface. Open it from a tablet, phone, or browser and use it as a second-screen command center.
+Touch Dashboard runs a local FastAPI server and serves a touch-friendly web interface. Open it from the desktop wrapper, Android app, tablet, phone, or browser and use it as a second-screen command center.
 
 Current features include:
 
@@ -22,19 +22,25 @@ Current features include:
 - Basic app/macro buttons for tools like terminal, browser, task manager, and clipping.
 - Weather display through OpenWeatherMap.
 - Speedtest trigger.
+- Desktop tray mode with a local IP display for connecting mobile clients.
+- Android wrapper support through Capacitor.
 
 The dashboard is currently Linux-focused. Some Windows branches exist in the code, mostly around Soundpad, but this is not currently designed or tested as a Windows-first app.
 
 ## Recommended Client Setup
 
-The dashboard is meant to be opened on a tablet. A normal browser works, but on Android I recommend something like the free version of Fully Kiosk Browser for better fullscreen behavior and performance.
+The dashboard is meant to be opened on a tablet or phone while the backend runs on your main computer. The native Android wrapper is the preferred mobile client, but a normal browser still works.
 
 Typical flow:
 
-1. Run `server.py` on your main computer.
-2. Open `http://YOUR_PC_IP:5000` on the tablet.
-3. Keep the tablet on the same local network.
-4. Use fullscreen/kiosk mode if possible.
+1. Run the desktop app or `server.py` on your main computer.
+2. Check the tray menu for `Local IP: ...`.
+3. Open the Android app, or browse to `http://YOUR_PC_IP:5000` on another device.
+4. Keep the tablet on the same local network.
+
+If you use the Android app, it will ask for the desktop IP address the first time. It caches that IP and asks again if the connection fails.
+
+On desktop, `python server.py` starts the FastAPI backend in the background and adds a system tray icon. Use the tray menu to show/hide the dashboard window, read the local IP address, or quit.
 
 ## Touch Controls
 
@@ -73,8 +79,10 @@ Top bar:
 Python dependencies used by the current code:
 
 ```bash
-pip install fastapi uvicorn requests psutil speedtest-cli spotipy pynvml evdev
+pip install -r requirements.txt
 ```
+
+If a dependency is missing when running from source, the app shows the missing package list and asks before installing anything. In a Linux CLI/server-only run, the same prompt appears in the terminal.
 
 Linux command-line tools used by the backend:
 
@@ -100,20 +108,28 @@ Optional tools and assumptions:
 Clone the repo and create a virtual environment:
 
 ```bash
-git clone git clone https://codeberg.org/liburnb/Touch-Dashboard.git
+git clone https://codeberg.org/liburnb/Touch-Dashboard.git
 cd Touch-Dashboard
 python -m venv .venv
 source .venv/bin/activate
-pip install fastapi uvicorn requests psutil speedtest-cli spotipy pynvml evdev
+pip install -r requirements.txt
 ```
 
-Run the server:
+Run the desktop app:
 
 ```bash
 python server.py
 ```
 
-Then open:
+The app starts in the system tray. Open the tray menu and choose Show Dashboard, or connect from another device using the displayed local IP.
+
+To run only the backend without the desktop window or tray:
+
+```bash
+python server.py --server-only --host 0.0.0.0 --port 5000
+```
+
+Local browser URL:
 
 ```text
 http://127.0.0.1:5000
@@ -126,6 +142,48 @@ http://YOUR_PC_IP:5000
 ```
 
 The server creates and updates local runtime files such as `config.json`, `server.log`, `weather_cache.json`, and Spotify cache data.
+
+## Native App Builds
+
+### Windows
+
+Build the desktop executable and installer:
+
+```powershell
+.\scripts\build-windows.ps1
+```
+
+If Inno Setup is not installed, you can still build only the executable:
+
+```powershell
+.\scripts\build-windows.ps1 -SkipInstaller
+```
+
+### Arch Linux
+
+Build and install a local package:
+
+```bash
+chmod +x scripts/build-arch-package.sh
+./scripts/build-arch-package.sh -si
+```
+
+### Android
+
+Build a debug APK:
+
+```bash
+chmod +x scripts/build-android.sh
+./scripts/build-android.sh debug
+```
+
+Build a release APK:
+
+```bash
+./scripts/build-android.sh release
+```
+
+The Android app is a client only. The backend must still be running on your desktop or Linux host on the same Wi-Fi network.
 
 ## First-Time Configuration
 
@@ -213,13 +271,13 @@ Displays CPU and RAM. GPU appears only when NVML is available.
 - Some features assume specific hardware or external scripts.
 - Service authentication must happen on the server machine.
 - Keep this on a trusted local network. There is no authentication layer for the dashboard itself yet.
+- The Android app expects direct LAN access to the desktop server at port `5000`.
 
 ## Contributing
 
 Contributions are welcome. Useful areas include:
 
 - Making app buttons and macros configurable.
-- Adding a real dependency file.
 - Improving setup scripts.
 - Better service/plugin modularity.
 - More robust Discord client support.
