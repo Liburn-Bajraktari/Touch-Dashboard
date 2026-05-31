@@ -1,0 +1,48 @@
+when:
+  - event: tag
+    branch: main
+
+steps:
+  publish-aur:
+    image: archlinux:base-devel
+    secrets: [ aur_ssh_private_key ]
+    commands:
+      # 1. Setup minimal dependencies
+      - pacman -Syu --noconfirm git openssh sudo pacman-contrib
+
+      # 2. Setup build user (makepkg cannot run as root)
+      - useradd -m builduser
+      - echo "builduser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builduser
+      - chown -R builduser:builduser .
+
+      # 3. Setup SSH for AUR access
+      - mkdir -p /home/builduser/.ssh
+      - echo "$AUR_SSH_PRIVATE_KEY" > /home/builduser/.ssh/id_rsa
+      - chmod 600 /home/builduser/.ssh/id_rsa
+      - ssh-keyscan aur.archlinux.org >> /home/builduser/.ssh/known_hosts
+      - chown -R builduser:builduser /home/builduser/.ssh
+
+      # 4. Setup Git config
+      - sudo -u builduser git config --global user.name "Woodpecker CI"
+      - sudo -u builduser git config --global user.email "ci@codeberg.org"
+
+      # 5. Extract version from tag (e.g., v1.0.0 -> 1.0.0)
+      - VERSION=${CI_COMMIT_TAG#v}
+
+      # 6. Update PKGBUILD version dynamically
+      - sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
+      - sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+      # 7. Generate Checksums and .SRCINFO dynamically
+      - sudo -u builduser bash -c "updpkgsums"
+      - sudo -u builduser bash -c "makepkg --printsrcinfo > .SRCINFO"
+
+      # 8. Clone AUR repo and prepare commit
+      - sudo -u builduser git clone ssh://aur@aur.archlinux.org/touch-dashboard.git /tmp/aur-repo
+      - sudo -u builduser cp PKGBUILD .SRCINFO /tmp/aur-repo/
+      - cd /tmp/aur-repo
+
+      # 9. Push to AUR
+      - sudo -u builduser git add PKGBUILD .SRCINFO
+      - sudo -u builduser git commit -m "Release ${CI_COMMIT_TAG}" || true
+      - sudo -u builduser git push origin master

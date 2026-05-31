@@ -9,7 +9,7 @@ license=('MIT')
 depends=(
   'python'
   'python-fastapi'
-  'python-uvicorn'
+  'uvicorn'
   'python-requests'
   'python-psutil'
   'python-spotipy'
@@ -17,6 +17,8 @@ depends=(
   'python-pystray'
   'python-pillow'
   'python-evdev'
+  'python-gobject'
+  'webkit2gtk-4.1'
   'playerctl'
   'pipewire'
   'wireplumber'
@@ -26,11 +28,11 @@ optdepends=(
   'speedtest-cli: dashboard speed test action'
   'pulseaudio: pactl compatibility command'
 )
-source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('SKIP')
+source=("https://codeberg.org/liburnb/Touch-Dashboard/archive/v${pkgver}.tar.gz")
+sha256sums=('421fc32f563b9aac886e34a21456e9ea493acbfedff63e6a3dde5567b9e69db8')
 
 package() {
-  cd "$srcdir/$pkgname-$pkgver"
+  cd "$srcdir/touch-dashboard"
 
   install -dm755 "$pkgdir/opt/touch-dashboard"
   install -Dm755 server.py "$pkgdir/opt/touch-dashboard/server.py"
