@@ -28,7 +28,7 @@ optdepends=(
   'speedtest-cli: dashboard speed test action'
   'pulseaudio: pactl compatibility command'
 )
-source=("https://codeberg.org/liburnb/Touch-Dashboard/archive/main.tar.gz")
+source=("https://codeberg.org/liburnb/Touch-Dashboard/archive/v${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
 package() {
