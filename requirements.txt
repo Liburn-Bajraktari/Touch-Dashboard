@@ -10,3 +10,4 @@ pystray
 Pillow
 pyinstaller
 evdev; sys_platform == "linux"
+PyGObject; sys_platform == "linux"

@@ -32,6 +32,7 @@ RUNTIME_DEPENDENCIES = [
 
 if sys.platform.startswith("linux"):
     RUNTIME_DEPENDENCIES.append(("evdev", "evdev"))
+    RUNTIME_DEPENDENCIES.append(("gi", "PyGObject"))
 
 
 def ensure_runtime_dependencies():
@@ -70,6 +71,10 @@ def ensure_runtime_dependencies():
     cmd = [sys.executable, "-m", "pip", "install"]
     if not in_virtualenv:
         cmd.append("--user")
+        import sysconfig
+        stdlib_path = sysconfig.get_path("stdlib", sysconfig.get_default_scheme())
+        if stdlib_path and os.path.exists(os.path.join(stdlib_path, "EXTERNALLY-MANAGED")):
+            cmd.append("--break-system-packages")
     cmd.extend(missing_packages)
     result = subprocess.run(cmd)
     if result.returncode != 0:
@@ -1536,7 +1541,10 @@ def launch_desktop(host='0.0.0.0', port=5000):
         window = webview.create_window(**window_kwargs)
     desktop_app.attach_window(window)
     desktop_app.start_tray()
-    webview.start(desktop_app.on_webview_ready)
+    if sys.platform.startswith("linux"):
+        webview.start(desktop_app.on_webview_ready, gui="gtk")
+    else:
+        webview.start(desktop_app.on_webview_ready)
     stop_fastapi_server()
 
 
