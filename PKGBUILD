@@ -29,7 +29,7 @@ optdepends=(
   'pulseaudio: pactl compatibility command'
 )
 source=("https://codeberg.org/liburnb/Touch-Dashboard/archive/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('421fc32f563b9aac886e34a21456e9ea493acbfedff63e6a3dde5567b9e69db8')
 
 package() {
   cd "$srcdir/touch-dashboard"
