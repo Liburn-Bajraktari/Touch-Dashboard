@@ -16,12 +16,14 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#090e17">
+    <meta name="color-scheme" content="dark">
     <script src="https://unpkg.com/lucide@0.292.0"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="static/sw.js?v=1.8"></script>
     <style>
         /* --- Theme --- */
         :root {
+            color-scheme: dark;
             --bg-dark: #070b12; --panel-bg: rgba(13, 19, 31, 0.72); --border: rgba(255, 255, 255, 0.11);
             --accent: #22d3ee; --accent-strong: #38bdf8; --accent-glow: rgba(34, 211, 238, 0.32);
             --danger: #fb7185; --danger-glow: rgba(251, 113, 133, 0.32);
@@ -61,6 +63,7 @@
         .speed-data span { color: var(--text-main); font-weight: 800; }
 
         .btn {
+            position: relative;
             background: linear-gradient(180deg, rgba(31, 42, 62, 0.92), rgba(17, 24, 39, 0.92));
             border: 1px solid rgba(148, 163, 184, 0.18);
             border-radius: var(--radius);
@@ -88,6 +91,7 @@
         }
         #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: linear-gradient(180deg, #fb7185, #e11d48); box-shadow: 0 0 22px var(--danger-glow); color: #18040a; border-color: transparent; }
+        .btn.muted::before { content: ''; position: absolute; top: -6px; left: -6px; right: -6px; bottom: -6px; border-radius: 16px; border: 4px solid rgba(251, 113, 133, 0.3); pointer-events: none; z-index: 1; }
         .btn-top { width: 4.5rem; height: 3.8rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
         .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: var(--gap); flex: 1; align-content: start;}
@@ -121,17 +125,25 @@
         }
         .pro-slider {
             position: relative; width: min(100%, clamp(4.25rem, 6.8vw, 7rem)); height: 100%; background: rgba(0,0,0,0.38); border-radius: 1.5rem;
-            overflow: hidden; cursor: pointer; box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
-            display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+            overflow: hidden; box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
+            display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,0.05);
+        }
+        .slider-track-area {
+            flex: 1; position: relative; cursor: pointer; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; width: 100%; overflow: hidden;
         }
         .slider-fill { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: translate3d(0, 100%, 0); background: linear-gradient(0deg, #0891b2 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; }
         .slider-val { position: absolute; top: 1.5rem; font-weight: 800; font-size: 1.2rem; color: #ffffff; text-shadow: 0px 2px 4px rgba(0,0,0,0.9); pointer-events: none; z-index: 10; }
         .slider-icon {
-            position: absolute; bottom: 1rem; background: rgba(0,0,0,0.5); border-radius: 50%; width: 3.5rem; height: 3.5rem;
-            display: flex; justify-content: center; align-items: center; backdrop-filter: blur(5px); z-index: 10; transition: transform 0.2s, background-color 0.2s;
+            flex: 0 0 auto; height: 6.5rem; width: 100%;
+            background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
+            border-top: 1px solid rgba(255,255,255,0.15); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+            display: flex; justify-content: center; align-items: center; z-index: 10; transition: background 0.2s, box-shadow 0.2s;
+            cursor: pointer; color: #fff;
         }
-        .slider-icon.muted { background: var(--danger); box-shadow: 0 0 15px var(--danger-glow); color: #000; }
-        .slider-icon:active { transform: scale(0.9); }
+        .slider-icon:hover { background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%); }
+        .slider-icon.muted { background: linear-gradient(180deg, var(--danger) 0%, #be123c 100%); color: #fff; border-top-color: rgba(255,255,255,0.2); box-shadow: 0 -4px 15px rgba(239, 68, 68, 0.3); }
+        .slider-icon.muted:hover { background: linear-gradient(180deg, #dc2626 0%, #9f1239 100%); box-shadow: 0 -4px 20px rgba(239, 68, 68, 0.5); }
+        .slider-icon:active { background: rgba(255,255,255,0.15); }
 
         .audio-switch {
             display: flex; flex-direction: column; justify-content: center; align-items: center;
@@ -139,9 +151,22 @@
             min-width: 0;
         }
         
+        .slider-btn {
+            position: absolute; right: 0.5rem; bottom: 0.5rem; width: 3rem; height: 3rem;
+            background: linear-gradient(180deg, rgba(31, 42, 62, 0.95), rgba(17, 24, 39, 0.95));
+            border-radius: 50%; display: flex; justify-content: center; align-items: center; color: var(--text-main);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.05), inset 0 4px 20px rgba(0,0,0,0.4);
+            z-index: 10;
+        }
+        .slider-btn.active {
+            color: var(--accent);
+            box-shadow: 0 0 25px rgba(255,255,255,0.6), inset 0 0 15px rgba(255,255,255,0.4);
+        }
+
         .audio-hub-btn {
             width: 100%; aspect-ratio: 3 / 4; height: auto; max-height: 100%;
-            flex-direction: column; gap: 1rem;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer;
+            gap: 1rem;
             background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%);
             border: 1px solid rgba(148, 163, 184, 0.13);
             border-radius: 3rem;
@@ -160,13 +185,13 @@
         }
         .audio-hub-ring::before {
             content: ''; position: absolute; top: -4px; left: -4px; right: -4px; bottom: -4px;
-            border-radius: 50%; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            border-radius: 50%; background: radial-gradient(circle, rgba(34, 211, 238, 0.4) 0%, transparent 70%);
             animation: pulse-ring 2.5s infinite alternate ease-in-out; pointer-events: none;
             will-change: opacity; transform: translateZ(0);
         }
         .audio-hub-ring::after {
             content: ''; position: absolute; top: 2px; left: 2px; right: 2px; bottom: 2px;
-            border-radius: 50%; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
+            border-radius: 50%; background: radial-gradient(circle, rgba(34, 211, 238, 0.4) 0%, transparent 60%);
             opacity: 0.6; pointer-events: none;
         }
         .audio-hub-ring i { width: 3.2rem; height: 3.2rem; position: relative; z-index: 2; }
@@ -187,7 +212,7 @@
         .stat-val { font-weight: 700; margin-left: auto; }
 
         /* --- Media Layout --- */
-        .spotify { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: transparent !important; z-index: 1; }
+        .spotify { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: transparent !important; z-index: 1; position: relative; }
         .spotify::before {
             content: ""; position: absolute; inset: 0;
             background: rgba(10, 15, 25, 0.5);
@@ -271,7 +296,8 @@
         .macro-slot span { text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .macro-slot.empty .btn { opacity: 0.1; cursor: default; }
         .macro-slot.empty span { color: transparent; }
-        .sp-save-valid { background: rgba(14, 165, 233, 0.1) !important; border: 1px solid #7dd3fc !important; color: var(--accent) !important; box-shadow: 0 0 12px var(--accent-glow) !important; font-weight: bold !important; opacity: 1 !important; }
+        .sp-save-valid { background: rgba(14, 165, 233, 0.1) !important; border: 1px solid #7dd3fc !important; color: var(--accent) !important; font-weight: bold !important; opacity: 1 !important; box-shadow: 0 0 12px var(--accent-glow) !important; }
+        .sp-save-valid::before { content: ''; position: absolute; top: -6px; left: -6px; right: -6px; bottom: -6px; border-radius: 16px; border: 4px solid rgba(34, 211, 238, 0.3); pointer-events: none; z-index: 1; }
     </style>
 </head>
 <body id="body">
@@ -339,9 +365,10 @@
                 <div class="form-group"><label>Discord Client Secret</label><input type="password" id="cfg-disc-secret"></div>
                 <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem;">For full integration, create a Discord Developer Application and enter credentials here.</p>
                 <div id="disc-warning-container" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); padding: 1rem; border-radius: 0.5rem; margin-top: 0.5rem;">
-                    <p style="color: var(--text-main); font-size: 0.85rem; margin: 0; font-weight: bold;">Warning: Vesktop / arRPC Detected</p>
-                    <p style="color: var(--text-muted); font-size: 0.8rem; margin: 0.5rem 0 0 0;">This client does not support Voice Control over IPC. The dashboard is using an automated keyboard macro (Ctrl+Shift+M / Ctrl+Shift+D) as a fallback.</p>
-                    <p style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">You MUST map 'Ctrl+Shift+M' and 'Ctrl+Shift+D' as Global Keybinds in your Discord/Vesktop settings for this to work while unfocused.</p>
+                    <p style="color: var(--text-main); font-size: 0.85rem; margin: 0; font-weight: bold;">Warning: Voice Control Disabled</p>
+                    <p style="color: var(--text-muted); font-size: 0.8rem; margin: 0.5rem 0 0 0;">This can happen if you are using Vesktop/arRPC, or if your authorization has expired. The dashboard is using an automated keyboard macro (Ctrl+Shift+M / Ctrl+Shift+D) as a fallback.</p>
+                    <p style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">If using Vesktop, you MUST map 'Ctrl+Shift+M' and 'Ctrl+Shift+D' as Global Keybinds for this to work.</p>
+                    <p style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">If using standard Discord, try clicking CLEAR AUTH and Authorizing again.</p>
                 </div>
                 
                 <div style="display: flex; gap: 1rem; margin-top: 0.5rem; height: 3.5rem;">
@@ -399,6 +426,49 @@
         </div>
     </div>
 
+    <!-- --- Macro Editor Modal --- -->
+    <div id="macro-modal" class="modal-overlay">
+        <div class="modal-card" id="macro-modal-card" style="width: 600px; max-width: 90vw; max-height: 90vh; overflow-y: auto; overflow-x: hidden;">
+            <h3 style="margin: 0 0 1.5rem 0; color: var(--text-main); font-size: 2rem;" id="macro-modal-title">Edit Macro</h3>
+            
+            <div class="form-group" style="gap: 1rem;">
+                <label>Type</label>
+                <select id="macro-type-select" onchange="updateMacroModalFields()" style="background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.75rem; font-size: 1.2rem; outline: none; width: 100%;">
+                    <option value="app">Launch App</option>
+                    <option value="macro">Low-Level Macro</option>
+                    <option value="premade">Pre-Made Module</option>
+                    <option value="plugin">Plugin / Addon</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="gap: 1rem; margin-top: 1.5rem;">
+                <label>Display Name</label>
+                <input type="text" id="macro-name-input" placeholder="e.g. Terminal">
+            </div>
+
+            <div class="form-group" style="gap: 1rem; margin-top: 1.5rem;">
+                <label>Icon</label>
+                <input type="text" id="macro-icon-input" placeholder="lucide-terminal or /path/to/icon.png">
+            </div>
+
+            <div id="macro-action-container" style="margin-top: 1.5rem;">
+                <!-- Dynamically populated based on Type -->
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; margin-top: 2rem; align-items: center; flex-wrap: wrap;">
+                <span style="color: var(--text-muted); font-size: 0.9rem; font-weight: bold; margin-right: auto; text-transform: uppercase; letter-spacing: 1px; flex: 1 1 100%;">Grid Position</span>
+                <button class="btn" id="macro-move-up" style="flex: 1; height: 3.5rem; padding: 0 1rem; background: var(--panel-bg); border: 1px solid var(--border); font-size: 1.1rem; font-weight: bold;"><i data-lucide="arrow-left" style="width: 1.2rem; margin-right: 0.5rem;"></i> Move Left</button>
+                <button class="btn" id="macro-move-down" style="flex: 1; height: 3.5rem; padding: 0 1rem; background: var(--panel-bg); border: 1px solid var(--border); font-size: 1.1rem; font-weight: bold;">Move Right <i data-lucide="arrow-right" style="width: 1.2rem; margin-left: 0.5rem;"></i></button>
+            </div>
+
+            <div style="display: flex; gap: 1.5rem; margin-top: 1rem; height: 5rem;">
+                <button class="btn" style="flex: 1; background: var(--panel-bg); font-size: 1.4rem; font-weight: bold;" onclick="closeMacroModal()">Cancel</button>
+                <button class="btn" style="flex: 1; background: var(--danger); display: none; font-size: 1.4rem; font-weight: bold;" id="macro-del-btn" onclick="deleteMacroBtn()">Delete</button>
+                <button class="btn" id="macro-save-btn" style="flex: 1; background: rgba(14, 165, 233, 0.1); border: 1px solid #7dd3fc; color: var(--accent); transition: opacity 0.2s, background-color 0.2s, transform 0.2s; font-size: 1.4rem; font-weight: bold;" onclick="saveMacroBtn()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- --- Top Bar --- -->
     <div class="top-bar glass">
         <div class="section batt" style="position: relative;">
@@ -419,13 +489,13 @@
     <div id="view-wrapper">
     <div class="grid-container view-layer active" id="main-view">
         <div class="col">
-            <div class="glass panel spotify" style="flex: 1; padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 0;">
+            <div class="glass panel spotify" style="flex: 1; padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 0; overflow: hidden;">
                 <h3 style="color: rgba(255,255,255,0.4); margin: 0 auto; text-align: center; width: 100%; font-size: 0.75rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;">NOW PLAYING</h3>
                 
                 <div id="spot-empty" style="flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 1.2rem; font-weight: 500;">NOTHING PLAYING</div>                
 
-                <div id="spot-info" style="display: none; width: 100%; flex-direction: column; align-items: center; justify-content: flex-start; margin: 1.5rem 0; overflow: hidden; height: 26rem; flex: none;">
-                    <div class="spot-art-box" style="height: 18rem; width: 100%; display: flex; justify-content: center; align-items: center; margin-bottom: 1.2rem; overflow: hidden; flex: none;">
+                <div id="spot-info" style="display: none; width: 100%; flex-direction: column; align-items: center; justify-content: flex-start; margin: 1.5rem 0; overflow: hidden; flex: 1; min-height: 0; max-height: 26rem;">
+                    <div class="spot-art-box" style="flex: 1; min-height: 0; max-height: 18rem; width: 100%; display: flex; justify-content: center; align-items: center; margin-bottom: 1.2rem; overflow: hidden;">
                         <img id="spot-art" src="" style="max-height: 100%; max-width: 100%; border-radius: 0.75rem; object-fit: contain; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;">
                     </div>
                     
@@ -483,10 +553,12 @@
             </div>
 
             <div class="glass panel slider-section" style="flex: 1; padding-top: 1.5rem;">
-                <div class="pro-slider" id="slide-spk">
-                    <div class="slider-val" id="val-spk">0%</div>
-                    <div class="slider-fill" id="fill-spk"></div>
-                    <div class="slider-icon" id="icon-spk" onclick="event.stopPropagation(); act('audio_mute_spk')"><i data-lucide="volume-2"></i></div>
+                <div class="pro-slider">
+                    <div class="slider-track-area" id="slide-spk">
+                        <div class="slider-val" id="val-spk">0%</div>
+                        <div class="slider-fill" id="fill-spk"></div>
+                    </div>
+                    <div class="slider-icon" id="icon-spk" onclick="toggleMuteOpt('spk')"><i data-lucide="volume-2"></i></div>
                 </div>
 
                 <div class="audio-switch">
@@ -499,10 +571,12 @@
                     </button>
                 </div>
 
-                <div class="pro-slider" id="slide-mic">
-                    <div class="slider-val" id="val-mic">0%</div>
-                    <div class="slider-fill" id="fill-mic"></div>
-                    <div class="slider-icon" id="icon-mic" onclick="event.stopPropagation(); act('audio_mute_mic')"><i data-lucide="mic"></i></div>
+                <div class="pro-slider">
+                    <div class="slider-track-area" id="slide-mic">
+                        <div class="slider-val" id="val-mic">0%</div>
+                        <div class="slider-fill" id="fill-mic"></div>
+                    </div>
+                    <div class="slider-icon" id="icon-mic" onclick="toggleMuteOpt('mic')"><i data-lucide="mic"></i></div>
                 </div>
             </div>
         </div>
@@ -510,32 +584,7 @@
         <div class="col">
             <div class="glass panel" style="flex: 1;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">MACROS & APPS</h3>
-                <div class="btn-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 1rem; flex: 1;">
-                    <div class="macro-slot">
-                        <button class="btn" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
-                        <span>CLIP</span>
-                    </div>
-                    <div class="macro-slot">
-                        <button class="btn" id="btn-macro-sp" onclick="toggleSoundpad(true)" style="border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
-                        <span id="label-macro-sp" style="color: var(--accent);">SOUNDBOARD</span>
-                    </div>
-                    <div class="macro-slot">
-                        <button class="btn" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
-                        <span>TERM</span>
-                    </div>
-                    <div class="macro-slot">
-                        <button class="btn" onclick="act('app_web')"><i data-lucide="globe"></i></button>
-                        <span>BROWSER</span>
-                    </div>
-                    <div class="macro-slot">
-                        <button class="btn" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
-                        <span>TASK MGR</span>
-                    </div>
-                    
-                    <div class="macro-slot empty"><button class="btn"></button><span>-</span></div>
-                    <div class="macro-slot empty"><button class="btn"></button><span>-</span></div>
-                    <div class="macro-slot empty"><button class="btn"></button><span>-</span></div>
-                    <div class="macro-slot empty"><button class="btn"></button><span>-</span></div>
+                <div id="macro-grid" class="btn-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 1rem; flex: 1;">
                 </div>
             </div>
             <div class="glass panel" style="flex: 0 0 auto; display: flex; flex-direction: column;">
@@ -680,7 +729,13 @@
                 dom.topTitle.innerText = "RECONNECTING...";
                 dom.topTitle.style.color = "var(--danger)";
                 if (!reconnectTimer) {
-                    reconnectTimer = setTimeout(() => { window.location.reload(); }, 2000);
+                    let attempts = 0;
+                    reconnectTimer = setInterval(() => {
+                        attempts++;
+                        fetch(window.location.href, { cache: 'no-cache' })
+                            .then(res => { if (res.ok) window.location.reload(); })
+                            .catch(() => { if (attempts >= 15) window.location.reload(); });
+                    }, 1000);
                 }
                 return;
             }
@@ -759,12 +814,21 @@
         let pendingSysData = null;
         let spotifyLock = 0;
         let discordLock = 0;
+        let audioLockSpk = 0;
+        let audioLockMic = 0;
+        let lastAudioState = { spk: { vol: 0, muted: false }, mic: { vol: 0, muted: false } };
         let preDeafenMute = false;
         let osTarget = 'windows';
         let currentDiscordAuthUrl = "";
         let discordPanelVisible = false;
         let discordPanelAnimating = false;
         let discordDisconnectCount = 0;
+        let macros = [];
+        let osApps = [];
+        let editingMacroIndex = -1;
+        let macroPressTimer = null;
+        let macroRecording = false;
+        let macroRecordedKeys = [];
 
         const dom = {
             topTitle: document.getElementById('top-title'),
@@ -778,8 +842,6 @@
             spotTitle: document.getElementById('spot-title'),
             spotArtist: document.getElementById('spot-artist'),
             spotArt: document.getElementById('spot-art'),
-            iconSpotPlay: document.getElementById('icon-spot-play'),
-            iconSpotPause: document.getElementById('icon-spot-pause'),
             iconSpk: document.getElementById('icon-spk'),
             iconMic: document.getElementById('icon-mic'),
             btnAudioCycle: document.getElementById('btn-audio-cycle'),
@@ -791,7 +853,17 @@
             discWarning: document.getElementById('disc-warning-container'),
             spotifyPanel: document.querySelector('.spotify'),
             btnSpotAuth: document.getElementById('btn-spot-auth'),
-            spotGroup: document.getElementById('spot-connected-group')
+            spotGroup: document.getElementById('spot-connected-group'),
+            macroGrid: document.getElementById('macro-grid'),
+            macroModal: document.getElementById('macro-modal'),
+            macroModalCard: document.getElementById('macro-modal-card'),
+            macroTitle: document.getElementById('macro-modal-title'),
+            macroType: document.getElementById('macro-type-select'),
+            macroName: document.getElementById('macro-name-input'),
+            macroIcon: document.getElementById('macro-icon-input'),
+            macroActionContainer: document.getElementById('macro-action-container'),
+            macroDelBtn: document.getElementById('macro-del-btn'),
+            macroSaveBtn: document.getElementById('macro-save-btn')
         };
 
         function setText(el, value) {
@@ -856,6 +928,19 @@
                 populateAudioTab(d.hw, globalCfg.audio_names);
                 
                 const c = d.cfg;
+                macros = c.macros || [];
+                if (!c.macros) {
+                    macros = [
+                        { type: 'macro', action_data: "['KEY_LEFTALT', 'KEY_F10']", display_name: 'CLIP', icon_url: 'lucide-clapperboard' },
+                        { type: 'plugin', action_data: 'app_soundpad', display_name: 'SOUNDBOARD', icon_url: 'lucide-music' },
+                        { type: 'app', action_data: 'terminal', display_name: 'TERM', icon_url: 'lucide-terminal' },
+                        { type: 'app', action_data: 'browser', display_name: 'BROWSER', icon_url: 'lucide-globe' },
+                        { type: 'app', action_data: 'taskmgr', display_name: 'TASK MGR', icon_url: 'lucide-cpu' }
+                    ];
+                    setTimeout(() => sendSocket('save_macros', macros), 1000);
+                }
+                renderMacros();
+                sendSocket('req_apps_list');
                 CONFIG_FIELDS.forEach(([elId, key]) => document.getElementById(elId).value = c[key] || '');
                 
                 const spLabel = document.getElementById('label-macro-sp');
@@ -874,6 +959,9 @@
             else if (msg.type === 'hw_scan_results') {
                 currentHwDevices = d;
                 populateAudioTab(d, globalCfg.audio_names);
+            }
+            else if (msg.type === 'apps_list') {
+                osApps = d;
             }
             else if (msg.type === 'weather_data') {
                 requestAnimationFrame(() => {
@@ -1020,30 +1108,55 @@
                     setDisplay(dom.spotInfo, 'none');
                 }
 
-                if (dom.iconSpotPlay && dom.iconSpotPause) {
+                const liveIconSpotPlay = document.getElementById('icon-spot-play');
+                const liveIconSpotPause = document.getElementById('icon-spot-pause');
+                if (liveIconSpotPlay && liveIconSpotPause) {
                     if (Date.now() > spotifyLock) {
                         const isPlaying = d.spotify && d.spotify.status === 'Playing';
                         
                         if (isPlaying) {
-                            setDisplay(dom.iconSpotPlay, 'none');
-                            if (dom.iconSpotPause.style.display === 'none') dom.iconSpotPause.style.display = '';
+                            setDisplay(liveIconSpotPlay, 'none');
+                            if (liveIconSpotPause.style.display === 'none') liveIconSpotPause.style.display = '';
                         } else {
-                            if (dom.iconSpotPlay.style.display === 'none') dom.iconSpotPlay.style.display = '';
-                            setDisplay(dom.iconSpotPause, 'none');
+                            if (liveIconSpotPlay.style.display === 'none') liveIconSpotPlay.style.display = '';
+                            setDisplay(liveIconSpotPause, 'none');
                         }
                     }
                 }
                 
-                upSpk(d.audio.spk.vol); upMic(d.audio.mic.vol);
+                lastAudioState.spk = d.audio.spk;
+                lastAudioState.mic = d.audio.mic;
+
+                if (Date.now() > audioLockSpk) {
+                    upSpk(d.audio.spk.vol, d.audio.spk.muted);
+                    if (dom.iconSpk) {
+                        const isMuted = d.audio.spk.muted;
+                        if (dom.iconSpk.classList.contains('muted') !== isMuted) {
+                            dom.iconSpk.classList.toggle('muted', isMuted);
+                            dom.iconSpk.innerHTML = `<i data-lucide="${isMuted ? 'volume-x' : 'volume-2'}"></i>`;
+                            if (window.lucide) window.lucide.createIcons({ root: dom.iconSpk });
+                        }
+                    }
+                }
                 
-                if (dom.iconSpk && dom.iconSpk.classList.contains('muted') !== d.audio.spk.muted) dom.iconSpk.classList.toggle('muted', d.audio.spk.muted);
-                if (dom.iconMic && dom.iconMic.classList.contains('muted') !== d.audio.mic.muted) dom.iconMic.classList.toggle('muted', d.audio.mic.muted);
+                if (Date.now() > audioLockMic) {
+                    upMic(d.audio.mic.vol, d.audio.mic.muted);
+                    if (dom.iconMic) {
+                        const isMuted = d.audio.mic.muted;
+                        if (dom.iconMic.classList.contains('muted') !== isMuted) {
+                            dom.iconMic.classList.toggle('muted', isMuted);
+                            dom.iconMic.innerHTML = `<i data-lucide="${isMuted ? 'mic-off' : 'mic'}"></i>`;
+                            if (window.lucide) window.lucide.createIcons({ root: dom.iconMic });
+                        }
+                    }
+                }
+                
                 setText(dom.btnAudioCycle, d.audio.active_dev);
                 
                 if (d.discord) {
                     currentDiscordAuthUrl = d.discord.auth_url || "";
                     
-                    if (d.discord.connected) {
+                    if (d.discord.connected && !d.discord.auth_pending) {
                         discordDisconnectCount = 0;
                         setDiscordPanelVisible(true);
                         
@@ -1080,7 +1193,7 @@
                     }
 
                     if (dom.discWarning) {
-                        const showWarning = (d.discord.connected && !d.discord.voice_supported) ? 'block' : 'none';
+                        const showWarning = (d.discord.connected && !d.discord.auth_pending && !d.discord.voice_supported) ? 'block' : 'none';
                         if (dom.discWarning.style.display !== showWarning) dom.discWarning.style.display = showWarning;
                     }
                 }
@@ -1103,18 +1216,20 @@
         const elSpInner = document.getElementById('sp-inner');
         const elCols = document.querySelectorAll('#main-view .col');
         const elMainView = document.getElementById('main-view');
-        const elBtnSp = document.getElementById('btn-macro-sp');
-        const elBtnSpIcon = elBtnSp.children[0];
+        let activeSpBtn = null;
+        let activeSpBtnIcon = null;
         const elBtnBack = document.getElementById('btn-back');
         const elBattSlide = document.getElementById('batt-slide');
         const elViewWrapper = document.getElementById('view-wrapper');
         const elMainGlassPanels = document.querySelectorAll('#main-view .glass');
 
-        function toggleSoundpad(show) {
+        function toggleSoundpad(show, triggerBtn = null) {
             isAnimating = true;
 
             if (show) {
-                const btnRect = elBtnSp.getBoundingClientRect();
+                activeSpBtn = triggerBtn || document.body;
+                activeSpBtnIcon = activeSpBtn.children ? activeSpBtn.children[0] : null;
+                const btnRect = activeSpBtn.getBoundingClientRect();
                 const wrapRect = elViewWrapper.getBoundingClientRect();
 
                 elMainView.style.pointerEvents = 'none';
@@ -1163,8 +1278,8 @@
 
                 tl.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out", force3D: true }, 0.3);
 
-                tl.to(elBtnSpIcon, { opacity: 0, duration: 0.1, force3D: true }, 0);
-                tl.to(elBtnSp, { opacity: 0, duration: 0.15, force3D: true }, 0);
+                if (activeSpBtnIcon) tl.to(activeSpBtnIcon, { opacity: 0, duration: 0.1, force3D: true }, 0);
+                if (activeSpBtn) tl.to(activeSpBtn, { opacity: 0, duration: 0.15, force3D: true }, 0);
 
                 tl.to(elCols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
                 tl.to(elCols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
@@ -1203,8 +1318,8 @@
                     ease: "power3.inOut", force3D: true
                 }, 0.05);
 
-                tl.to(elBtnSp, { opacity: 1, duration: 0.15, clearProps: 'opacity', force3D: true }, 0.1);
-                tl.to(elBtnSpIcon, { opacity: 1, duration: 0.15, clearProps: 'opacity', force3D: true }, 0.15);
+                if (activeSpBtn) tl.to(activeSpBtn, { opacity: 1, duration: 0.15, clearProps: 'opacity', force3D: true }, 0.1);
+                if (activeSpBtnIcon) tl.to(activeSpBtnIcon, { opacity: 1, duration: 0.15, clearProps: 'opacity', force3D: true }, 0.15);
 
                 tl.to(elCols, { 
                     x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", stagger: 0.02, force3D: true
@@ -1220,6 +1335,315 @@
             dom.topTitle.style.fontWeight = show ? '800' : '300';
             gsap.fromTo(dom.topTitle, { scale: 1.05 }, { scale: 1, duration: 0.15, ease: "power2.out", clearProps: 'scale', force3D: true });
         }
+
+        // --- Macro Editor & Grid Logic ---
+        function generateMacroUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        function renderMacros() {
+            if (!dom.macroGrid) return;
+            dom.macroGrid.innerHTML = '';
+            
+            const maxSlots = 9;
+            let renderCount = 0;
+
+            macros.forEach((m, idx) => {
+                if (renderCount >= maxSlots) return;
+                const slot = document.createElement('div');
+                slot.className = 'macro-slot';
+                
+                const btn = document.createElement('button');
+                btn.className = 'btn';
+                
+                if (m.type === 'plugin') {
+                    btn.style.borderColor = 'var(--accent)';
+                    let iconName = m.icon_url || 'box';
+                    if (iconName.startsWith('lucide-')) iconName = iconName.replace('lucide-', '');
+                    btn.innerHTML = `<i data-lucide="${iconName}" style="color: var(--accent);"></i>`;
+                } else if (m.icon_url && m.icon_url.startsWith('lucide-')) {
+                    btn.innerHTML = `<i data-lucide="${m.icon_url.replace('lucide-', '')}"></i>`;
+                } else if (m.icon_url) {
+                    btn.innerHTML = `<img src="${m.icon_url}" style="width: 24px; height: 24px; object-fit: contain;">`;
+                } else {
+                    btn.innerHTML = `<i data-lucide="box"></i>`;
+                }
+
+                btn.addEventListener('mousedown', (e) => handleMacroDown(e, idx));
+                btn.addEventListener('touchstart', (e) => handleMacroDown(e, idx), {passive: true});
+                btn.addEventListener('mouseup', (e) => handleMacroUp(e, idx, m));
+                btn.addEventListener('touchend', (e) => handleMacroUp(e, idx, m), {passive: true});
+                btn.addEventListener('mouseleave', () => clearMacroTimer());
+                
+                slot.appendChild(btn);
+                
+                const span = document.createElement('span');
+                span.innerText = (m.display_name || '').substring(0, 15).toUpperCase();
+                if (m.type === 'plugin') span.style.color = 'var(--accent)';
+                slot.appendChild(span);
+                
+                dom.macroGrid.appendChild(slot);
+                renderCount++;
+            });
+
+            if (renderCount < maxSlots) {
+                const slot = document.createElement('div');
+                slot.className = 'macro-slot'; // Not empty, so it doesn't get opacity: 0.1
+                const btn = document.createElement('button');
+                btn.className = 'btn';
+                btn.style.borderWidth = '2px';
+                btn.style.borderStyle = 'dashed';
+                btn.style.borderColor = 'var(--accent)';
+                btn.style.backgroundColor = '#0f172a';
+                btn.innerHTML = `<i data-lucide="plus" style="width: 2rem; height: 2rem; color: var(--accent);"></i>`;
+                btn.onclick = () => openMacroModal(-1);
+                slot.appendChild(btn);
+                
+                const span = document.createElement('span');
+                span.innerText = 'ADD';
+                span.style.color = 'var(--accent)';
+                slot.appendChild(span);
+                
+                dom.macroGrid.appendChild(slot);
+                renderCount++;
+            }
+
+            while (renderCount < maxSlots) {
+                const slot = document.createElement('div');
+                slot.className = 'macro-slot empty';
+                slot.innerHTML = `<button class="btn"></button><span>-</span>`;
+                dom.macroGrid.appendChild(slot);
+                renderCount++;
+            }
+            
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        function clearMacroTimer() {
+            if (macroPressTimer) {
+                clearTimeout(macroPressTimer);
+                macroPressTimer = null;
+            }
+        }
+
+        function handleMacroDown(e, idx) {
+            clearMacroTimer();
+            macroPressTimer = setTimeout(() => {
+                macroPressTimer = null;
+                openMacroModal(idx);
+            }, 600);
+        }
+
+        function handleMacroUp(e, idx, macroData) {
+            if (macroPressTimer) {
+                clearTimeout(macroPressTimer);
+                macroPressTimer = null;
+                executeMacro(macroData, e.currentTarget);
+            }
+        }
+
+        function executeMacro(m, btnElement) {
+            if (m.type === 'plugin') {
+                if (m.action_data === 'app_soundpad') toggleSoundpad(true, btnElement);
+            } else {
+                sendSocket('macro_exec', m);
+            }
+        }
+
+        function openMacroModal(idx) {
+            editingMacroIndex = idx;
+            const m = idx >= 0 ? macros[idx] : { type: 'app', display_name: '', icon_url: '', action_data: '' };
+            
+            dom.macroTitle.innerText = idx >= 0 ? 'Edit Macro' : 'Add Macro';
+            dom.macroType.value = m.type || 'app';
+            dom.macroName.value = m.display_name || '';
+            dom.macroIcon.value = m.icon_url || '';
+            
+            dom.macroDelBtn.style.display = idx >= 0 ? 'block' : 'none';
+            
+            updateMacroModalFields(m.action_data);
+            
+            dom.macroModal.classList.add('active');
+            requestAnimationFrame(() => dom.macroModal.style.opacity = 1);
+        }
+
+        function closeMacroModal() {
+            dom.macroModal.style.opacity = 0;
+            setTimeout(() => dom.macroModal.classList.remove('active'), 300);
+            stopMacroRecording();
+        }
+
+        function updateMacroModalFields(existingActionData = null) {
+            const type = dom.macroType.value;
+            let html = '';
+            
+            stopMacroRecording();
+
+            if (type === 'app') {
+                html = `<label>Select Application</label>
+                        <input type="text" id="macro-app-input" list="macro-apps-list" placeholder="Search apps..." value="${existingActionData || ''}" style="width: 100%; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.75rem;">
+                        <datalist id="macro-apps-list">
+                            ${osApps.map(a => `<option value="${a.exec}">${a.name}</option>`).join('')}
+                        </datalist>`;
+            } else if (type === 'premade') {
+                const opts = [
+                    {val: 'app_term', lbl: 'Terminal'},
+                    {val: 'app_web', lbl: 'Browser'},
+                    {val: 'app_task', lbl: 'Task Manager'}
+                ];
+                html = `<label>Module</label>
+                        <select id="macro-premade-select" style="width: 100%; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.75rem;">
+                            ${opts.map(o => `<option value="${o.val}" ${existingActionData === o.val ? 'selected' : ''}>${o.lbl}</option>`).join('')}
+                        </select>`;
+            } else if (type === 'plugin') {
+                const opts = [
+                    {val: 'app_soundpad', lbl: 'Soundboard'},
+                    {val: 'app_clip', lbl: 'Clip Recording'}
+                ];
+                html = `<label>Plugin</label>
+                        <select id="macro-plugin-select" style="width: 100%; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.75rem;">
+                            ${opts.map(o => `<option value="${o.val}" ${existingActionData === o.val ? 'selected' : ''}>${o.lbl}</option>`).join('')}
+                        </select>`;
+            } else if (type === 'macro') {
+                const keysDisplay = Array.isArray(existingActionData) ? existingActionData.join(' + ') : (existingActionData || 'None');
+                html = `<label>Keystrokes</label>
+                        <div style="display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem;">
+                            <button class="btn" id="macro-record-btn" onclick="startMacroRecording()" style="flex: 0 0 auto; padding: 0 1rem; background: var(--danger);">RECORD</button>
+                            <div id="macro-record-out" style="flex: 1; padding: 0.75rem; background: var(--bg-dark); border-radius: 0.5rem; border: 1px solid var(--border); font-family: monospace; color: var(--accent);">${keysDisplay}</div>
+                        </div>`;
+                if (Array.isArray(existingActionData)) macroRecordedKeys = [...existingActionData];
+            }
+            
+            dom.macroActionContainer.innerHTML = html;
+            
+            if (type === 'app') {
+                const appInput = document.getElementById('macro-app-input');
+                if (appInput) {
+                    appInput.addEventListener('change', (e) => {
+                        const val = e.target.value;
+                        const matchedApp = osApps.find(a => a.exec === val);
+                        if (matchedApp && !dom.macroName.value) {
+                            dom.macroName.value = matchedApp.name;
+                            if (!dom.macroIcon.value && matchedApp.icon) dom.macroIcon.value = matchedApp.icon;
+                        }
+                    });
+                }
+            }
+        }
+
+        function startMacroRecording() {
+            const out = document.getElementById('macro-record-out');
+            const btn = document.getElementById('macro-record-btn');
+            if (!out || !btn) return;
+            
+            macroRecording = true;
+            macroRecordedKeys = [];
+            out.innerText = "Press keys...";
+            btn.innerText = "STOP";
+            btn.onclick = stopMacroRecording;
+            btn.style.background = "var(--panel-bg)";
+            
+            window.addEventListener('keydown', _macroKeyHandler, {capture: true});
+            window.addEventListener('keyup', _macroKeyHandler, {capture: true});
+        }
+        
+        function stopMacroRecording() {
+            if (!macroRecording) return;
+            macroRecording = false;
+            window.removeEventListener('keydown', _macroKeyHandler, {capture: true});
+            window.removeEventListener('keyup', _macroKeyHandler, {capture: true});
+            
+            const btn = document.getElementById('macro-record-btn');
+            if (btn) {
+                btn.innerText = "RECORD";
+                btn.onclick = startMacroRecording;
+                btn.style.background = "var(--danger)";
+            }
+        }
+        
+        function _macroKeyHandler(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.type === 'keydown') {
+                let code = e.code || e.key;
+                code = 'KEY_' + code.toUpperCase().replace('KEY', '').replace('DIGIT', '');
+                if (code === 'KEY_CONTROLLEFT') code = 'KEY_LEFTCTRL';
+                if (code === 'KEY_CONTROLRIGHT') code = 'KEY_RIGHTCTRL';
+                if (code === 'KEY_SHIFTLEFT') code = 'KEY_LEFTSHIFT';
+                if (code === 'KEY_SHIFTRIGHT') code = 'KEY_RIGHTSHIFT';
+                if (code === 'KEY_ALTLEFT') code = 'KEY_LEFTALT';
+                
+                if (!macroRecordedKeys.includes(code)) {
+                    macroRecordedKeys.push(code);
+                    document.getElementById('macro-record-out').innerText = macroRecordedKeys.join(' + ');
+                }
+            }
+            if (e.type === 'keyup') {
+                stopMacroRecording();
+            }
+        }
+
+        function saveMacroBtn() {
+            const type = dom.macroType.value;
+            let action_data = '';
+            
+            if (type === 'app') action_data = document.getElementById('macro-app-input').value;
+            else if (type === 'premade') action_data = document.getElementById('macro-premade-select').value;
+            else if (type === 'plugin') action_data = document.getElementById('macro-plugin-select').value;
+            else if (type === 'macro') action_data = macroRecordedKeys;
+            
+            const newObj = {
+                id: (editingMacroIndex >= 0 && macros[editingMacroIndex]) ? macros[editingMacroIndex].id : generateMacroUUID(),
+                type: type,
+                display_name: dom.macroName.value || 'Unnamed',
+                icon_url: dom.macroIcon.value || 'lucide-box',
+                action_data: action_data
+            };
+            
+            if (editingMacroIndex >= 0) {
+                macros[editingMacroIndex] = newObj;
+            } else {
+                macros.push(newObj);
+            }
+            
+            sendSocket('save_macros', macros);
+            renderMacros();
+            closeMacroModal();
+        }
+
+        function deleteMacroBtn() {
+            if (editingMacroIndex >= 0) {
+                macros.splice(editingMacroIndex, 1);
+                sendSocket('save_macros', macros);
+                renderMacros();
+            }
+            closeMacroModal();
+        }
+
+        document.getElementById('macro-move-up').addEventListener('click', () => {
+            if (editingMacroIndex > 0) {
+                const temp = macros[editingMacroIndex];
+                macros[editingMacroIndex] = macros[editingMacroIndex - 1];
+                macros[editingMacroIndex - 1] = temp;
+                editingMacroIndex--;
+                sendSocket('save_macros', macros);
+                renderMacros();
+            }
+        });
+
+        document.getElementById('macro-move-down').addEventListener('click', () => {
+            if (editingMacroIndex >= 0 && editingMacroIndex < macros.length - 1) {
+                const temp = macros[editingMacroIndex];
+                macros[editingMacroIndex] = macros[editingMacroIndex + 1];
+                macros[editingMacroIndex + 1] = temp;
+                editingMacroIndex++;
+                sendSocket('save_macros', macros);
+                renderMacros();
+            }
+        });
 
         // --- Settings ---
         function switchTab(tabId) {
@@ -1428,53 +1852,120 @@
         let isDraggingSpk = false; let isDraggingMic = false;
         function toggleFullscreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>e); else if (document.exitFullscreen) document.exitFullscreen(); }
 
+        function toggleMuteOpt(target, forceState = null) {
+            const elIcon = target === 'spk' ? dom.iconSpk : dom.iconMic;
+            if (!elIcon) return;
+            const currentlyMuted = elIcon.classList.contains('muted');
+            let newMuted = !currentlyMuted;
+            if (forceState !== null) newMuted = forceState;
+            
+            if (currentlyMuted === newMuted) return; 
+            
+            if (target === 'spk') audioLockSpk = Date.now() + 1000;
+            else audioLockMic = Date.now() + 1000;
+            
+            elIcon.classList.toggle('muted', newMuted);
+            elIcon.innerHTML = `<i data-lucide="${target === 'mic' ? (newMuted ? 'mic-off' : 'mic') : (newMuted ? 'volume-x' : 'volume-2')}"></i>`;
+            if (window.lucide) window.lucide.createIcons({ root: elIcon });
+            
+            const state = target === 'spk' ? lastAudioState.spk : lastAudioState.mic;
+            const upFunc = target === 'spk' ? upSpk : upMic;
+            upFunc(state.vol, newMuted);
+            
+            act(target === 'spk' ? 'audio_mute_spk' : 'audio_mute_mic');
+        }
+
         function initSlider(sId, fId, vId, type, dCheck) {
             const s = document.getElementById(sId), f = document.getElementById(fId), v = document.getElementById(vId);
             let lastEmit = 0; let currentPct = 0;
             let rAF = null; 
             
-            function set(pct) { 
-                currentPct = pct; 
-                f.style.transform = `translate3d(0, ${100 - pct}%, 0)`; 
-                if (v.innerText !== pct + '%') v.innerText = pct + '%'; 
+            function set(pct, isMuted = false) { 
+                currentPct = isMuted ? 0 : pct;
+                f.style.transform = `translate3d(0, ${100 - currentPct}%, 0)`; 
+                if (isMuted) {
+                    if (v.innerText !== 'MUTED') {
+                        v.innerText = 'MUTED';
+                        v.style.color = 'var(--danger)';
+                    }
+                } else {
+                    const txt = currentPct + '%';
+                    if (v.innerText !== txt) {
+                        v.innerText = txt;
+                        v.style.color = '#ffffff';
+                    }
+                }
             }
             
             function drag(e) {
+                if (!dCheck()) return;
+                if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
                 const r = s.getBoundingClientRect();
                 let clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
                 if (clientY === undefined) return;
-                let pct = 100 - (((clientY - r.top) / r.height) * 100);
-                pct = Math.max(0, Math.min(100, Math.round(pct)));
+                
+                let rawPct = 100 - (((clientY - r.top) / r.height) * 100);
+                let isMutedSnap = false;
+                
+                if (rawPct < -8) {
+                    isMutedSnap = true;
+                    if (!s.dataset.snappedMute) {
+                        s.dataset.snappedMute = 'true';
+                        toggleMuteOpt(type === 'speaker' ? 'spk' : 'mic', true);
+                    }
+                } else if (rawPct >= 0) {
+                    if (s.dataset.snappedMute) s.dataset.snappedMute = '';
+                }
+                
+                let pct = Math.max(0, Math.min(100, Math.round(rawPct)));
                 
                 if (rAF) cancelAnimationFrame(rAF);
-                rAF = requestAnimationFrame(() => set(pct));
+                rAF = requestAnimationFrame(() => set(pct, isMutedSnap));
                 
                 const now = Date.now();
-                if (now - lastEmit > 80) { 
+                if (now - lastEmit > 80 && !isMutedSnap) { 
                     sendSocket('set_volume', {type: type, val: pct});
                     lastEmit = now;
                 }
             }
+            function applyOptimisticUnmute() {
+                const target = type === 'speaker' ? 'spk' : 'mic';
+                const elIcon = target === 'spk' ? dom.iconSpk : dom.iconMic;
+                if (elIcon && elIcon.classList.contains('muted')) {
+                    elIcon.classList.remove('muted');
+                    elIcon.innerHTML = `<i data-lucide="${target === 'mic' ? 'mic' : 'volume-2'}"></i>`;
+                    if (window.lucide) window.lucide.createIcons({ root: elIcon });
+                    if (target === 'spk') lastAudioState.spk.muted = false;
+                    else lastAudioState.mic.muted = false;
+                }
+                if (target === 'spk') audioLockSpk = Date.now() + 1000;
+                else audioLockMic = Date.now() + 1000;
+            }
             function startDrag(e) {
+                if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
                 dCheck(true);
                 f.style.willChange = 'transform';
+                applyOptimisticUnmute();
                 drag(e);
             }
             function endDrag() {
                 if (dCheck()) {
                     dCheck(false);
                     f.style.willChange = '';
-                    sendSocket('set_volume', {type: type, val: currentPct});
+                    if (!s.dataset.snappedMute) {
+                        applyOptimisticUnmute();
+                        sendSocket('set_volume', {type: type, val: currentPct});
+                    }
                 }
             }
-            s.addEventListener('mousedown', (e) => { startDrag(e); });
-            document.addEventListener('mousemove', (e) => { if(dCheck()) drag(e); });
+            s.addEventListener('mousedown', startDrag);
+            s.addEventListener('touchstart', startDrag, { passive: false });
+            document.addEventListener('mousemove', drag, { passive: false });
+            document.addEventListener('touchmove', drag, { passive: false });
             document.addEventListener('mouseup', endDrag);
-            s.addEventListener('touchstart', (e) => { e.preventDefault(); startDrag(e); }, {passive: false});
-            s.addEventListener('touchmove', (e) => { e.preventDefault(); if(dCheck()) drag(e); }, {passive: false});
             document.addEventListener('touchend', endDrag);
-            document.addEventListener('touchcancel', endDrag);
-            return (ext) => { if(!dCheck()) { if (rAF) cancelAnimationFrame(rAF); rAF = requestAnimationFrame(() => set(ext)); } };
+            
+            return (ext, extMuted = false) => { if(!dCheck()) { if (rAF) cancelAnimationFrame(rAF); rAF = requestAnimationFrame(() => set(ext, extMuted)); } };
         }
 
         const upSpk = initSlider('slide-spk', 'fill-spk', 'val-spk', 'speaker', (v) => { if(v!==undefined) isDraggingSpk = v; return isDraggingSpk; });

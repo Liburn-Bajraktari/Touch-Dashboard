@@ -432,22 +432,201 @@ class MacroSystem:
     @staticmethod
     def send_keys(*keys):
         if os.name == 'nt':
+            try:
+                import ctypes
+                PUL = ctypes.POINTER(ctypes.c_ulong)
+                class KeyBdInput(ctypes.Structure):
+                    _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort), ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
+                class HardwareInput(ctypes.Structure):
+                    _fields_ = [("uMsg", ctypes.c_ulong), ("wParamL", ctypes.c_short), ("wParamH", ctypes.c_ushort)]
+                class MouseInput(ctypes.Structure):
+                    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long), ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
+                class Input_I(ctypes.Union):
+                    _fields_ = [("ki", KeyBdInput), ("mi", MouseInput), ("hi", HardwareInput)]
+                class Input(ctypes.Structure):
+                    _fields_ = [("type", ctypes.c_ulong), ("ii", Input_I)]
+
+                vk_map = {
+                    "KEY_A": 0x41, "KEY_B": 0x42, "KEY_C": 0x43, "KEY_D": 0x44, "KEY_E": 0x45, "KEY_F": 0x46, "KEY_G": 0x47, "KEY_H": 0x48,
+                    "KEY_I": 0x49, "KEY_J": 0x4A, "KEY_K": 0x4B, "KEY_L": 0x4C, "KEY_M": 0x4D, "KEY_N": 0x4E, "KEY_O": 0x4F, "KEY_P": 0x50,
+                    "KEY_Q": 0x51, "KEY_R": 0x52, "KEY_S": 0x53, "KEY_T": 0x54, "KEY_U": 0x55, "KEY_V": 0x56, "KEY_W": 0x57, "KEY_X": 0x58,
+                    "KEY_Y": 0x59, "KEY_Z": 0x5A,
+                    "KEY_0": 0x30, "KEY_1": 0x31, "KEY_2": 0x32, "KEY_3": 0x33, "KEY_4": 0x34, "KEY_5": 0x35, "KEY_6": 0x36, "KEY_7": 0x37,
+                    "KEY_8": 0x38, "KEY_9": 0x39,
+                    "KEY_LEFTCTRL": 0xA2, "KEY_RIGHTCTRL": 0xA3, "KEY_LEFTSHIFT": 0xA0, "KEY_RIGHTSHIFT": 0xA1,
+                    "KEY_LEFTALT": 0xA4, "KEY_RIGHTALT": 0xA5, "KEY_ENTER": 0x0D, "KEY_ESC": 0x1B, "KEY_BACKSPACE": 0x08,
+                    "KEY_TAB": 0x09, "KEY_SPACE": 0x20, "KEY_PAUSE": 0x13,
+                    "KEY_F1": 0x70, "KEY_F2": 0x71, "KEY_F3": 0x72, "KEY_F4": 0x73, "KEY_F5": 0x74, "KEY_F6": 0x75, "KEY_F7": 0x76, "KEY_F8": 0x77,
+                    "KEY_F9": 0x78, "KEY_F10": 0x79, "KEY_F11": 0x7A, "KEY_F12": 0x7B,
+                    "KEY_MUTE": 0xAD, "KEY_VOLUMEDOWN": 0xAE, "KEY_VOLUMEUP": 0xAF,
+                    "KEY_NEXTSONG": 0xB0, "KEY_PREVIOUSSONG": 0xB1, "KEY_STOPCD": 0xB2, "KEY_PLAYPAUSE": 0xB3
+                }
+
+                inputs_down = []
+                inputs_up = []
+                for k in keys:
+                    vk = k if isinstance(k, int) else vk_map.get(str(k).upper(), 0)
+                    if not vk: continue
+                    ii_down = Input_I()
+                    ii_down.ki = KeyBdInput(vk, 0, 0, 0, None)
+                    inputs_down.append(Input(1, ii_down))
+                    
+                    ii_up = Input_I()
+                    ii_up.ki = KeyBdInput(vk, 0, 0x0002, 0, None)
+                    inputs_up.insert(0, Input(1, ii_up))
+                
+                if inputs_down:
+                    ctypes.windll.user32.SendInput(len(inputs_down), (Input * len(inputs_down))(*inputs_down), ctypes.sizeof(Input))
+                    time.sleep(0.05)
+                    ctypes.windll.user32.SendInput(len(inputs_up), (Input * len(inputs_up))(*inputs_up), ctypes.sizeof(Input))
+            except Exception as e:
+                logger.error(f"Windows MacroSystem failed: {e}")
             return
+
         try:
             import evdev
             MacroSystem._init()
             if MacroSystem._ui:
                 for k in keys:
-                    MacroSystem._ui.write(evdev.ecodes.EV_KEY, k, 1)
+                    ecode = k if isinstance(k, int) else getattr(evdev.ecodes, str(k).upper(), None)
+                    if ecode is not None:
+                        MacroSystem._ui.write(evdev.ecodes.EV_KEY, ecode, 1)
                 MacroSystem._ui.syn()
                 for k in reversed(keys):
-                    MacroSystem._ui.write(evdev.ecodes.EV_KEY, k, 0)
+                    ecode = k if isinstance(k, int) else getattr(evdev.ecodes, str(k).upper(), None)
+                    if ecode is not None:
+                        MacroSystem._ui.write(evdev.ecodes.EV_KEY, ecode, 0)
                 MacroSystem._ui.syn()
         except Exception as e:
             logger.error(f"MacroSystem failed: {e}")
 
+# --- App Enumeration ---
+class AppEnumerator:
+    _cached_apps = None
+    _lock = threading.Lock()
+
+    @staticmethod
+    def get_apps():
+        with AppEnumerator._lock:
+            if AppEnumerator._cached_apps is not None:
+                return AppEnumerator._cached_apps
+
+            apps = []
+            if os.name == 'nt':
+                try:
+                    ps_script = """
+                    $apps = Get-StartApps | Select-Object Name, AppID
+                    $result = @()
+                    foreach ($app in $apps) {
+                        $result += [PSCustomObject]@{
+                            name = $app.Name
+                            exec = $app.AppID
+                        }
+                    }
+                    $result | ConvertTo-Json
+                    """
+                    out = subprocess.check_output(['powershell', '-NoProfile', '-Command', ps_script], stderr=subprocess.DEVNULL, timeout=10).decode().strip()
+                    if out:
+                        data = json.loads(out)
+                        for d in data:
+                            apps.append({"name": d.get("name"), "exec": d.get("exec"), "icon": ""})
+                except Exception as e:
+                    logger.error(f"Failed to enumerate Windows apps: {e}")
+            else:
+                try:
+                    paths = [
+                        os.path.expanduser('~/.local/share/applications'),
+                        '/usr/share/applications'
+                    ]
+                    for path in paths:
+                        if not os.path.exists(path): continue
+                        for root_dir, dirs, files in os.walk(path):
+                            for file in files:
+                                if file.endswith('.desktop'):
+                                    filepath = os.path.join(root_dir, file)
+                                    try:
+                                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                                            content = f.read()
+                                            
+                                        name = ""
+                                        exec_cmd = ""
+                                        icon = ""
+                                        in_desktop_entry = False
+                                        for line in content.splitlines():
+                                            line = line.strip()
+                                            if line == '[Desktop Entry]':
+                                                in_desktop_entry = True
+                                            elif line.startswith('[') and line != '[Desktop Entry]':
+                                                in_desktop_entry = False
+                                            
+                                            if in_desktop_entry:
+                                                if line.startswith('Name=') and not name:
+                                                    name = line.split('=', 1)[1]
+                                                elif line.startswith('Exec=') and not exec_cmd:
+                                                    exec_cmd = line.split('=', 1)[1]
+                                                elif line.startswith('Icon=') and not icon:
+                                                    icon = line.split('=', 1)[1]
+                                                    
+                                        if name and exec_cmd and not 'NoDisplay=true' in content:
+                                            exec_cmd = exec_cmd.replace('%f', '').replace('%F', '').replace('%u', '').replace('%U', '').replace('%c', '').replace('%k', '').strip()
+                                            apps.append({"name": name, "exec": exec_cmd, "icon": icon})
+                                    except: pass
+                except Exception as e:
+                    logger.error(f"Failed to enumerate Linux apps: {e}")
+
+            unique_apps = {}
+            for a in apps:
+                if a['name'] not in unique_apps:
+                    unique_apps[a['name']] = a
+            
+            AppEnumerator._cached_apps = sorted(list(unique_apps.values()), key=lambda x: x['name'].lower() if x['name'] else "")
+            return AppEnumerator._cached_apps
+
+    @staticmethod
+    def launch_app(exec_cmd):
+        if os.name == 'nt':
+            try:
+                subprocess.Popen(['explorer.exe', f'shell:AppsFolder\\{exec_cmd}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                logger.error(f"Failed to launch Windows app {exec_cmd}: {e}")
+        else:
+            try:
+                import shlex
+                args = shlex.split(exec_cmd)
+                subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            except Exception as e:
+                logger.error(f"Failed to launch Linux app {exec_cmd}: {e}")
+
 # --- Audio ---
 class AudioSystem:
+    _last_state = {}
+    _vol_targets = {}
+    _vol_lock = threading.Lock()
+    _vol_thread = None
+
+    @staticmethod
+    def _vol_worker():
+        while True:
+            tasks = []
+            with AudioSystem._vol_lock:
+                for target, val in list(AudioSystem._vol_targets.items()):
+                    tasks.append((target, val))
+                AudioSystem._vol_targets.clear()
+            
+            if not tasks:
+                time.sleep(0.05)
+                continue
+                
+            for target, val in tasks:
+                AudioSystem.run(['wpctl', 'set-volume', target, f"{val}%"])
+                AudioSystem.run(['wpctl', 'set-mute', target, '0'])
+
+    @staticmethod
+    def start_worker():
+        if AudioSystem._vol_thread is None:
+            AudioSystem._vol_thread = threading.Thread(target=AudioSystem._vol_worker, daemon=True)
+            AudioSystem._vol_thread.start()
+
     @staticmethod
     def run(cmd):
         try: return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2).decode().strip()
@@ -458,12 +637,16 @@ class AudioSystem:
     @staticmethod
     def get_state(target):
         out = AudioSystem.run(['wpctl', 'get-volume', target])
-        if not out: return {"vol": 0, "muted": True}
+        if not out: 
+            return AudioSystem._last_state.get(target, {"vol": 0, "muted": False})
         try:
             parts = out.split()
             vol = int(float(parts[1]) * 100) if len(parts) > 1 else 0
         except Exception: vol = 0
-        return {"vol": vol, "muted": '[MUTED]' in out}
+        
+        state = {"vol": vol, "muted": '[MUTED]' in out}
+        AudioSystem._last_state[target] = state
+        return state
 
     @staticmethod
     def poll_all():
@@ -508,9 +691,17 @@ class AudioSystem:
             if s.get('is_active'): return s['id']
         return None
     @staticmethod
-    def set_vol(target, val): AudioSystem.run(['wpctl', 'set-volume', target, f"{val}%"])
+    def set_vol(target, val): 
+        AudioSystem.start_worker()
+        with AudioSystem._vol_lock:
+            AudioSystem._vol_targets[target] = val
+
     @staticmethod
-    def toggle_mute(target): AudioSystem.run(['wpctl', 'set-mute', target, 'toggle'])
+    def toggle_mute(target):
+        if get_os_target() == 'linux':
+            AudioSystem.run(['wpctl', 'set-mute', target, 'toggle'])
+        elif os.name == 'nt' and target == '@DEFAULT_AUDIO_SINK@':
+            MacroSystem.send_keys('KEY_MUTE')
     @staticmethod
     def cycle_device():
         sinks = AudioSystem.poll_all()['sinks']
@@ -537,6 +728,7 @@ class DiscordIPC:
         self.voice_supported = False
         self.auth_pending = False
         self.pre_deafen_mute = False
+        self.is_vesktop = False
 
     def get_pipe_paths(self):
         paths_found = []
@@ -577,11 +769,12 @@ class DiscordIPC:
                     self.close()
                     continue
                     
-                # arRPC exposes IPC but not the voice commands this dashboard needs.
-                if res.get("data", {}).get("user", {}).get("username") == "arrpc":
-                    logger.info(f"Skipping {pipe_path} because it is arRPC (unsupported voice IPC).")
-                    self.close()
-                    continue
+                self.is_vesktop = (res.get("data", {}).get("user", {}).get("username") == "arrpc")
+                
+                if self.is_vesktop:
+                    self.auth_pending = False
+                    self.connected = True
+                    return True
                 
                 if not self.access_token:
                     self.auth_pending = True
@@ -665,7 +858,6 @@ class DiscordIPC:
                 with CONFIG_LOCK:
                     config["disc_token"] = self.access_token
                     save_config()
-                self.auth_pending = False
                 return True
             logger.error(f"Discord Token Exchange Failed: {r.text}")
         except Exception as e:
@@ -679,11 +871,15 @@ class DiscordIPC:
         if auth_res and auth_res.get("evt") == "ERROR":
             logger.error(f"Discord IPC Auth Error: {auth_res}")
             self.access_token = ""
+            with CONFIG_LOCK:
+                config["disc_token"] = ""
+                save_config()
             self.auth_pending = True
             return
 
         self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_SETTINGS_UPDATE", "args": {}, "nonce": str(uuid.uuid4())})
         self.send(1, {"cmd": "GET_VOICE_SETTINGS", "args": {}, "nonce": "GET_VOICE"})
+        self.auth_pending = False
         
         for _ in range(2):
             res = self.recv()
@@ -697,6 +893,10 @@ class DiscordIPC:
         self.running = True
         last_ping = time.time()
         while self.running:
+            if getattr(self, "needs_reauth", False) and self.connected:
+                self.needs_reauth = False
+                self.authenticate()
+                
             if not self.connected:
                 if not self.connect():
                     time.sleep(5)
@@ -966,6 +1166,7 @@ async def hardware_loop():
         if disc_ipc_instance:
             disc_state["connected"] = disc_ipc_instance.connected
             disc_state["voice_supported"] = getattr(disc_ipc_instance, "voice_supported", False)
+            disc_state["auth_pending"] = getattr(disc_ipc_instance, "auth_pending", False)
             
             if disc_ipc_instance.connected:
                 disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
@@ -1178,7 +1379,7 @@ async def index(request: Request):
     
     html = load_index_template()
 
-    if disc_ipc_instance and disc_ipc_instance.connected:
+    if disc_ipc_instance and disc_ipc_instance.connected and not disc_ipc_instance.auth_pending:
         html = html.replace('id="panel-discord" class="glass panel" style="display: none;', 'id="panel-discord" class="glass panel" style="display: flex;')
         if disc_ipc_instance.voice_state.get("mute", False):
             html = html.replace('class="btn" id="btn-disc-mute"', 'class="btn muted" id="btn-disc-mute"')
@@ -1234,6 +1435,8 @@ async def discord_callback(request: Request, code: str = None):
     success = await asyncio.to_thread(disc_ipc_instance.exchange_code, code)
     if success:
         logger.info("Discord authorization successful!")
+        # Safely flag for re-auth on the next loop tick instead of closing the socket
+        disc_ipc_instance.needs_reauth = True
     else:
         logger.error("Discord authorization failed during callback.")
         
@@ -1269,8 +1472,41 @@ async def websocket_endpoint(websocket: WebSocket):
             if msg_type == 'req_local_sounds':
                 sounds = await asyncio.to_thread(get_local_sounds)
                 await websocket.send_json({"type": "local_sounds_list", "data": sounds})
-            
-            elif msg_type == 'save_config':
+                
+            elif msg_type == 'req_apps_list':
+                apps = await asyncio.to_thread(AppEnumerator.get_apps)
+                await websocket.send_json({"type": "apps_list", "data": apps})
+                
+            elif msg_type == 'save_macros':
+                with CONFIG_LOCK:
+                    config["macros"] = data
+                await asyncio.to_thread(save_config)
+                audio_data = await asyncio.to_thread(AudioSystem.poll_all)
+                await ws_manager.broadcast({
+                    "type": "config_sync",
+                    "data": {
+                        "cfg": config,
+                        "hw": audio_data['sinks'],
+                        "os_target": get_os_target(),
+                        "host_ip": get_lan_ip(),
+                    },
+                })
+                
+            elif msg_type == 'macro_exec':
+                m_type = data.get('type')
+                action_data = data.get('action_data')
+                
+                if m_type == 'app':
+                    await asyncio.to_thread(AppEnumerator.launch_app, action_data)
+                elif m_type == 'macro':
+                    keys = action_data if isinstance(action_data, list) else [action_data]
+                    await asyncio.to_thread(MacroSystem.send_keys, *keys)
+                elif m_type in ('premade', 'plugin'):
+                    # Fallback into the existing action system
+                    msg_type = 'action'
+                    data = action_data
+                    
+            if msg_type == 'save_config':
                 old_id, old_secret = config.get("disc_id"), config.get("disc_secret")
                 old_weather_api, old_weather_city = config.get("weather_api"), config.get("weather_city")
                 old_spot_id = config.get("spot_id")
@@ -1372,6 +1608,11 @@ async def websocket_endpoint(websocket: WebSocket):
                         else:
                             disc_ipc_instance.set_voice(mute=not is_mute)
                             disc_ipc_instance.pre_deafen_mute = not is_mute
+                    else:
+                        try:
+                            import evdev
+                            await asyncio.to_thread(MacroSystem.send_keys, evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTSHIFT, evdev.ecodes.KEY_M)
+                        except: pass
                 
                 elif action == 'disc_deaf':
                     if disc_ipc_instance and disc_ipc_instance.connected and getattr(disc_ipc_instance, "voice_supported", False):
@@ -1384,15 +1625,147 @@ async def websocket_endpoint(websocket: WebSocket):
                         else:
                             restore_mute = getattr(disc_ipc_instance, "pre_deafen_mute", False)
                             disc_ipc_instance.set_voice(deaf=False, mute=restore_mute)
+                    else:
+                        try:
+                            import evdev
+                            await asyncio.to_thread(MacroSystem.send_keys, evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTSHIFT, evdev.ecodes.KEY_D)
+                        except: pass
                 
                 elif action == 'disc_cam':
                     pass
                 
                 elif action == 'disc_screen':
                     pass
-                elif action == 'app_term': subprocess.Popen(['alacritty'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt')) 
-                elif action == 'app_web': subprocess.Popen(['brave'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
-                elif action == 'app_task': subprocess.Popen(['gnome-system-monitor'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt')) 
+                elif action == 'app_term':
+                    cmd = None
+                    if os.name == 'nt':
+                        if shutil.which('wt.exe'):
+                            cmd = ['wt.exe']
+                        else:
+                            cmd = ['cmd.exe', '/c', 'start', 'cmd.exe']
+                    elif sys.platform == 'darwin':
+                        cmd = ['open', '-a', 'Terminal']
+                    else:
+                        if 'TERMINAL' in os.environ and shutil.which(os.environ['TERMINAL']):
+                            cmd = [os.environ['TERMINAL']]
+                        else:
+                            de = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
+                            
+                            if 'kde' in de:
+                                for kread in ['kreadconfig6', 'kreadconfig5']:
+                                    if shutil.which(kread):
+                                        try:
+                                            kde_term = subprocess.check_output([kread, '--file', 'kdeglobals', '--group', 'General', '--key', 'TerminalApplication']).decode().strip()
+                                            if kde_term and shutil.which(kde_term):
+                                                cmd = [kde_term]
+                                                break
+                                        except: pass
+                                        
+                            elif 'gnome' in de or 'cinnamon' in de or 'mate' in de:
+                                if shutil.which('gsettings'):
+                                    schema = 'org.gnome.desktop.default-applications.terminal'
+                                    if 'cinnamon' in de: schema = 'org.cinnamon.desktop.default-applications.terminal'
+                                    elif 'mate' in de: schema = 'org.mate.applications-terminal'
+                                    try:
+                                        term_exec = subprocess.check_output(['gsettings', 'get', schema, 'exec']).decode().strip().strip("'\"")
+                                        if term_exec and shutil.which(term_exec):
+                                            cmd = [term_exec]
+                                    except: pass
+                                    
+                            elif 'xfce' in de:
+                                if shutil.which('exo-open'):
+                                    cmd = ['exo-open', '--launch', 'TerminalEmulator']
+                                
+                            if not cmd:
+                                for wrapper in ['xdg-terminal-exec', 'xdg-terminal', 'i3-sensible-terminal']:
+                                    if shutil.which(wrapper):
+                                        cmd = [wrapper]
+                                        break
+                                
+                            if not cmd:
+                                term_list = ['x-terminal-emulator', 'gnome-terminal', 'konsole', 'xfce4-terminal', 'mate-terminal', 'lxterminal', 'alacritty', 'kitty', 'wezterm', 'terminator', 'urxvt', 'xterm']
+                                for t in term_list:
+                                    if shutil.which(t):
+                                        cmd = [t]
+                                        break
+                    if cmd:
+                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
+                elif action == 'app_web':
+                    cmd = None
+                    if os.name == 'nt':
+                        cmd = ['cmd.exe', '/c', 'start', 'http://']
+                    elif sys.platform == 'darwin':
+                        cmd = ['open', 'http://']
+                    else:
+                        de = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
+                        if 'BROWSER' in os.environ and shutil.which(os.environ['BROWSER']):
+                            cmd = [os.environ['BROWSER']]
+                        else:
+                            if 'kde' in de:
+                                for kread in ['kreadconfig6', 'kreadconfig5']:
+                                    if shutil.which(kread):
+                                        try:
+                                            kde_browser = subprocess.check_output([kread, '--file', 'kdeglobals', '--group', 'General', '--key', 'BrowserApplication']).decode().strip()
+                                            if kde_browser:
+                                                bin_name = kde_browser.replace('.desktop', '')
+                                                if bin_name.startswith('!'): bin_name = bin_name[1:]
+                                                if bin_name == 'brave-browser': bin_name = 'brave'
+                                                if shutil.which(bin_name):
+                                                    cmd = [bin_name]
+                                                    break
+                                        except: pass
+                            
+                            if not cmd and shutil.which('xdg-settings'):
+                                try:
+                                    browser_desktop = subprocess.check_output(['xdg-settings', 'get', 'default-web-browser']).decode().strip()
+                                    if browser_desktop:
+                                        bin_name = browser_desktop.replace('.desktop', '')
+                                        if bin_name == 'brave-browser': bin_name = 'brave'
+                                        if shutil.which(bin_name):
+                                            cmd = [bin_name]
+                                except: pass
+                                
+                            if not cmd and shutil.which('xdg-open'):
+                                cmd = ['xdg-open', 'http://']
+                                
+                            if not cmd:
+                                browser_list = ['x-www-browser', 'firefox', 'brave', 'google-chrome', 'chromium', 'vivaldi', 'opera', 'epiphany', 'midori']
+                                for b in browser_list:
+                                    if shutil.which(b):
+                                        cmd = [b]
+                                        break
+                    if cmd:
+                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
+                elif action == 'app_task':
+                    cmd = None
+                    if os.name == 'nt':
+                        cmd = ['taskmgr.exe']
+                    elif sys.platform == 'darwin':
+                        cmd = ['open', '-a', 'Activity Monitor']
+                    else:
+                        de = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
+                        if 'kde' in de:
+                            task_list = ['plasma-systemmonitor', 'ksysguard']
+                        elif 'gnome' in de or 'cinnamon' in de or 'mate' in de:
+                            task_list = ['gnome-system-monitor', 'mate-system-monitor']
+                        elif 'xfce' in de:
+                            task_list = ['xfce4-taskmanager']
+                        else:
+                            task_list = ['plasma-systemmonitor', 'gnome-system-monitor', 'xfce4-taskmanager', 'ksysguard', 'htop', 'top']
+                            
+                        for t in task_list:
+                            if shutil.which(t):
+                                if t in ['htop', 'top']:
+                                    # Need a terminal to run CLI task managers
+                                    if shutil.which('x-terminal-emulator'):
+                                        cmd = ['x-terminal-emulator', '-e', t]
+                                    else:
+                                        cmd = ['xterm', '-e', t]
+                                else:
+                                    cmd = [t]
+                                break
+                    if cmd:
+                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
                 elif action == 'app_clip': await asyncio.to_thread(MacroSystem.send_keys, 119)
                 elif action == 'app_soundpad': 
                     if os.name == 'nt':
