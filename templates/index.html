@@ -600,6 +600,11 @@
                 const scale  = Math.min(scaleW, scaleH);
                 const px     = Math.min(MAX_PX, Math.max(MIN_PX, Math.round(REF_PX * scale * 10) / 10));
                 document.documentElement.style.fontSize = px + 'px';
+                
+                // Freeze the physical body height so the background dashboard flexbox NEVER squishes.
+                if (document.body) {
+                    document.body.style.height = maxVhForVw + 'px';
+                }
             }
 
             apply();
