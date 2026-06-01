@@ -16,6 +16,7 @@ import sys
 import importlib.util
 import site
 import shutil
+import ipaddress
 
 RUNTIME_DEPENDENCIES = [
     ("fastapi", "fastapi"),
@@ -1216,7 +1217,15 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         initial_hardware = await asyncio.to_thread(AudioSystem.get_hardware_sinks)
-        await websocket.send_json({"type": "config_sync", "data": {"cfg": config, "hw": initial_hardware, "os_target": get_os_target()}})
+        await websocket.send_json({
+            "type": "config_sync",
+            "data": {
+                "cfg": config,
+                "hw": initial_hardware,
+                "os_target": get_os_target(),
+                "host_ip": get_lan_ip(),
+            },
+        })
 
         if last_weather_data.get("temp") != "--":
             await websocket.send_json({"type": "weather_data", "data": last_weather_data})
@@ -1243,7 +1252,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     global_sp_oauth = None
                 
                 audio_data = await asyncio.to_thread(AudioSystem.poll_all)
-                await ws_manager.broadcast({"type": "config_sync", "data": {"cfg": config, "hw": audio_data['sinks'], "os_target": get_os_target()}})
+                await ws_manager.broadcast({
+                    "type": "config_sync",
+                    "data": {
+                        "cfg": config,
+                        "hw": audio_data['sinks'],
+                        "os_target": get_os_target(),
+                        "host_ip": get_lan_ip(),
+                    },
+                })
                 
                 if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"): restart_discord_ipc()
                 if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"): 
@@ -1383,25 +1400,61 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         ws_manager.disconnect(websocket)
 
-def get_lan_ip():
+def _is_lan_ipv4(ip_addr):
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("8.8.8.8", 80))
-            ip_addr = sock.getsockname()[0]
-            if ip_addr and not ip_addr.startswith("127."):
-                return ip_addr
+        ip = ipaddress.ip_address(ip_addr)
+    except ValueError:
+        return False
+    return (
+        ip.version == 4
+        and not ip.is_loopback
+        and not ip.is_unspecified
+        and not ip.is_link_local
+        and not ip.is_multicast
+    )
+
+
+def _pick_lan_ipv4(candidates):
+    seen = set()
+    valid = []
+    for ip_addr in candidates:
+        if not ip_addr or ip_addr in seen or not _is_lan_ipv4(ip_addr):
+            continue
+        seen.add(ip_addr)
+        valid.append(ip_addr)
+
+    private_ips = [ip_addr for ip_addr in valid if ipaddress.ip_address(ip_addr).is_private]
+    if private_ips:
+        return private_ips[0]
+    return valid[0] if valid else None
+
+
+def get_lan_ip():
+    candidates = []
+
+    for target in ("8.8.8.8", "1.1.1.1"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect((target, 80))
+                candidates.append(sock.getsockname()[0])
+        except Exception:
+            pass
+
+    try:
+        for addrs in psutil.net_if_addrs().values():
+            for addr in addrs:
+                if addr.family == socket.AF_INET:
+                    candidates.append(addr.address)
     except Exception:
         pass
 
     try:
         hostname = socket.gethostname()
-        for ip_addr in socket.gethostbyname_ex(hostname)[2]:
-            if ip_addr and not ip_addr.startswith("127.") and "." in ip_addr:
-                return ip_addr
+        candidates.extend(socket.gethostbyname_ex(hostname)[2])
     except Exception:
         pass
 
-    return "127.0.0.1"
+    return _pick_lan_ipv4(candidates) or "LAN unavailable"
 
 
 def stop_fastapi_server():
@@ -1614,6 +1667,7 @@ class DesktopTrayApp:
     def __init__(self, port=5000):
         self.port = port
         self.local_ip = get_lan_ip()
+        self.window_title = f"Touch Dashboard - {self.local_ip}"
         self.window = None
         self.icon = None
         self.window_visible = False
@@ -1663,7 +1717,7 @@ class DesktopTrayApp:
             logger.error(f"Tray startup failed; showing dashboard window directly after GUI starts: {e}")
 
     def on_webview_ready(self):
-        set_windows_window_icon(self.window)
+        set_windows_window_icon(self.window, self.window_title)
         if self.tray_available:
             self.hide_window()
         else:
@@ -1746,7 +1800,7 @@ def launch_desktop(host='0.0.0.0', port=5000):
 
     desktop_app = DesktopTrayApp(port=port)
     window_kwargs = {
-        "title": "Touch Dashboard",
+        "title": desktop_app.window_title,
         "url": f"http://127.0.0.1:{port}",
         "frameless": True,
         "width": 1280,
