@@ -260,6 +260,8 @@ except ImportError:
 # --- Configuration ---
 BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 RESOURCE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
+APP_ICON_PATH = os.path.join(RESOURCE_DIR, "static", "favicon.ico")
+WINDOWS_APP_USER_MODEL_ID = "TouchDashboard.TouchDashboard"
 
 DATA_DIR = os.path.join(os.path.expanduser("~"), ".config", "touch-dashboard")
 if sys.platform.startswith("win"):
@@ -1423,6 +1425,191 @@ def run_fastapi_server(host='0.0.0.0', port=5000, reload=False):
         uvicorn_server.run()
 
 
+_WINDOW_ICON_HANDLES = []
+
+
+def configure_windows_app_identity():
+    if not sys.platform.startswith("win"):
+        return
+
+    try:
+        import ctypes
+        shell32 = ctypes.windll.shell32
+        shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [ctypes.c_wchar_p]
+        shell32.SetCurrentProcessExplicitAppUserModelID.restype = ctypes.c_long
+        shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_USER_MODEL_ID)
+    except Exception as e:
+        logger.debug(f"Could not set Windows app identity: {e}")
+
+
+def _int_handle(value):
+    if value is None:
+        return None
+    if hasattr(value, "ToInt64"):
+        value = value.ToInt64()
+    elif hasattr(value, "ToInt32"):
+        value = value.ToInt32()
+    if hasattr(value, "value"):
+        value = value.value
+    try:
+        handle = int(value)
+    except (TypeError, ValueError):
+        return None
+    return handle or None
+
+
+def _safe_getattr(obj, attr):
+    try:
+        return getattr(obj, attr, None)
+    except Exception:
+        return None
+
+
+def _window_handle_candidates(window):
+    handles = []
+
+    def add_handle(value):
+        handle = _int_handle(value)
+        if handle and handle not in handles:
+            handles.append(handle)
+
+    for obj in (window, _safe_getattr(window, "native"), _safe_getattr(window, "gui")):
+        if obj is None:
+            continue
+        add_handle(obj)
+        for attr in ("hwnd", "handle", "Handle"):
+            add_handle(_safe_getattr(obj, attr))
+
+    return handles
+
+
+def _find_windows_process_handles(title):
+    if not sys.platform.startswith("win"):
+        return []
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return []
+
+    user32 = ctypes.windll.user32
+    current_pid = os.getpid()
+    handles = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def enum_proc(hwnd, _lparam):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value != current_pid:
+            return True
+
+        if title:
+            length = user32.GetWindowTextLengthW(hwnd)
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buffer, length + 1)
+            if buffer.value != title:
+                return True
+
+        handle = _int_handle(hwnd)
+        if handle and handle not in handles:
+            handles.append(handle)
+        return True
+
+    try:
+        user32.EnumWindows(enum_proc, 0)
+    except Exception:
+        return []
+    return handles
+
+
+def set_windows_window_icon(window, title="Touch Dashboard"):
+    if not sys.platform.startswith("win") or not os.path.exists(APP_ICON_PATH):
+        return
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception as e:
+        logger.debug(f"Could not load Windows icon APIs: {e}")
+        return
+
+    user32 = ctypes.windll.user32
+    IMAGE_ICON = 1
+    LR_LOADFROMFILE = 0x00000010
+    WM_SETICON = 0x0080
+    ICON_SMALL = 0
+    ICON_BIG = 1
+    ICON_SMALL2 = 2
+    SM_CXICON = 11
+    SM_CYICON = 12
+    SM_CXSMICON = 49
+    SM_CYSMICON = 50
+
+    user32.LoadImageW.argtypes = [
+        wintypes.HINSTANCE,
+        wintypes.LPCWSTR,
+        wintypes.UINT,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.SendMessageW.argtypes = [
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+    ]
+    user32.SendMessageW.restype = wintypes.LPARAM
+
+    large_icon = _int_handle(
+        user32.LoadImageW(
+            None,
+            APP_ICON_PATH,
+            IMAGE_ICON,
+            user32.GetSystemMetrics(SM_CXICON),
+            user32.GetSystemMetrics(SM_CYICON),
+            LR_LOADFROMFILE,
+        )
+    )
+    small_icon = _int_handle(
+        user32.LoadImageW(
+            None,
+            APP_ICON_PATH,
+            IMAGE_ICON,
+            user32.GetSystemMetrics(SM_CXSMICON),
+            user32.GetSystemMetrics(SM_CYSMICON),
+            LR_LOADFROMFILE,
+        )
+    )
+
+    if not large_icon and not small_icon:
+        logger.debug(f"Could not load Windows app icon from {APP_ICON_PATH}")
+        return
+
+    handles = _window_handle_candidates(window)
+    if not handles:
+        handles = _find_windows_process_handles(title)
+
+    if not handles:
+        logger.debug("Could not find a native Windows handle for the dashboard window")
+        return
+
+    applied = False
+    for hwnd in handles:
+        if large_icon:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, large_icon)
+            applied = True
+        if small_icon:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small_icon)
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL2, small_icon)
+            applied = True
+
+    if applied:
+        _WINDOW_ICON_HANDLES.extend(handle for handle in (large_icon, small_icon) if handle)
+
+
 class DesktopTrayApp:
     def __init__(self, port=5000):
         self.port = port
@@ -1435,6 +1622,19 @@ class DesktopTrayApp:
         self.lock = threading.RLock()
 
     def make_icon_image(self):
+        try:
+            if os.path.exists(APP_ICON_PATH):
+                with Image.open(APP_ICON_PATH) as icon:
+                    icon.load()
+                    icon = icon.convert("RGBA")
+                resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
+                icon.thumbnail((64, 64), resample)
+                image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+                image.alpha_composite(icon, ((64 - icon.width) // 2, (64 - icon.height) // 2))
+                return image
+        except Exception as e:
+            logger.debug(f"Could not load tray icon from favicon: {e}")
+
         image = Image.new("RGBA", (64, 64), (9, 14, 23, 255))
         draw = ImageDraw.Draw(image)
         draw.rounded_rectangle((10, 10, 54, 54), radius=12, fill=(14, 165, 233, 255))
@@ -1463,6 +1663,7 @@ class DesktopTrayApp:
             logger.error(f"Tray startup failed; showing dashboard window directly after GUI starts: {e}")
 
     def on_webview_ready(self):
+        set_windows_window_icon(self.window)
         if self.tray_available:
             self.hide_window()
         else:
@@ -1531,6 +1732,8 @@ def launch_desktop(host='0.0.0.0', port=5000):
         logger.warning("pywebview, pystray, or Pillow is not installed; starting FastAPI without a tray window.")
         run_fastapi_server(host=host, port=port, reload=False)
         return
+
+    configure_windows_app_identity()
 
     server_thread = threading.Thread(
         target=run_fastapi_server,
