@@ -1,6 +1,6 @@
 # Maintainer: Your Name <you@example.com>
 pkgname=touch-dashboard
-pkgver=0.1.0
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="Touch-friendly FastAPI system dashboard with a PyWebView desktop wrapper"
 arch=('any')
@@ -29,7 +29,7 @@ optdepends=(
   'pulseaudio: pactl compatibility command'
 )
 source=("https://codeberg.org/liburnb/Touch-Dashboard/archive/v${pkgver}.tar.gz")
-sha256sums=('383c3a581c75449b21b681cea6dc3ae91439987fb3acc26bd76aa67f9e347beb')
+sha256sums=('8383225fc0cd9b36e531899b8ff8062d0d592bd5186d8ae12f2a8d01f76cf857')
 
 package() {
   cd "$srcdir/touch-dashboard"

@@ -31,7 +31,7 @@
         }
 
         * { box-sizing: border-box; user-select: none; -webkit-user-drag: none; -webkit-tap-highlight-color: transparent; outline: none; }
-        html { font-size: clamp(10px, min(1.2vw, 1.8vh), 18px); }
+        html { font-size: clamp(12px, min(1.5vw, 2.2vh), 22px); }
 
         body {
             margin: 0; padding: var(--pad);
@@ -78,7 +78,7 @@
             box-shadow: 0 10px 26px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.05);
             transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        .btn:hover { border-color: rgba(34, 211, 238, 0.42); box-shadow: 0 14px 32px rgba(0,0,0,0.32), 0 0 0 1px rgba(34, 211, 238, 0.08); }
+        .btn:hover { border-color: rgba(34, 211, 238, 0.42); }
         
         .btn:active, .btn.active-btn { 
             transform: scale(0.95) translateZ(0); 
@@ -100,9 +100,10 @@
             min-height: 0; 
             width: 100%;
         }
-        .col { display: flex; flex-direction: column; gap: var(--gap); height: 100%; min-height: 0; min-width: 0; width: 100%; overflow: hidden; will-change: transform, opacity; transform: translateZ(0); }
+        .col { display: flex; flex-direction: column; gap: var(--gap); height: 100%; min-height: 0; min-width: 0; width: 100%; overflow: hidden; transform: translateZ(0); }
         .panel { padding: var(--pad); display: flex; flex-direction: column; min-height: 0; }
-        #panel-discord { overflow: hidden; will-change: opacity, flex-basis, transform; }
+        #panel-discord { overflow: hidden; }
+        .animating-blur { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 
         .spot-ctrl { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 1rem; margin-top: var(--gap); height: 4rem; width: 100%; }
 
@@ -123,7 +124,7 @@
             overflow: hidden; cursor: pointer; box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
             display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
         }
-        .slider-fill { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: translate3d(0, 100%, 0); background: linear-gradient(0deg, #0891b2 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; will-change: transform; }
+        .slider-fill { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: translate3d(0, 100%, 0); background: linear-gradient(0deg, #0891b2 0%, var(--accent) 100%); box-shadow: 0 -5px 15px var(--accent-glow); pointer-events: none; z-index: 1; }
         .slider-val { position: absolute; top: 1.5rem; font-weight: 800; font-size: 1.2rem; color: #ffffff; text-shadow: 0px 2px 4px rgba(0,0,0,0.9); pointer-events: none; z-index: 10; }
         .slider-icon {
             position: absolute; bottom: 1rem; background: rgba(0,0,0,0.5); border-radius: 50%; width: 3.5rem; height: 3.5rem;
@@ -158,10 +159,15 @@
             color: var(--accent); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         .audio-hub-ring::before {
-            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            border-radius: 50%; box-shadow: 0 0 22px var(--accent-glow), inset 0 0 15px var(--accent-glow);
+            content: ''; position: absolute; top: -4px; left: -4px; right: -4px; bottom: -4px;
+            border-radius: 50%; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
             animation: pulse-ring 2.5s infinite alternate ease-in-out; pointer-events: none;
-            will-change: transform, opacity; transform: translateZ(0);
+            will-change: opacity; transform: translateZ(0);
+        }
+        .audio-hub-ring::after {
+            content: ''; position: absolute; top: 2px; left: 2px; right: 2px; bottom: 2px;
+            border-radius: 50%; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
+            opacity: 0.6; pointer-events: none;
         }
         .audio-hub-ring i { width: 3.2rem; height: 3.2rem; position: relative; z-index: 2; }
         
@@ -169,29 +175,32 @@
             transform: rotate(90deg) scale(0.9); border-color: #ffffff; color: #ffffff;
             box-shadow: 0 0 25px rgba(255,255,255,0.6), inset 0 0 15px rgba(255,255,255,0.4);
         }
-        .audio-hub-btn:active .audio-hub-ring::before { display: none; }
+        .audio-hub-btn:active .audio-hub-ring::before,
+        .audio-hub-btn:active .audio-hub-ring::after { display: none; }
 
         @keyframes pulse-ring {
-            0% { transform: scale(0.85); opacity: 0.5; }
-            100% { transform: scale(1.05); opacity: 1; }
+            0% { opacity: 0.4; }
+            100% { opacity: 1; }
         }
         .stat-row { display: flex; align-items: center; gap: 1rem; font-size: 1.5rem; background: rgba(0,0,0,0.22); padding: 1.5rem; border-radius: var(--radius);}
         .stat-row i { color: var(--accent); width: 2rem; height: 2rem; }
         .stat-val { font-weight: 700; margin-left: auto; }
 
         /* --- Media Layout --- */
-        .spotify { transition: padding 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
-        #spot-info { height: 14.5rem; transition: height 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), margin 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
-        .spot-art-box { height: 9.5rem; width: 100%; display: flex; justify-content: center; align-items: center; margin-bottom: 0.8rem; flex: none; overflow: hidden; transition: height 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), margin-bottom 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
-        .spot-text-box { width: 100%; min-width: 0; text-align: center; flex: none; overflow: hidden; padding: 0 1rem; transition: transform 0.4s ease; }
-        #spot-title, #spot-artist { transition: font-size 0.4s ease; }
-
-        /* Fill the space when Discord is offline. */
-        .spotify.expanded #spot-info { height: 20rem; margin-top: 1rem; }
-        .spotify.expanded .spot-art-box { height: 14rem; margin-bottom: 1.5rem; }
-        .spotify.expanded #spot-title { font-size: 1.6rem !important; }
-        .spotify.expanded #spot-artist { font-size: 1.15rem !important; }
-        .spotify.expanded .spot-text-box { transform: translateY(0.5rem); }
+        .spotify { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: transparent !important; z-index: 1; }
+        .spotify::before {
+            content: ""; position: absolute; inset: 0;
+            background: rgba(10, 15, 25, 0.5);
+            backdrop-filter: blur(18px) saturate(1.15);
+            -webkit-backdrop-filter: blur(18px) saturate(1.15);
+            z-index: -1; pointer-events: none; border-radius: inherit;
+        }
+        #spot-info { transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: center center; }
+        .spot-art-box { transform-origin: top center; transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+        .spot-text-box { transition: transform 0.4s ease; }
+        #spot-title, #spot-artist { transition: transform 0.4s ease; transform-origin: center center; }
+        
+        .spotify.expanded #spot-info { transform: scale(1.1); }
 
         /* --- Settings --- */
         .modal-card { background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(8, 13, 23, 0.98)); padding: 2.5rem; border-radius: var(--radius); width: 60vw; height: 75vh; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow);}
@@ -215,14 +224,14 @@
         #main-view { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
         /* Seamless marquee */
-        .marquee-wrapper { width: 100%; overflow: hidden; white-space: nowrap; display: block; position: relative; min-width: 0; }
-        .marquee-content { display: inline-block; white-space: nowrap; width: auto; }
-        .animate-marquee { animation: marquee-infinite 15s linear infinite; will-change: transform; transform: translateZ(0); }
+        .marquee-wrapper { width: 100%; overflow: hidden; white-space: nowrap; display: block; position: relative; min-width: 0; contain: paint layout; isolation: isolate; }
+        .marquee-content { display: inline-block; white-space: nowrap; width: auto; backface-visibility: hidden; perspective: 1000px; transform: translate3d(0,0,0); -webkit-font-smoothing: antialiased; will-change: transform; }
+        .animate-marquee { animation: marquee-infinite 15s linear infinite; will-change: transform; }
         
         @keyframes marquee-infinite {
-            0% { transform: translateX(0); }
-            20% { transform: translateX(0); } /* Pauses for 3s (20% of 15s) */
-            100% { transform: translateX(-50%); }
+            0% { transform: translate3d(0, 0, 0); }
+            20% { transform: translate3d(0, 0, 0); }
+            100% { transform: translate3d(var(--scroll-dist, -50%), 0, 0); }
         }
 
        #soundpad-view {
@@ -232,7 +241,6 @@
             border: 1px solid var(--border); 
             transform-origin: center center; 
             z-index: 10;
-            will-change: transform, opacity;
             transform: translateZ(0); 
         }
 
@@ -257,9 +265,21 @@
         #ip-error { min-height: 1.5rem; color: var(--danger); font-size: 1.15rem; font-weight: bold; }
         #ip-actions { display: flex; gap: 1.5rem; height: 5rem; margin-top: auto; }
         #ip-actions .btn { font-size: 1.4rem; font-weight: bold; }
+
+        .macro-slot { display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0; }
+        .macro-slot .btn { flex: 1; height: auto; min-height: 0; padding: 0.75rem; }
+        .macro-slot span { text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .macro-slot.empty .btn { opacity: 0.1; cursor: default; }
+        .macro-slot.empty span { color: transparent; }
+        .sp-save-valid { background: rgba(14, 165, 233, 0.1) !important; border: 1px solid #7dd3fc !important; color: var(--accent) !important; box-shadow: 0 0 12px var(--accent-glow) !important; font-weight: bold !important; opacity: 1 !important; }
     </style>
 </head>
 <body id="body">
+
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+        <symbol id="icon-discord" viewBox="0 0 127.14 96.36"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53.65s5-12.04,11.43-12.04S54,47.39,53.89,53.65C53.89,60,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.31,60,73.31,53.65s5-12.04,11.43-12.04S96.16,47.39,96.06,53.65C96.06,60,91.01,65.69,84.69,65.69Z"/></symbol>
+        <symbol id="icon-spotify" viewBox="0 0 24 24"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.48.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.48-1.02.659-1.56.3z"/></symbol>
+    </svg>
 
     <div id="ip-modal" class="modal-overlay">
         <div class="modal-card">
@@ -293,12 +313,12 @@
                 
                 <div style="display: flex; gap: 1rem; margin-top: 0.5rem; align-items: center; height: 3.5rem;">
                     <button class="btn" id="btn-spot-auth" style="flex: 1; background: #1DB954; color: #000; font-weight: bold; height: 100%; min-height: 0;" onclick="goToServerPath('/spotify_login')">
-                        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="margin-right: 0.5rem;"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.48.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.48-1.02.659-1.56.3z"/></svg>CONNECT SPOTIFY
+                        <svg width="24" height="24" fill="currentColor" style="margin-right: 0.5rem;"><use href="#icon-spotify"/></svg>CONNECT SPOTIFY
                     </button>
                     
                     <div id="spot-connected-group" style="display: none; width: 100%; height: 100%; gap: 1rem; align-items: center;">
                         <div style="color: #1DB954; font-weight: bold; display: flex; align-items: center; justify-content: center; padding-left: 0.5rem; flex: 0 0 auto; letter-spacing: 1px;">
-                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.48.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.48-1.02.659-1.56.3z"/></svg>CONNECTED
+                            <svg width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;"><use href="#icon-spotify"/></svg>CONNECTED
                         </div>
                         <button class="btn" id="btn-spot-clear" style="flex: 1; background: rgba(239, 68, 68, 0.1); color: var(--danger); font-weight: bold; height: 100%; min-height: 0; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="act('spot_clear_auth')">
                             CLEAR AUTH
@@ -326,17 +346,13 @@
                 
                 <div style="display: flex; gap: 1rem; margin-top: 0.5rem; height: 3.5rem;">
                     <button class="btn" id="btn-disc-auth" style="flex: 1; background: #5865F2; color: #fff; font-weight: bold; height: 100%; min-height: 0; display: none;" onclick="act('disc_auth')">
-                        <svg viewBox="0 0 127.14 96.36" width="24" height="24" fill="currentColor" style="margin-right: 0.5rem;">
-                            <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53.65s5-12.04,11.43-12.04S54,47.39,53.89,53.65C53.89,60,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.31,60,73.31,53.65s5-12.04,11.43-12.04S96.16,47.39,96.06,53.65C96.06,60,91.01,65.69,84.69,65.69Z"/>
-                        </svg>
+                        <svg width="24" height="24" fill="currentColor" style="margin-right: 0.5rem;"><use href="#icon-discord"/></svg>
                         AUTHORIZE DISCORD
                     </button>
                     
                     <div id="disc-connected-group" style="display: none; width: 100%; height: 100%; gap: 1rem; align-items: center;">
                         <div style="color: #5865F2; font-weight: bold; display: flex; align-items: center; justify-content: center; padding-left: 0.5rem; flex: 0 0 auto; letter-spacing: 1px;">
-                            <svg viewBox="0 0 127.14 96.36" width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;">
-                                <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53.65s5-12.04,11.43-12.04S54,47.39,53.89,53.65C53.89,60,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.31,60,73.31,53.65s5-12.04,11.43-12.04S96.16,47.39,96.06,53.65C96.06,60,91.01,65.69,84.69,65.69Z"/>
-                            </svg>
+                            <svg width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;"><use href="#icon-discord"/></svg>
                             CONNECTED
                         </div>
                         <button class="btn" id="btn-disc-clear" style="flex: 1; background: rgba(239, 68, 68, 0.1); color: var(--danger); font-weight: bold; height: 100%; min-height: 0; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="act('disc_clear_auth')">
@@ -386,12 +402,12 @@
     <!-- --- Top Bar --- -->
     <div class="top-bar glass">
         <div class="section batt" style="position: relative;">
-            <button class="btn btn-top" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; border-radius: 1rem; will-change: opacity; transform: translateZ(0);"><i data-lucide="arrow-left"></i></button>
-            <div id="batt-slide" style="display: flex; align-items: center; gap: 0.5rem; will-change: transform; transform: translateZ(0);">
+            <button class="btn btn-top" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; border-radius: 1rem; transform: translateZ(0);"><i data-lucide="arrow-left"></i></button>
+            <div id="batt-slide" style="display: flex; align-items: center; gap: 0.5rem; transform: translateZ(0);">
                 <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
             </div>
         </div>
-        <div class="section" id="top-title" style="justify-content: center; letter-spacing: 4px; font-weight: 500; font-size: 1.6rem; color: var(--text-muted); transition: color 0.3s ease, font-weight 0.3s ease, transform 0.15s ease; text-align: center; will-change: transform;">COMMAND CENTER</div>
+        <div class="section" id="top-title" style="justify-content: center; letter-spacing: 4px; font-weight: 500; font-size: 1.6rem; color: var(--text-muted); transition: color 0.3s ease, transform 0.15s ease; text-align: center;">COMMAND CENTER</div>
         <div class="section" style="justify-content: flex-end;">
             <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
             <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
@@ -403,27 +419,27 @@
     <div id="view-wrapper">
     <div class="grid-container view-layer active" id="main-view">
         <div class="col">
-            <div class="glass panel spotify" style="flex: 1; background: rgba(10, 15, 25, 0.5); padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 0;">
+            <div class="glass panel spotify" style="flex: 1; padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 0;">
                 <h3 style="color: rgba(255,255,255,0.4); margin: 0 auto; text-align: center; width: 100%; font-size: 0.75rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;">NOW PLAYING</h3>
                 
                 <div id="spot-empty" style="flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 1.2rem; font-weight: 500;">NOTHING PLAYING</div>                
 
-                <div id="spot-info" style="display: none; width: 100%; flex-direction: column; align-items: center; justify-content: flex-start; margin-top: 0.5rem; overflow: hidden; flex: none;">
-                    <div class="spot-art-box">
+                <div id="spot-info" style="display: none; width: 100%; flex-direction: column; align-items: center; justify-content: flex-start; margin: 1.5rem 0; overflow: hidden; height: 26rem; flex: none;">
+                    <div class="spot-art-box" style="height: 18rem; width: 100%; display: flex; justify-content: center; align-items: center; margin-bottom: 1.2rem; overflow: hidden; flex: none;">
                         <img id="spot-art" src="" style="max-height: 100%; max-width: 100%; border-radius: 0.75rem; object-fit: contain; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;">
                     </div>
                     
-                    <div class="spot-text-box">
+                    <div class="spot-text-box" style="flex: none; width: 100%; text-align: center; overflow: hidden; padding: 0 1rem;">
                         <div class="marquee-wrapper">
-                            <div id="wrapper-title" class="marquee-content"><span id="spot-title" style="font-size: 1.3rem; font-weight: 800; color: #ffffff;"></span></div>
+                            <div id="wrapper-title" class="marquee-content"><span id="spot-title" style="font-size: 2rem; font-weight: 800; color: #ffffff; line-height: 1.2;"></span></div>
                         </div>
-                        <div class="marquee-wrapper" style="margin-top: 0.3rem;">
-                            <div id="wrapper-artist" class="marquee-content"><span id="spot-artist" style="color: #64748b; font-size: 1rem; font-weight: 500;"></span></div>
+                        <div class="marquee-wrapper" style="margin-top: 0.5rem;">
+                            <div id="wrapper-artist" class="marquee-content"><span id="spot-artist" style="color: #64748b; font-size: 1.4rem; font-weight: 500; line-height: 1.2;"></span></div>
                         </div>
                     </div>
                 </div>
                 
-                <div class="spot-ctrl" style="margin-top: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 3.5rem;">
+                <div class="spot-ctrl" style="margin-top: 1.5rem; margin-bottom: 1.5rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; width: 100%; height: 5rem;">
                     <button class="btn" style="background-color: #141b2d; border: 1px solid #2e3c56; border-radius: 0.75rem;" onclick="act('spot_prev')"><i data-lucide="skip-back"></i></button>
                     <button class="btn" id="btn-spot-play" style="background-color: #141b2d; border: 1px solid #2e3c56; border-radius: 0.75rem;" onclick="act('spot_play')">
                         <i data-lucide="play" id="icon-spot-play"></i>
@@ -495,43 +511,31 @@
             <div class="glass panel" style="flex: 1;">
                 <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">MACROS & APPS</h3>
                 <div class="btn-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 1rem; flex: 1;">
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
-                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">CLIP</span>
+                    <div class="macro-slot">
+                        <button class="btn" onclick="act('app_clip')"><i data-lucide="clapperboard"></i></button>
+                        <span>CLIP</span>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" id="btn-macro-sp" onclick="toggleSoundpad(true)" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
-                        <span id="label-macro-sp" style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--accent); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">SOUNDBOARD</span>
+                    <div class="macro-slot">
+                        <button class="btn" id="btn-macro-sp" onclick="toggleSoundpad(true)" style="border-color: var(--accent);"><i data-lucide="music" style="color: var(--accent);"></i></button>
+                        <span id="label-macro-sp" style="color: var(--accent);">SOUNDBOARD</span>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
-                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">TERM</span>
+                    <div class="macro-slot">
+                        <button class="btn" onclick="act('app_term')"><i data-lucide="terminal"></i></button>
+                        <span>TERM</span>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_web')"><i data-lucide="globe"></i></button>
-                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">BROWSER</span>
+                    <div class="macro-slot">
+                        <button class="btn" onclick="act('app_web')"><i data-lucide="globe"></i></button>
+                        <span>BROWSER</span>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem;" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
-                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">TASK MGR</span>
+                    <div class="macro-slot">
+                        <button class="btn" onclick="act('app_task')"><i data-lucide="cpu"></i></button>
+                        <span>TASK MGR</span>
                     </div>
                     
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
-                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
-                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
-                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.4rem; height: 100%; min-width: 0; min-height: 0;">
-                        <button class="btn" style="flex: 1; height: auto; min-height: 0; padding: 0.75rem; opacity: 0.1; cursor: default;"></button>
-                        <span style="text-align: center; font-size: 0.7rem; font-weight: 800; color: transparent; letter-spacing: 0.5px;">-</span>
-                    </div>
+                    <div class="macro-slot empty"><button class="btn"></button><span>-</span></div>
+                    <div class="macro-slot empty"><button class="btn"></button><span>-</span></div>
+                    <div class="macro-slot empty"><button class="btn"></button><span>-</span></div>
+                    <div class="macro-slot empty"><button class="btn"></button><span>-</span></div>
                 </div>
             </div>
             <div class="glass panel" style="flex: 0 0 auto; display: flex; flex-direction: column;">
@@ -547,7 +551,7 @@
     
     <!-- --- Soundboard View --- -->
     <div id="soundpad-view" style="visibility: hidden; pointer-events: none; flex-direction: column;">
-        <div id="sp-inner" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%; opacity: 0; will-change: transform, opacity; transform: translateZ(0);">
+        <div id="sp-inner" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%; opacity: 0; transform: translateZ(0);">
             <div id="sp-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.5rem; align-content: start;">
             </div>
         </div>
@@ -673,9 +677,8 @@
             if (!isCapacitorRuntime()) {
                 closePendingSocket();
                 hasDisconnected = true;
-                const topTitle = document.getElementById('top-title');
-                topTitle.innerText = "RECONNECTING...";
-                topTitle.style.color = "var(--danger)";
+                dom.topTitle.innerText = "RECONNECTING...";
+                dom.topTitle.style.color = "var(--danger)";
                 if (!reconnectTimer) {
                     reconnectTimer = setTimeout(() => { window.location.reload(); }, 2000);
                 }
@@ -761,6 +764,7 @@
         let currentDiscordAuthUrl = "";
         let discordPanelVisible = false;
         let discordPanelAnimating = false;
+        let discordDisconnectCount = 0;
 
         const dom = {
             topTitle: document.getElementById('top-title'),
@@ -781,6 +785,8 @@
             btnAudioCycle: document.getElementById('btn-audio-cycle'),
             panelDiscord: document.getElementById('panel-discord'),
             btnDiscAuth: document.getElementById('btn-disc-auth'),
+            btnDiscMute: document.getElementById('btn-disc-mute'),
+            btnDiscDeaf: document.getElementById('btn-disc-deaf'),
             discGroup: document.getElementById('disc-connected-group'),
             discWarning: document.getElementById('disc-warning-container'),
             spotifyPanel: document.querySelector('.spotify'),
@@ -805,11 +811,9 @@
                 dom.panelDiscord.style.display = 'flex';
                 dom.spotifyPanel?.classList.remove('expanded');
                 if (window.gsap) {
-                    dom.panelDiscord.style.backdropFilter = 'none';
-                    dom.panelDiscord.style.webkitBackdropFilter = 'none';
+                    dom.panelDiscord.classList.add('animating-blur');
                     gsap.fromTo(dom.panelDiscord, { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.22, ease: "power2.out", force3D: true, onComplete: () => { 
-                        dom.panelDiscord.style.backdropFilter = '';
-                        dom.panelDiscord.style.webkitBackdropFilter = '';
+                        dom.panelDiscord.classList.remove('animating-blur');
                         discordPanelAnimating = false; 
                     } });
                 } else {
@@ -819,12 +823,10 @@
             } else {
                 dom.spotifyPanel?.classList.add('expanded');
                 if (window.gsap) {
-                    dom.panelDiscord.style.backdropFilter = 'none';
-                    dom.panelDiscord.style.webkitBackdropFilter = 'none';
+                    dom.panelDiscord.classList.add('animating-blur');
                     gsap.to(dom.panelDiscord, { autoAlpha: 0, y: 10, duration: 0.18, ease: "power2.in", force3D: true, onComplete: () => {
                         dom.panelDiscord.style.display = 'none';
-                        dom.panelDiscord.style.backdropFilter = '';
-                        dom.panelDiscord.style.webkitBackdropFilter = '';
+                        dom.panelDiscord.classList.remove('animating-blur');
                         discordPanelAnimating = false;
                     }});
                 } else {
@@ -835,6 +837,12 @@
         }
 
         // --- WebSocket Messages ---
+        const CONFIG_FIELDS = [
+            ['cfg-weather', 'weather_api'], ['cfg-city', 'weather_city'],
+            ['cfg-spot-id', 'spot_id'], ['cfg-spot-secret', 'spot_secret'],
+            ['cfg-disc-id', 'disc_id'], ['cfg-disc-secret', 'disc_secret'],
+            ['cfg-sounds-path', 'sounds_path']
+        ];
         function attachSocketMessageHandler(targetSocket) {
             targetSocket.onmessage = (event) => {
             const msg = JSON.parse(event.data);
@@ -848,23 +856,17 @@
                 populateAudioTab(d.hw, globalCfg.audio_names);
                 
                 const c = d.cfg;
-                document.getElementById('cfg-weather').value = c.weather_api || '';
-                document.getElementById('cfg-city').value = c.weather_city || '';
-                document.getElementById('cfg-spot-id').value = c.spot_id || '';
-                document.getElementById('cfg-spot-secret').value = c.spot_secret || '';
-                document.getElementById('cfg-disc-id').value = c.disc_id || '';
-                document.getElementById('cfg-disc-secret').value = c.disc_secret || '';
-                document.getElementById('cfg-sounds-path').value = c.sounds_path || '';
+                CONFIG_FIELDS.forEach(([elId, key]) => document.getElementById(elId).value = c[key] || '');
+                
+                const spLabel = document.getElementById('label-macro-sp');
                 if (osTarget === 'linux') {
                     document.getElementById('tab-btn-sb').style.display = 'block';
                     spBtns = c.local_buttons || [];
-                    const spLabel = document.getElementById('label-macro-sp');
                     if(spLabel) spLabel.innerText = 'SOUNDBOARD';
                     sendSocket('req_local_sounds');
                 } else {
                     document.getElementById('tab-btn-sb').style.display = 'none';
                     spBtns = c.soundpad_buttons || [];
-                    const spLabel = document.getElementById('label-macro-sp');
                     if(spLabel) spLabel.innerText = 'SOUNDPAD';
                 }
                 renderSpGrid();
@@ -952,9 +954,6 @@
                     setDisplay(dom.spotEmpty, 'none');
                     setDisplay(dom.spotInfo, 'flex');
                     
-                    setText(dom.spotTitle, d.spotify.title);
-                    setText(dom.spotArtist, d.spotify.artist);
-                    
                     // Keep previous art while local players finish writing new cover files.
                     const artImg = dom.spotArt;
                     const newArtUrl = d.spotify.art_url || "";
@@ -992,24 +991,28 @@
                         const outer = wrapNode.parentElement;
                         
                         if (el.getAttribute('data-last-text') !== item.text) {
+                            if (wrapNode._marqueeAnim) {
+                                wrapNode._marqueeAnim.cancel();
+                                wrapNode._marqueeAnim = null;
+                            }
                             wrapNode.classList.remove('animate-marquee');
                             
                             el.innerHTML = ''; 
                             el.textContent = item.text; 
                             el.setAttribute('data-last-text', item.text);
                             
-                            void wrapNode.offsetWidth;
-                            
-                            setTimeout(() => {
-                                if (wrapNode.scrollWidth > outer.clientWidth) {
-                                    const spacer = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0';
-                                    const fullText = item.text + spacer;
-                                    
-                                    el.innerHTML = `<span>${fullText}</span><span>${fullText}</span>`;
-                                    
-                                    wrapNode.classList.add('animate-marquee');
-                                }
-                            }, 50);
+                            requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                    if (wrapNode.scrollWidth > outer.clientWidth) {
+                                        const spacer = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0';
+                                        const fullText = item.text + spacer;
+                                        
+                                        el.innerHTML = `<span>${fullText}</span><span>${fullText}</span>`;
+                                        wrapNode.style.setProperty('--scroll-dist', `-${Math.round(wrapNode.scrollWidth / 2)}px`);
+                                        wrapNode.classList.add('animate-marquee');
+                                    }
+                                });
+                            });
                         }
                     });
                 } else {
@@ -1038,93 +1041,47 @@
                 setText(dom.btnAudioCycle, d.audio.active_dev);
                 
                 if (d.discord) {
-                    const panelDiscord = dom.panelDiscord;
-                    const btnDiscAuth = dom.btnDiscAuth;
-                    const discGroup = dom.discGroup;
-                    const discWarning = dom.discWarning;
-                    const targetSettingsState = d.discord.authorized ? 'connected' : 'auth_required';
                     currentDiscordAuthUrl = d.discord.auth_url || "";
                     
                     if (d.discord.connected) {
-                        if (typeof window.discordDisconnectCount === 'undefined') window.discordDisconnectCount = 0;
-                        window.discordDisconnectCount = 0;
+                        discordDisconnectCount = 0;
                         setDiscordPanelVisible(true);
                         
-                        const bMute = document.getElementById('btn-disc-mute');
-                        const bDeaf = document.getElementById('btn-disc-deaf');
-                        
                         if (Date.now() > discordLock) {
-                            if (!d.discord.deaf) {
-                                preDeafenMute = d.discord.mute;
-                            }
+                            if (!d.discord.deaf) preDeafenMute = d.discord.mute;
                             const visuallyMuted = d.discord.mute || d.discord.deaf;
-                            
-                            if (bMute && bMute.classList.contains('muted') !== visuallyMuted) bMute.classList.toggle('muted', visuallyMuted);
-                            if (bDeaf && bDeaf.classList.contains('muted') !== d.discord.deaf) bDeaf.classList.toggle('muted', d.discord.deaf);
+                            if (dom.btnDiscMute) dom.btnDiscMute.classList.toggle('muted', visuallyMuted);
+                            if (dom.btnDiscDeaf) dom.btnDiscDeaf.classList.toggle('muted', d.discord.deaf);
                         }
                     } else {
-                        if (typeof window.discordDisconnectCount === 'undefined') window.discordDisconnectCount = 0;
-                        window.discordDisconnectCount++;
-                        if (window.discordDisconnectCount >= 3) setDiscordPanelVisible(false);
+                        discordDisconnectCount++;
+                        if (discordDisconnectCount >= 3) setDiscordPanelVisible(false);
                     }
                     
                     if (d.discord.authorized) {
-                        setDisplay(btnDiscAuth, 'none');
-                        if (discGroup) {
-                            setDisplay(discGroup, 'flex');
-                            
-                            const statusContainer = discGroup.querySelector('div');
-                            if (statusContainer && !statusContainer.dataset.locked) {
-                                statusContainer.innerHTML = `<svg viewBox="0 0 127.14 96.36" width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;">
-                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53.65s5-12.04,11.43-12.04S54,47.39,53.89,53.65C53.89,60,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.31,60,73.31,53.65s5-12.04,11.43-12.04S96.16,47.39,96.06,53.65C96.06,60,91.01,65.69,84.69,65.69Z"/>
-                                </svg>AUTHORIZED`;
-                                statusContainer.style.color = "#5865F2";
-                                statusContainer.dataset.locked = "true";
-                            }
-                        }
-                    } else {
-                        setDisplay(btnDiscAuth, 'flex');
-                        if (discGroup) {
-                            setDisplay(discGroup, 'none');
-                            const statusContainer = discGroup.querySelector('div');
-                            if (statusContainer) statusContainer.dataset.locked = "false";
-                        }
-                    }
-
-                    if (discWarning) {
-                        const showWarning = (d.discord.connected && !d.discord.voice_supported) ? 'block' : 'none';
-                        if (discWarning.style.display !== showWarning) {
-                            discWarning.style.display = showWarning;
-                        }
-                    }
-
-                    if (targetSettingsState === 'connected') {
-                        const statusContainer = discGroup.querySelector('div');
-                        if (statusContainer) {
-                            const connState = d.discord.connected ? "online" : "offline";
-                            if (statusContainer.getAttribute('data-conn-state') !== connState) {
-                                statusContainer.setAttribute('data-conn-state', connState);
-                                
-                                if (d.discord.connected) {
-                                    statusContainer.innerHTML = `<svg viewBox="0 0 127.14 96.36" width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;">
-                                        <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53.65s5-12.04,11.43-12.04S54,47.39,53.89,53.65C53.89,60,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.31,60,73.31,53.65s5-12.04,11.43-12.04S96.16,47.39,96.06,53.65C96.06,60,91.01,65.69,84.69,65.69Z"/>
-                                    </svg>CONNECTED`;
-                                    statusContainer.style.color = "#5865F2";
-                                } else {
-                                    statusContainer.innerHTML = `<svg viewBox="0 0 127.14 96.36" width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;">
-                                        <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53.65s5-12.04,11.43-12.04S54,47.39,53.89,53.65C53.89,60,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.31,60,73.31,53.65s5-12.04,11.43-12.04S96.16,47.39,96.06,53.65C96.06,60,91.01,65.69,84.69,65.69Z"/>
-                                    </svg>OFFLINE`;
-                                    statusContainer.style.color = "var(--text-muted)";
+                        setDisplay(dom.btnDiscAuth, 'none');
+                        if (dom.discGroup) {
+                            setDisplay(dom.discGroup, 'flex');
+                            const statusEl = dom.discGroup.querySelector('div');
+                            if (statusEl) {
+                                const connState = d.discord.connected ? 'online' : 'offline';
+                                if (statusEl.getAttribute('data-conn-state') !== connState) {
+                                    statusEl.setAttribute('data-conn-state', connState);
+                                    const label = d.discord.connected ? 'CONNECTED' : 'OFFLINE';
+                                    const color = d.discord.connected ? '#5865F2' : 'var(--text-muted)';
+                                    statusEl.innerHTML = '<svg width="20" height="20" fill="currentColor" style="margin-right: 0.4rem;"><use href="#icon-discord"/></svg>' + label;
+                                    statusEl.style.color = color;
                                 }
                             }
                         }
-                        
-                        if (discWarning) {
-                            const showWarning = (d.discord.connected && !d.discord.voice_supported) ? 'block' : 'none';
-                            if (discWarning.style.display !== showWarning) {
-                                discWarning.style.display = showWarning;
-                            }
-                        }
+                    } else {
+                        setDisplay(dom.btnDiscAuth, 'flex');
+                        if (dom.discGroup) setDisplay(dom.discGroup, 'none');
+                    }
+
+                    if (dom.discWarning) {
+                        const showWarning = (d.discord.connected && !d.discord.voice_supported) ? 'block' : 'none';
+                        if (dom.discWarning.style.display !== showWarning) dom.discWarning.style.display = showWarning;
                     }
                 }
 
@@ -1150,7 +1107,6 @@
         const elBtnSpIcon = elBtnSp.children[0];
         const elBtnBack = document.getElementById('btn-back');
         const elBattSlide = document.getElementById('batt-slide');
-        const elTopTitle = document.getElementById('top-title');
         const elViewWrapper = document.getElementById('view-wrapper');
         const elMainGlassPanels = document.querySelectorAll('#main-view .glass');
 
@@ -1175,7 +1131,10 @@
                     scaleY: btnRect.height / wrapRect.height
                 };
 
-                gsap.set(elMainGlassPanels, { backdropFilter: 'none', webkitBackdropFilter: 'none', boxShadow: 'none' });
+                // Promote layers for animation, strip backdrop-filter during motion
+                elCols.forEach(c => c.style.willChange = 'transform, opacity');
+                elSpView.style.willChange = 'transform';
+                elMainGlassPanels.forEach(p => p.classList.add('animating-blur'));
 
                 gsap.set(elSpView, { 
                     visibility: 'visible', pointerEvents: 'auto', opacity: 1, 
@@ -1185,71 +1144,81 @@
 
                 gsap.set(elSpInner, { opacity: 0 });
 
-                gsap.to(elSpView, { 
-                    duration: 0.3, 
-                    x: 0, y: 0, scaleX: 1, scaleY: 1, 
-                    ease: "power3.inOut",
-                    force3D: true,
+                const tl = gsap.timeline({
                     onComplete: () => {
-                        gsap.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out", force3D: true, onComplete: () => {
-                            isAnimating = false;
-                            if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
-                        }});
-                    }
-                });
-
-                gsap.to(elBtnSpIcon, { opacity: 0, duration: 0.1, force3D: true });
-                gsap.to(elBtnSp, { opacity: 0, duration: 0.15, force3D: true });
-
-                gsap.to(elCols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true });
-                gsap.to(elCols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true });
-                gsap.to(elCols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true });
-
-                gsap.to(elBattSlide, { x: '6rem', duration: 0.3, ease: "power3.inOut", force3D: true });
-                gsap.to(elBtnBack, { opacity: 1, duration: 0.15, delay: 0.1 });
-                elBtnBack.style.pointerEvents = 'auto';
-
-            } else {
-                elMainView.style.pointerEvents = 'auto';
-
-                gsap.to(elSpInner, { opacity: 0, duration: 0.1, ease: "power2.in", force3D: true });
-
-                gsap.to(elSpView, { 
-                    duration: 0.3, delay: 0.05,
-                    x: spOrigin.x, y: spOrigin.y, 
-                    scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
-                    ease: "power3.inOut", force3D: true,
-                    onComplete: () => { 
-                        gsap.set(elSpView, { visibility: 'hidden', pointerEvents: 'none', clearProps: 'all' }); 
+                        // Demote layers after animation
+                        elCols.forEach(c => c.style.willChange = '');
+                        elSpView.style.willChange = '';
                         isAnimating = false;
                         if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                     }
                 });
 
-                gsap.to(elBtnSp, { opacity: 1, duration: 0.15, delay: 0.1, clearProps: 'opacity', force3D: true });
-                gsap.to(elBtnSpIcon, { opacity: 1, duration: 0.15, delay: 0.15, clearProps: 'opacity', force3D: true });
+                tl.to(elSpView, { 
+                    duration: 0.3, 
+                    x: 0, y: 0, scaleX: 1, scaleY: 1, 
+                    ease: "power3.inOut",
+                    force3D: true
+                }, 0);
 
-                gsap.to(elCols, { 
-                    x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", delay: 0.05, stagger: 0.02, force3D: true,
+                tl.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out", force3D: true }, 0.3);
+
+                tl.to(elBtnSpIcon, { opacity: 0, duration: 0.1, force3D: true }, 0);
+                tl.to(elBtnSp, { opacity: 0, duration: 0.15, force3D: true }, 0);
+
+                tl.to(elCols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
+                tl.to(elCols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
+                tl.to(elCols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
+
+                tl.to(elBattSlide, { x: '6rem', duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
+                tl.to(elBtnBack, { opacity: 1, duration: 0.15 }, 0.1);
+                elBtnBack.style.pointerEvents = 'auto';
+
+            } else {
+                elMainView.style.pointerEvents = 'auto';
+
+                // Promote layers for animation
+                elCols.forEach(c => c.style.willChange = 'transform, opacity');
+                elSpView.style.willChange = 'transform';
+
+                const tl = gsap.timeline({
                     onComplete: () => {
+                        gsap.set(elSpView, { visibility: 'hidden', pointerEvents: 'none', clearProps: 'all' });
                         gsap.set(elCols, { clearProps: 'transform,opacity' });
-                        elMainGlassPanels.forEach(p => {
-                            p.style.backdropFilter = '';
-                            p.style.webkitBackdropFilter = '';
-                            p.style.boxShadow = '';
-                        });
+                        elMainGlassPanels.forEach(p => p.classList.remove('animating-blur'));
+                        // Demote layers
+                        elCols.forEach(c => c.style.willChange = '');
+                        elSpView.style.willChange = '';
+                        isAnimating = false;
+                        if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                     }
                 });
 
+                tl.to(elSpInner, { opacity: 0, duration: 0.1, ease: "power2.in", force3D: true }, 0);
+
+                tl.to(elSpView, { 
+                    duration: 0.3,
+                    x: spOrigin.x, y: spOrigin.y, 
+                    scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
+                    ease: "power3.inOut", force3D: true
+                }, 0.05);
+
+                tl.to(elBtnSp, { opacity: 1, duration: 0.15, clearProps: 'opacity', force3D: true }, 0.1);
+                tl.to(elBtnSpIcon, { opacity: 1, duration: 0.15, clearProps: 'opacity', force3D: true }, 0.15);
+
+                tl.to(elCols, { 
+                    x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", stagger: 0.02, force3D: true
+                }, 0.05);
+
                 elBtnBack.style.pointerEvents = 'none';
-                gsap.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out", force3D: true });
-                gsap.to(elBattSlide, { x: 0, duration: 0.3, delay: 0.05, ease: "power3.inOut", clearProps: 'transform', force3D: true });
+                tl.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out", force3D: true }, 0);
+                tl.to(elBattSlide, { x: 0, duration: 0.3, ease: "power3.inOut", clearProps: 'transform', force3D: true }, 0.05);
             }
 
-            elTopTitle.innerText = show ? (osTarget === 'linux' ? 'SOUNDBOARD' : 'SOUNDPAD') : 'COMMAND CENTER';
-            elTopTitle.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
-            elTopTitle.style.fontWeight = show ? '800' : '300';
-            gsap.fromTo(elTopTitle, { scale: 1.05 }, { scale: 1, duration: 0.15, ease: "power2.out", clearProps: 'scale', force3D: true });
+            dom.topTitle.innerText = show ? (osTarget === 'linux' ? 'SOUNDBOARD' : 'SOUNDPAD') : 'COMMAND CENTER';
+            dom.topTitle.style.color = show ? 'var(--accent)' : 'var(--text-muted)';
+            dom.topTitle.style.fontWeight = show ? '800' : '300';
+            gsap.fromTo(dom.topTitle, { scale: 1.05 }, { scale: 1, duration: 0.15, ease: "power2.out", clearProps: 'scale', force3D: true });
         }
 
         // --- Settings ---
@@ -1266,16 +1235,15 @@
 
         function populateAudioTab(devices, configNames) {
             const container = document.getElementById('audio-devices-list');
-            container.innerHTML = '';
-            devices.forEach(d => {
+            container.innerHTML = devices.map(d => {
                 const val = configNames ? (configNames[d.raw_name] || '') : (d.custom_name || '');
-                container.innerHTML += `
+                return `
                     <div class="hw-row" style="background: rgba(0,0,0,0.2); padding: 0.5rem 1rem; border-radius: 0.5rem;">
                         <div style="flex: 1; color: var(--text-muted); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${d.raw_name}">${d.raw_name}</div>
                         <input type="text" class="audio-name-input" style="flex: 1; padding: 0.5rem; background: #0f172a;" data-raw="${d.raw_name}" placeholder="Custom (Max 10)" value="${val}" maxlength="10">
                     </div>
                 `;
-            });
+            }).join('');
         }
 
         function saveConfig() {
@@ -1286,16 +1254,8 @@
                 }
             });
 
-            const data = {
-                weather_api: document.getElementById('cfg-weather').value,
-                weather_city: document.getElementById('cfg-city').value,
-                spot_id: document.getElementById('cfg-spot-id').value,
-                spot_secret: document.getElementById('cfg-spot-secret').value,
-                disc_id: document.getElementById('cfg-disc-id').value,
-                disc_secret: document.getElementById('cfg-disc-secret').value,
-                sounds_path: document.getElementById('cfg-sounds-path').value,
-                audio_names: audio_names
-            };
+            const data = { audio_names: audio_names };
+            CONFIG_FIELDS.forEach(([elId, key]) => data[key] = document.getElementById(elId).value);
             if (osTarget === 'linux') {
                 data.local_buttons = spBtns;
             } else {
@@ -1331,7 +1291,10 @@
             `;
             grid.innerHTML = htmlStr;
             
-            try { setTimeout(() => { lucide.createIcons(); }, 50); } catch(err) {}
+            try {
+                if (window._lucideDebounce) clearTimeout(window._lucideDebounce);
+                window._lucideDebounce = setTimeout(() => { lucide.createIcons(); window._lucideDebounce = null; }, 80);
+            } catch(err) {}
         }
 
         function spLeave(btn, idx) { btn.classList.remove('active-btn'); if (spTimer) { clearTimeout(spTimer); spTimer = null; } spCancel = true; }
@@ -1383,21 +1346,7 @@
             btn.dataset.error = errorReason;
             document.getElementById('sp-error-msg').style.display = 'none'; 
 
-            if (isValid) {
-                btn.style.setProperty('background', 'rgba(14, 165, 233, 0.1)', 'important');
-                btn.style.setProperty('border', '1px solid #7dd3fc', 'important'); 
-                btn.style.setProperty('color', 'var(--accent)', 'important');      
-                btn.style.setProperty('box-shadow', '0 0 12px var(--accent-glow)', 'important');
-                btn.style.fontWeight = 'bold';
-                btn.style.opacity = '1';
-            } else {
-                btn.style.setProperty('background', 'var(--panel-bg)', 'important');
-                btn.style.setProperty('border', '1px solid rgba(255, 255, 255, 0.15)', 'important');
-                btn.style.setProperty('color', 'var(--text-muted)', 'important');
-                btn.style.setProperty('box-shadow', 'none', 'important');
-                btn.style.fontWeight = 'normal';
-                btn.style.opacity = '0.5';
-            }
+            btn.classList.toggle('sp-save-valid', isValid);
         }
 
         function openSpModal(idx) {
@@ -1506,16 +1455,22 @@
                     lastEmit = now;
                 }
             }
+            function startDrag(e) {
+                dCheck(true);
+                f.style.willChange = 'transform';
+                drag(e);
+            }
             function endDrag() {
                 if (dCheck()) {
                     dCheck(false);
+                    f.style.willChange = '';
                     sendSocket('set_volume', {type: type, val: currentPct});
                 }
             }
-            s.addEventListener('mousedown', (e) => { dCheck(true); drag(e); });
+            s.addEventListener('mousedown', (e) => { startDrag(e); });
             document.addEventListener('mousemove', (e) => { if(dCheck()) drag(e); });
             document.addEventListener('mouseup', endDrag);
-            s.addEventListener('touchstart', (e) => { e.preventDefault(); dCheck(true); drag(e); }, {passive: false});
+            s.addEventListener('touchstart', (e) => { e.preventDefault(); startDrag(e); }, {passive: false});
             s.addEventListener('touchmove', (e) => { e.preventDefault(); if(dCheck()) drag(e); }, {passive: false});
             document.addEventListener('touchend', endDrag);
             document.addEventListener('touchcancel', endDrag);

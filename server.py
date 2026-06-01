@@ -277,6 +277,37 @@ os.makedirs(SOUNDS_DIR, exist_ok=True)
 
 CONFIG_LOCK = threading.RLock()
 
+def migrate_config():
+    old_config = os.path.join(BASE_DIR, "config.json")
+    old_spot = os.path.join(BASE_DIR, ".cache")
+    old_weather = os.path.join(BASE_DIR, "weather_cache.json")
+    
+    if os.path.exists(old_config):
+        try:
+            with open(old_config, "r") as f:
+                old_data = json.load(f)
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, "r") as f:
+                    new_data = json.load(f)
+                # Merge old into new (new takes precedence for keys it has, but old fills in missing/empty ones)
+                for k, v in old_data.items():
+                    if k not in new_data or not new_data[k]:
+                        new_data[k] = v
+                with open(CONFIG_FILE, "w") as f:
+                    json.dump(new_data, f, indent=4)
+            else:
+                shutil.copy2(old_config, CONFIG_FILE)
+        except: pass
+
+    if os.path.exists(old_spot) and not os.path.exists(SPOTIFY_CACHE_FILE):
+        try: shutil.copy2(old_spot, SPOTIFY_CACHE_FILE)
+        except: pass
+    if os.path.exists(old_weather) and not os.path.exists(WEATHER_CACHE_FILE):
+        try: shutil.copy2(old_weather, WEATHER_CACHE_FILE)
+        except: pass
+
+migrate_config()
+
 current_audio_process = None
 uvicorn_server = None
 
@@ -666,7 +697,7 @@ class DiscordIPC:
         self.running = True
         last_ping = time.time()
         while self.running:
-            if not self.connected and not self.auth_pending:
+            if not self.connected:
                 if not self.connect():
                     time.sleep(5)
                     continue
