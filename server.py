@@ -260,17 +260,25 @@ except ImportError:
 # --- Configuration ---
 BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 RESOURCE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-WEATHER_CACHE_FILE = os.path.join(BASE_DIR, "weather_cache.json")
-SPOTIFY_CACHE_FILE = os.path.join(BASE_DIR, ".cache")
-SOUNDS_DIR = os.path.join(BASE_DIR, "sounds")
+
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".config", "touch-dashboard")
+if sys.platform.startswith("win"):
+    DATA_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "touch-dashboard")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
+WEATHER_CACHE_FILE = os.path.join(DATA_DIR, "weather_cache.json")
+SPOTIFY_CACHE_FILE = os.path.join(DATA_DIR, ".cache")
+SOUNDS_DIR = os.path.join(DATA_DIR, "sounds")
+os.makedirs(SOUNDS_DIR, exist_ok=True)
+
 CONFIG_LOCK = threading.RLock()
 
 current_audio_process = None
 uvicorn_server = None
 
 logging.basicConfig(
-    filename=os.path.join(BASE_DIR, 'server.log'),
+    filename=os.path.join(DATA_DIR, 'server.log'),
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
@@ -1110,6 +1118,14 @@ async def lifespan(app: FastAPI):
     if disc_ipc_instance: disc_ipc_instance.close()
 
 app = FastAPI(lifespan=lifespan)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' ws: wss:; img-src 'self' data: https:;"
+    return response
 
 app.mount("/static", StaticFiles(directory=os.path.join(RESOURCE_DIR, "static")), name="static")
 
