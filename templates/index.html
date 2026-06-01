@@ -101,7 +101,7 @@
             width: 100%;
         }
         .col { display: flex; flex-direction: column; gap: var(--gap); height: 100%; min-height: 0; min-width: 0; width: 100%; overflow: hidden; }
-        .panel { padding: var(--pad); display: flex; flex-direction: column; }
+        .panel { padding: var(--pad); display: flex; flex-direction: column; min-height: 0; }
         #panel-discord { overflow: hidden; will-change: opacity, flex-basis, transform; }
 
         .spot-ctrl { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 1rem; margin-top: var(--gap); height: 4rem; width: 100%; }
@@ -110,9 +110,11 @@
         .slider-section {
             display: grid;
             grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr);
             gap: clamp(0.75rem, 2vw, 1.75rem);
             align-items: stretch;
             justify-items: center;
+            min-height: 0;
             flex: 1;
             min-width: 0;
         }
@@ -1197,7 +1199,7 @@
                 gsap.to(elCols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", willChange: 'transform, opacity' });
                 gsap.to(elCols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", willChange: 'transform, opacity' });
 
-                gsap.to(elBattSlide, { x: '4.5rem', duration: 0.3, ease: "power3.inOut", willChange: 'transform' });
+                gsap.to(elBattSlide, { x: '6rem', duration: 0.3, ease: "power3.inOut", willChange: 'transform' });
                 gsap.to(elBtnBack, { opacity: 1, duration: 0.15, delay: 0.1 });
                 elBtnBack.style.pointerEvents = 'auto';
 
