@@ -11,3 +11,4 @@ Pillow
 pyinstaller
 evdev; sys_platform == "linux"
 PyGObject; sys_platform == "linux"
+pycaw; sys_platform == "win32"

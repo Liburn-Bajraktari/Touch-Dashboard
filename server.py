@@ -34,6 +34,8 @@ RUNTIME_DEPENDENCIES = [
 if sys.platform.startswith("linux"):
     RUNTIME_DEPENDENCIES.append(("evdev", "evdev"))
     RUNTIME_DEPENDENCIES.append(("gi", "PyGObject"))
+elif sys.platform.startswith("win"):
+    RUNTIME_DEPENDENCIES.append(("pycaw", "pycaw"))
 
 
 def ensure_runtime_dependencies():
@@ -618,8 +620,23 @@ class AudioSystem:
                 continue
                 
             for target, val in tasks:
-                AudioSystem.run(['wpctl', 'set-volume', target, f"{val}%"])
-                AudioSystem.run(['wpctl', 'set-mute', target, '0'])
+                if os.name == 'nt':
+                    try:
+                        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+                        from ctypes import cast, POINTER
+                        from comtypes import CLSCTX_ALL
+                        import comtypes
+                        comtypes.CoInitialize()
+                        device = AudioUtilities.GetMicrophone() if target == '@DEFAULT_AUDIO_SOURCE@' else AudioUtilities.GetSpeakers()
+                        if device:
+                            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                            volume = cast(interface, POINTER(IAudioEndpointVolume))
+                            volume.SetMasterVolumeLevelScalar(val / 100.0, None)
+                            volume.SetMute(0, None)
+                    except: pass
+                else:
+                    AudioSystem.run(['wpctl', 'set-volume', target, f"{val}%"])
+                    AudioSystem.run(['wpctl', 'set-mute', target, '0'])
 
     @staticmethod
     def start_worker():
@@ -636,6 +653,25 @@ class AudioSystem:
 
     @staticmethod
     def get_state(target):
+        if os.name == 'nt':
+            try:
+                from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+                from ctypes import cast, POINTER
+                from comtypes import CLSCTX_ALL
+                import comtypes
+                comtypes.CoInitialize()
+                device = AudioUtilities.GetMicrophone() if target == '@DEFAULT_AUDIO_SOURCE@' else AudioUtilities.GetSpeakers()
+                if not device: return AudioSystem._last_state.get(target, {"vol": 0, "muted": False})
+                interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                volume = cast(interface, POINTER(IAudioEndpointVolume))
+                vol = round(volume.GetMasterVolumeLevelScalar() * 100)
+                muted = bool(volume.GetMute())
+                state = {"vol": vol, "muted": muted}
+                AudioSystem._last_state[target] = state
+                return state
+            except:
+                return AudioSystem._last_state.get(target, {"vol": 0, "muted": False})
+
         out = AudioSystem.run(['wpctl', 'get-volume', target])
         if not out: 
             return AudioSystem._last_state.get(target, {"vol": 0, "muted": False})
@@ -650,6 +686,14 @@ class AudioSystem:
 
     @staticmethod
     def poll_all():
+        if os.name == 'nt':
+            return {
+                "sinks": [{"id": 1, "name": "Windows Audio", "raw_name": "Windows Default", "custom_name": "", "is_active": True}], 
+                "active_sink_name": "Windows Audio",
+                "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'), 
+                "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@')
+            }
+            
         sinks = []
         active_sink_name = "NONE"
         try:
@@ -700,8 +744,23 @@ class AudioSystem:
     def toggle_mute(target):
         if get_os_target() == 'linux':
             AudioSystem.run(['wpctl', 'set-mute', target, 'toggle'])
-        elif os.name == 'nt' and target == '@DEFAULT_AUDIO_SINK@':
-            MacroSystem.send_keys('KEY_MUTE')
+        elif os.name == 'nt':
+            if target == '@DEFAULT_AUDIO_SINK@':
+                MacroSystem.send_keys('KEY_MUTE')
+            elif target == '@DEFAULT_AUDIO_SOURCE@':
+                try:
+                    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+                    from ctypes import cast, POINTER
+                    from comtypes import CLSCTX_ALL
+                    import comtypes
+                    comtypes.CoInitialize()
+                    device = AudioUtilities.GetMicrophone()
+                    if device:
+                        interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                        volume = cast(interface, POINTER(IAudioEndpointVolume))
+                        current_mute = volume.GetMute()
+                        volume.SetMute(not current_mute, None)
+                except: pass
     @staticmethod
     def cycle_device():
         sinks = AudioSystem.poll_all()['sinks']
