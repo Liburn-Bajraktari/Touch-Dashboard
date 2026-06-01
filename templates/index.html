@@ -247,10 +247,11 @@
         }
         .modal-overlay.active .modal-card { transform: scale(1) translateY(0); }
         #ip-modal .modal-card { width: min(30rem, calc(100vw - 2rem)); }
-        #ip-modal h3 { margin: 0; color: var(--text-main); font-size: 1.5rem; }
-        #ip-modal p { margin: 0; color: var(--text-muted); font-size: 0.95rem; line-height: 1.4; }
-        #ip-error { min-height: 1.2rem; color: var(--danger); font-size: 0.9rem; font-weight: bold; }
-        #ip-actions { display: flex; gap: 1rem; height: 3.5rem; }
+        #ip-modal h3 { margin: 0; color: var(--text-main); font-size: 2rem; }
+        #ip-modal p { margin: 0; color: var(--text-muted); font-size: 1.25rem; line-height: 1.4; }
+        #ip-error { min-height: 1.5rem; color: var(--danger); font-size: 1.15rem; font-weight: bold; }
+        #ip-actions { display: flex; gap: 1.5rem; height: 5rem; margin-top: auto; }
+        #ip-actions .btn { font-size: 1.4rem; font-weight: bold; }
     </style>
 </head>
 <body id="body">
@@ -361,18 +362,18 @@
     <!-- --- Soundboard Modal --- -->
     <div id="sp-modal" class="modal-overlay">
         <div class="modal-card" id="sp-modal-card" style="width: 45vw;">
-            <h3 style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 1.5rem;" id="sp-modal-title">Edit Button</h3>
-            <div class="form-group">
+            <h3 style="margin: 0 0 1.5rem 0; color: var(--text-main); font-size: 2rem;" id="sp-modal-title">Edit Button</h3>
+            <div class="form-group" style="gap: 1rem;">
                 <label>Audio File / Command</label>
                 <input type="text" id="sp-id-input" placeholder="e.g. 1" oninput="checkSpInput()">
                 <select id="sp-id-select" onchange="checkSpInput()" style="display: none;"></select>
             </div>
-            <div class="form-group"><label>Display Name</label><input type="text" id="sp-name-input" placeholder="e.g. Laugh" oninput="checkSpInput()"></div>
-            <div id="sp-error-msg" style="color: var(--danger); font-size: 0.9rem; text-align: center; display: none; font-weight: bold; margin-top: 0.5rem;"></div>
-            <div style="display: flex; gap: 1rem; margin-top: 1rem; height: 3.5rem;">
-                <button class="btn" style="flex: 1; background: var(--panel-bg);" onclick="closeSpModal()">Cancel</button>
-                <button class="btn" style="flex: 1; background: var(--danger); display: none;" id="sp-del-btn" onclick="deleteSpBtn()">Delete</button>
-                <button class="btn" id="sp-save-btn" style="flex: 1; background: var(--panel-bg); color: var(--text-muted); opacity: 0.5; transition: all 0.2s;" onclick="saveSpBtn()">Save</button>
+            <div class="form-group" style="gap: 1rem; margin-top: 1.5rem;"><label>Display Name</label><input type="text" id="sp-name-input" placeholder="e.g. Laugh" oninput="checkSpInput()"></div>
+            <div id="sp-error-msg" style="color: var(--danger); font-size: 1.15rem; text-align: center; display: none; font-weight: bold; margin-top: 1rem;"></div>
+            <div style="display: flex; gap: 1.5rem; margin-top: auto; height: 5rem;">
+                <button class="btn" style="flex: 1; background: var(--panel-bg); font-size: 1.4rem; font-weight: bold;" onclick="closeSpModal()">Cancel</button>
+                <button class="btn" style="flex: 1; background: var(--danger); display: none; font-size: 1.4rem; font-weight: bold;" id="sp-del-btn" onclick="deleteSpBtn()">Delete</button>
+                <button class="btn" id="sp-save-btn" style="flex: 1; background: var(--panel-bg); color: var(--text-muted); opacity: 0.5; transition: all 0.2s; font-size: 1.4rem; font-weight: bold;" onclick="saveSpBtn()">Save</button>
             </div>
         </div>
     </div>
