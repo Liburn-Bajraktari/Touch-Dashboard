@@ -547,7 +547,7 @@
     
     <!-- --- Soundboard View --- -->
     <div id="soundpad-view" style="visibility: hidden; pointer-events: none; flex-direction: column;">
-        <div id="sp-inner" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%; opacity: 0;">
+        <div id="sp-inner" style="flex: 1; padding: 1.5rem; overflow-y: auto; height: 100%; opacity: 0; will-change: transform, opacity; transform: translateZ(0);">
             <div id="sp-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.5rem; align-content: start;">
             </div>
         </div>
@@ -1180,9 +1180,7 @@
                 gsap.set(elSpView, { 
                     visibility: 'visible', pointerEvents: 'auto', opacity: 1, 
                     x: spOrigin.x, y: spOrigin.y, 
-                    scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY, 
-                    backdropFilter: 'none', webkitBackdropFilter: 'none',
-                    boxShadow: 'none'
+                    scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY 
                 });
 
                 gsap.set(elSpInner, { opacity: 0 });
@@ -1193,12 +1191,7 @@
                     ease: "power3.inOut",
                     force3D: true,
                     onComplete: () => {
-                        requestAnimationFrame(() => {
-                            gsap.set(elSpView, { 
-                                backdropFilter: '', webkitBackdropFilter: '', boxShadow: ''
-                            });
-                        });
-                        gsap.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out", onComplete: () => {
+                        gsap.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out", force3D: true, onComplete: () => {
                             isAnimating = false;
                             if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                         }});
@@ -1220,10 +1213,6 @@
                 elMainView.style.pointerEvents = 'auto';
 
                 gsap.to(elSpInner, { opacity: 0, duration: 0.1, ease: "power2.in", force3D: true });
-
-                gsap.set(elSpView, { 
-                    backdropFilter: 'none', webkitBackdropFilter: 'none', boxShadow: 'none'
-                });
 
                 gsap.to(elSpView, { 
                     duration: 0.3, delay: 0.05,
