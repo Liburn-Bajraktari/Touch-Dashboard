@@ -578,13 +578,25 @@
         ;(function initViewportScale() {
             const REF_W = 2560, REF_H = 1600, REF_PX = 22;
             const MIN_PX = 6, MAX_PX = 32;
+            let lastVw = window.innerWidth;
+            let maxVhForVw = window.innerHeight;
 
             function apply() {
                 const vw = window.innerWidth;
                 const vh = window.innerHeight;
-                // Scale by whichever axis is "tighter" so content always fits
+                
+                // If width is unchanged but height dropped, it's likely a virtual keyboard.
+                // We use the max known height for this width to prevent the UI from shrinking.
+                if (vw === lastVw) {
+                    if (vh > maxVhForVw) maxVhForVw = vh;
+                } else {
+                    lastVw = vw;
+                    maxVhForVw = vh;
+                }
+                
+                // Scale by whichever axis is "tighter" using the true max height
                 const scaleW = vw / REF_W;
-                const scaleH = vh / REF_H;
+                const scaleH = maxVhForVw / REF_H;
                 const scale  = Math.min(scaleW, scaleH);
                 const px     = Math.min(MAX_PX, Math.max(MIN_PX, Math.round(REF_PX * scale * 10) / 10));
                 document.documentElement.style.fontSize = px + 'px';
