@@ -968,14 +968,6 @@ class DiscordIPC:
         self.send(1, {"cmd": "GET_VOICE_SETTINGS", "args": {}, "nonce": "GET_VOICE"})
         self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
         self.auth_pending = False
-        
-        for _ in range(2):
-            res = self.recv()
-            if res and res.get("cmd") == "GET_VOICE_SETTINGS" and res.get("evt") != "ERROR":
-                self.voice_supported = True
-                data = res.get("data", {})
-                if "mute" in data: self.voice_state["mute"] = data["mute"]
-                if "deaf" in data: self.voice_state["deaf"] = data["deaf"]
 
     def loop(self):
         self.running = True
@@ -1134,7 +1126,7 @@ def restart_discord_ipc():
         disc_ipc_instance.running = False
         disc_ipc_instance.close()
         disc_ipc_instance = None
-    if config.get("disc_id") and config.get("disc_secret"):
+    if config.get("disc_enabled", True) and config.get("disc_id") and config.get("disc_secret"):
         disc_ipc_instance = DiscordIPC(config["disc_id"], config["disc_secret"])
         threading.Thread(target=disc_ipc_instance.loop, daemon=True).start()
 
@@ -1701,6 +1693,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     data = action_data
                     
             if msg_type == 'save_config':
+                old_disc_enabled = config.get("disc_enabled", True)
                 old_id, old_secret = config.get("disc_id"), config.get("disc_secret")
                 old_weather_api, old_weather_city = config.get("weather_api"), config.get("weather_city")
                 old_spot_id = config.get("spot_id")
@@ -1723,7 +1716,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     },
                 })
                 
-                if old_id != config.get("disc_id") or old_secret != config.get("disc_secret"): restart_discord_ipc()
+                if old_disc_enabled != config.get("disc_enabled", True) or old_id != config.get("disc_id") or old_secret != config.get("disc_secret"): restart_discord_ipc()
                 if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"): 
                     weather_update_event.set()
 
