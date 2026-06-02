@@ -432,6 +432,17 @@ def play_local_sound(filename):
         stderr=subprocess.DEVNULL
     )
 
+def stop_local_sound():
+    global current_audio_process
+    if current_audio_process is not None and current_audio_process.poll() is None:
+        current_audio_process.terminate()
+        try:
+            current_audio_process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            current_audio_process.kill()
+            current_audio_process.wait(timeout=1)
+        current_audio_process = None
+
 # --- Macros ---
 class MacroSystem:
     _ui = None
@@ -1508,6 +1519,7 @@ async def lifespan(app: FastAPI):
                 ], check=True)
             
             run_limited(['pactl', 'set-sink-volume', 'Dashboard-Soundboard', '100%'])
+            run_limited(['pactl', 'set-sink-mute', 'Dashboard-Soundboard', '0'])
             
             modules_output = check_output_limited(['pactl', 'list', 'short', 'modules']).decode()
             if 'source=Dashboard-Soundboard.monitor' not in modules_output:
@@ -1726,6 +1738,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 if action.startswith('local_play_'):
                     filename = action.removeprefix('local_play_')
                     await asyncio.to_thread(play_local_sound, filename)
+                
+                elif action == 'stop_local_audio':
+                    await asyncio.to_thread(stop_local_sound)
                 
                 elif action.startswith('spot_'):
                     routed_to_spot = False

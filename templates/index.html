@@ -96,6 +96,10 @@
         #btn-macro-sp:active { transform: scale(1); border-radius: 1rem; }
         .btn.muted { background: linear-gradient(180deg, #fb7185, #e11d48); box-shadow: 0 0 22px var(--danger-glow); color: #18040a; border-color: transparent; }
         .btn.muted::before { content: ''; position: absolute; top: -6px; left: -6px; right: -6px; bottom: -6px; border-radius: 16px; border: 4px solid rgba(251, 113, 133, 0.3); pointer-events: none; z-index: 1; }
+        #btn-disc-mute.muted::after, #btn-disc-deaf.muted::after { content: ''; position: absolute; top: 50%; left: 50%; width: 2.1rem; height: 1.5px; background-color: currentColor; border-radius: 2px; transform: translate(-50%, -50%) rotate(-45deg); pointer-events: none; z-index: 2; }
+        #btn-disc-mute.muted svg, #btn-disc-deaf.muted svg { -webkit-mask-image: linear-gradient(to bottom right, black calc(50% - 2.5px), transparent calc(50% - 2.5px), transparent calc(50% + 2.5px), black calc(50% + 2.5px)); mask-image: linear-gradient(to bottom right, black calc(50% - 2.5px), transparent calc(50% - 2.5px), transparent calc(50% + 2.5px), black calc(50% + 2.5px)); }
+        .btn-add { opacity: 0.4; transition: opacity 0.2s, transform 0.12s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s; }
+        .btn-add:hover { opacity: 0.9; }
         .btn-top { width: 4.5rem; height: 3.8rem; }
         .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; flex: 0 0 5rem; }
         .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); grid-auto-rows: 5rem; gap: var(--gap); flex: 1; align-content: start;}
@@ -576,10 +580,15 @@
             </div>
         </div>
         <div class="section" id="top-title" style="justify-content: center; letter-spacing: 4px; font-weight: 500; font-size: 1.6rem; color: var(--text-muted); transition: color 0.3s ease, transform 0.15s ease; text-align: center;">COMMAND CENTER</div>
-        <div class="section" style="justify-content: flex-end;">
-            <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
-            <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
-            <button class="btn btn-top" style="color: #ef4444;"><i data-lucide="power"></i></button>
+        <div class="section" style="justify-content: flex-end; position: relative;">
+            <div id="top-right-normal" style="display: flex; gap: 0.5rem; align-items: center; transform: translateZ(0);">
+                <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span></div>
+                <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
+                <button class="btn btn-top" style="color: #ef4444;"><i data-lucide="power"></i></button>
+            </div>
+            <button class="btn btn-top" id="btn-stop-audio" style="position: absolute; right: 0; opacity: 0; pointer-events: none; color: #ef4444; width: auto; padding: 0 1.5rem; border-radius: 2rem; transform: translateZ(0);" onclick="stopSoundboardAudio()">
+                <i data-lucide="square"></i><span style="margin-left:0.5rem; font-weight:700; font-size: 1.1rem; letter-spacing: 1px;">STOP AUDIO</span>
+            </button>
         </div>
     </div>
 
@@ -638,7 +647,7 @@
                 </div>
 
                 <div class="btn-row" style="width: 100%; gap: 1.5rem; flex: 0 0 auto;">
-                    <button class="btn" id="btn-disc-mute" onclick="act('disc_mute')"><i data-lucide="mic-off" style="width: 1.8rem; height: 1.8rem;"></i></button>
+                    <button class="btn" id="btn-disc-mute" onclick="act('disc_mute')"><i data-lucide="mic" style="width: 1.8rem; height: 1.8rem;"></i></button>
                     <button class="btn" id="btn-disc-deaf" onclick="act('disc_deaf')"><i data-lucide="headphones" style="width: 1.8rem; height: 1.8rem;"></i></button>
                     <button class="btn" onclick="act('disc_cam')"><i data-lucide="video" style="width: 1.8rem; height: 1.8rem;"></i></button>
                     <button class="btn" onclick="act('disc_screen')"><i data-lucide="monitor-up" style="width: 1.8rem; height: 1.8rem;"></i></button>
@@ -1447,6 +1456,8 @@
         let activeSpBtnIcon = null;
         const elBtnBack = document.getElementById('btn-back');
         const elBattSlide = document.getElementById('batt-slide');
+        const elTopRightNormal = document.getElementById('top-right-normal');
+        const elBtnStopAudio = document.getElementById('btn-stop-audio');
         const elViewWrapper = document.getElementById('view-wrapper');
         const elMainGlassPanels = document.querySelectorAll('#main-view .glass');
 
@@ -1460,6 +1471,35 @@
                 const wrapRect = elViewWrapper.getBoundingClientRect();
 
                 elMainView.style.pointerEvents = 'none';
+
+                const fakeBg = elMainView.cloneNode(true);
+                fakeBg.id = 'fake-bg-blur';
+                fakeBg.style.position = 'absolute';
+                fakeBg.style.top = '0';
+                fakeBg.style.left = '0';
+                fakeBg.style.width = '100%';
+                fakeBg.style.height = '100%';
+                fakeBg.style.zIndex = '2';
+                fakeBg.style.pointerEvents = 'none';
+                fakeBg.style.filter = 'blur(15px) brightness(0.6)';
+                fakeBg.style.opacity = '0';
+                
+                fakeBg.querySelectorAll('*').forEach(el => {
+                    el.id = '';
+                    el.style.willChange = 'auto';
+                });
+
+                const fakeBgBase = fakeBg.cloneNode(true);
+                fakeBgBase.id = 'fake-bg-base';
+                fakeBgBase.style.filter = 'none';
+                fakeBgBase.style.opacity = '1';
+                fakeBgBase.style.zIndex = '1';
+
+                elViewWrapper.appendChild(fakeBgBase);
+                elViewWrapper.appendChild(fakeBg);
+                
+                elCols.forEach(c => c.style.display = 'none');
+                gsap.to(fakeBg, { opacity: 1, duration: 0.3, ease: "power2.inOut" });
 
                 const wrapCenterX = wrapRect.width / 2;
                 const wrapCenterY = wrapRect.height / 2;
@@ -1489,7 +1529,7 @@
                 const tl = gsap.timeline({
                     onComplete: () => {
                         // Demote layers after animation
-                        elCols.forEach(c => c.style.willChange = '');
+                        elCols.forEach(c => { c.style.willChange = ''; c.style.display = 'none'; });
                         elSpView.style.willChange = '';
                         isAnimating = false;
                         if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
@@ -1505,33 +1545,36 @@
 
                 tl.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out", force3D: true }, 0.3);
 
-                if (activeSpBtnIcon) tl.to(activeSpBtnIcon, { opacity: 0, duration: 0.1, force3D: true }, 0);
                 if (activeSpBtn) tl.to(activeSpBtn, { opacity: 0, duration: 0.15, force3D: true }, 0);
-
-                tl.to(elCols[0], { x: -40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
-                tl.to(elCols[1], { y: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
-                tl.to(elCols[2], { x: 40, opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
 
                 tl.to(elBattSlide, { x: '6rem', duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
                 tl.to(elBtnBack, { opacity: 1, duration: 0.15 }, 0.1);
                 elBtnBack.style.pointerEvents = 'auto';
 
+                tl.to(elTopRightNormal, { x: '10rem', opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
+                tl.to(elBtnStopAudio, { opacity: 1, duration: 0.15 }, 0.1);
+                elBtnStopAudio.style.pointerEvents = 'auto';
+
             } else {
                 elMainView.style.pointerEvents = 'auto';
+                
+                const canvasBlur = document.getElementById('fake-bg-blur');
+                const canvasBase = document.getElementById('fake-bg-base');
 
-                // Promote layers for animation
-                elCols.forEach(c => c.style.willChange = 'transform, opacity');
+                if (canvasBlur) gsap.to(canvasBlur, { opacity: 0, duration: 0.3, ease: "power2.inOut" });
+
                 elSpView.style.willChange = 'transform';
 
                 const tl = gsap.timeline({
                     onComplete: () => {
                         gsap.set(elSpView, { visibility: 'hidden', pointerEvents: 'none', clearProps: 'all' });
-                        gsap.set(elCols, { clearProps: 'transform,opacity' });
-                        elMainGlassPanels.forEach(p => p.classList.remove('animating-blur'));
-                        // Demote layers
-                        elCols.forEach(c => c.style.willChange = '');
                         elSpView.style.willChange = '';
                         isAnimating = false;
+                        
+                        elCols.forEach(c => c.style.display = '');
+                        if (canvasBlur) canvasBlur.remove();
+                        if (canvasBase) canvasBase.remove();
+
                         if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                     }
                 });
@@ -1548,13 +1591,13 @@
                 if (activeSpBtn) tl.to(activeSpBtn, { opacity: 1, duration: 0.15, clearProps: 'opacity', force3D: true }, 0.1);
                 if (activeSpBtnIcon) tl.to(activeSpBtnIcon, { opacity: 1, duration: 0.15, clearProps: 'opacity', force3D: true }, 0.15);
 
-                tl.to(elCols, { 
-                    x: 0, y: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", stagger: 0.02, force3D: true
-                }, 0.05);
-
                 elBtnBack.style.pointerEvents = 'none';
                 tl.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out", force3D: true }, 0);
                 tl.to(elBattSlide, { x: 0, duration: 0.3, ease: "power3.inOut", clearProps: 'transform', force3D: true }, 0.05);
+
+                elBtnStopAudio.style.pointerEvents = 'none';
+                tl.to(elBtnStopAudio, { opacity: 0, duration: 0.1, ease: "power2.out", force3D: true }, 0);
+                tl.to(elTopRightNormal, { x: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", clearProps: 'transform,opacity', force3D: true }, 0.05);
             }
 
             dom.topTitle.innerText = show ? (osTarget === 'linux' ? 'SOUNDBOARD' : 'SOUNDPAD') : 'COMMAND CENTER';
@@ -1620,7 +1663,7 @@
                 const slot = document.createElement('div');
                 slot.className = 'macro-slot'; // Not empty, so it doesn't get opacity: 0.1
                 const btn = document.createElement('button');
-                btn.className = 'btn';
+                btn.className = 'btn btn-add';
                 btn.style.borderWidth = '2px';
                 btn.style.borderStyle = 'dashed';
                 btn.style.borderColor = 'var(--accent)';
@@ -1938,7 +1981,7 @@
                 `;
             });
             htmlStr += `
-                <button class="btn" style="height: 7rem; border: 2px dashed #38bdf8; background-color: #0f172a;" 
+                <button class="btn btn-add" style="height: 7rem; border: 2px dashed #38bdf8; background-color: #0f172a;" 
                     onclick="openSpModal(-1)">
                     <i data-lucide="plus" style="width: 2rem; height: 2rem; color: #38bdf8;"></i>
                 </button>
@@ -1962,6 +2005,10 @@
                     sendSocket('action', 'sp_play_' + spBtns[idx].id);
                 }
             }
+        }
+
+        function stopSoundboardAudio() {
+            sendSocket('action', 'stop_local_audio');
         }
 
         function checkSpInput() {
