@@ -319,6 +319,13 @@
         .macro-slot.empty span { color: transparent; }
         .sp-save-valid { background: rgba(14, 165, 233, 0.1) !important; border: 1px solid #7dd3fc !important; color: var(--accent) !important; font-weight: bold !important; opacity: 1 !important; box-shadow: 0 0 12px var(--accent-glow) !important; }
         .sp-save-valid::before { content: ''; position: absolute; top: -6px; left: -6px; right: -6px; bottom: -6px; border-radius: 16px; border: 4px solid rgba(34, 211, 238, 0.3); pointer-events: none; z-index: 1; }
+        
+        .vc-user { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; border-radius: 0.5rem; background: rgba(0,0,0,0.2); transition: background 0.2s; }
+        .vc-avatar { position: relative; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #2f3136; flex-shrink: 0; box-sizing: border-box; transition: box-shadow 0.2s, border 0.2s; border: 2px solid transparent; }
+        .vc-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+        .vc-avatar.speaking { border: 2px solid #57F287; box-shadow: 0 0 10px rgba(87,242,135,0.4); }
+        .vc-status-icon { position: absolute; bottom: -4px; right: -4px; background: var(--bg-dark); border-radius: 50%; width: 1.1rem; height: 1.1rem; display: flex; align-items: center; justify-content: center; color: var(--danger); }
+        .vc-status-icon i { width: 0.75rem; height: 0.75rem; }
     </style>
 </head>
 <body id="body">
@@ -567,9 +574,27 @@
                 </div>
             </div>
 
-            <div id="panel-discord" class="glass panel" style="display: none; flex: 0 0 14rem; justify-content: center; align-items: center; flex-direction: column;">
-                <h3 style="color: var(--text-muted); margin: 0 0 1.5rem 0; font-size: 1rem; letter-spacing: 2px;">DISCORD INTEGRATION</h3>
-                <div class="btn-row" style="width: 100%; gap: 1.5rem;">
+            <div id="panel-discord" class="glass panel" style="display: none; flex: 0 0 auto; min-height: 14rem; justify-content: center; align-items: center; flex-direction: column; overflow: hidden; transition: flex 0.4s cubic-bezier(0.1, 0.9, 0.2, 1), max-height 0.4s cubic-bezier(0.1, 0.9, 0.2, 1);">
+                <div id="disc-header-basic" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; flex: 0 0 auto; margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--text-muted); margin: 0; font-size: 1rem; letter-spacing: 2px;">DISCORD INTEGRATION</h3>
+                </div>
+                
+                <div id="disc-vc-container" style="display: none; flex: 1; min-height: 0; width: 100%; flex-direction: column; padding-bottom: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem;">
+                        <div style="display: flex; flex-direction: column; overflow: hidden; padding-right: 0.5rem;">
+                            <span id="vc-guild-name" style="color: var(--text-muted); font-size: 0.75rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</span>
+                            <span id="vc-channel-name" style="color: var(--text-main); font-size: 1.1rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</span>
+                        </div>
+                        <button class="btn" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--danger); width: 4.5rem; height: 3.5rem; min-height: 0; padding: 0; flex: 0 0 auto;" onclick="act('disc_disconnect')">
+                            <i data-lucide="phone-off" style="width: 1.5rem; height: 1.5rem;"></i>
+                        </button>
+                    </div>
+                    
+                    <div id="vc-users-list" style="overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; flex: 1; min-height: 0; padding-right: 0.5rem;">
+                    </div>
+                </div>
+
+                <div class="btn-row" style="width: 100%; gap: 1.5rem; flex: 0 0 auto;">
                     <button class="btn" id="btn-disc-mute" onclick="act('disc_mute')"><i data-lucide="mic-off" style="width: 1.8rem; height: 1.8rem;"></i></button>
                     <button class="btn" id="btn-disc-deaf" onclick="act('disc_deaf')"><i data-lucide="headphones" style="width: 1.8rem; height: 1.8rem;"></i></button>
                     <button class="btn" onclick="act('disc_cam')"><i data-lucide="video" style="width: 1.8rem; height: 1.8rem;"></i></button>
@@ -912,6 +937,11 @@
             btnDiscDeaf: document.getElementById('btn-disc-deaf'),
             discGroup: document.getElementById('disc-connected-group'),
             discWarning: document.getElementById('disc-warning-container'),
+            discVcContainer: document.getElementById('disc-vc-container'),
+            discHeaderBasic: document.getElementById('disc-header-basic'),
+            vcGuildName: document.getElementById('vc-guild-name'),
+            vcChannelName: document.getElementById('vc-channel-name'),
+            vcUsersList: document.getElementById('vc-users-list'),
             spotifyPanel: document.querySelector('.spotify'),
             btnSpotAuth: document.getElementById('btn-spot-auth'),
             spotGroup: document.getElementById('spot-connected-group'),
@@ -1256,6 +1286,90 @@
                     if (dom.discWarning) {
                         const showWarning = (d.discord.connected && !d.discord.auth_pending && !d.discord.voice_supported) ? 'block' : 'none';
                         if (dom.discWarning.style.display !== showWarning) dom.discWarning.style.display = showWarning;
+                    }
+                    
+                    if (d.discord.voice_channel) {
+                        if (dom.discVcContainer.style.display !== 'flex') {
+                            dom.discVcContainer.style.display = 'flex';
+                            dom.discHeaderBasic.style.display = 'none';
+                            dom.panelDiscord.style.justifyContent = 'space-between';
+                            dom.panelDiscord.style.flex = '0 1 auto';
+                            dom.panelDiscord.style.maxHeight = '28rem';
+                        }
+                        
+                        const vc = d.discord.voice_channel;
+                        setText(dom.vcGuildName, vc.guild_id ? "CONNECTED" : "CALL"); 
+                        
+                        let channelText = vc.name || "Voice Channel";
+                        if (vc.guild_name) channelText = vc.guild_name + " - " + channelText;
+                        setText(dom.vcChannelName, channelText);
+                        
+                        // Render Users
+                        const userIds = Object.keys(vc.users || {});
+                        const existingDivs = Array.from(dom.vcUsersList.children);
+                        const existingIds = existingDivs.map(el => el.getAttribute('data-uid'));
+                        
+                        // Remove stale
+                        existingDivs.forEach(el => {
+                            if (!userIds.includes(el.getAttribute('data-uid'))) el.remove();
+                        });
+                        
+                        // Add or Update
+                        userIds.forEach(uid => {
+                            const u = vc.users[uid];
+                            let el = dom.vcUsersList.querySelector(`[data-uid="${uid}"]`);
+                            
+                            if (!el) {
+                                el = document.createElement('div');
+                                el.className = 'vc-user';
+                                el.setAttribute('data-uid', uid);
+                                el.innerHTML = `
+                                    <div class="vc-avatar">
+                                        <img src="" alt="avatar">
+                                        <div class="vc-status-icon" style="display: none;"></div>
+                                    </div>
+                                    <span style="color: var(--text-main); font-weight: bold; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
+                                `;
+                                dom.vcUsersList.appendChild(el);
+                            }
+                            
+                            const avatarDiv = el.querySelector('.vc-avatar');
+                            const img = el.querySelector('img');
+                            const nameSpan = el.querySelector('span');
+                            const statusIcon = el.querySelector('.vc-status-icon');
+                            
+                            // Avatar logic
+                            let avatarUrl = u.avatar ? `https://cdn.discordapp.com/avatars/${uid}/${u.avatar}.png?size=64` : 'https://cdn.discordapp.com/embed/avatars/0.png';
+                            if (img.getAttribute('src') !== avatarUrl) img.setAttribute('src', avatarUrl);
+                            
+                            if (nameSpan.innerText !== u.name) nameSpan.innerText = u.name;
+                            
+                            // Speaking state
+                            avatarDiv.classList.toggle('speaking', u.speaking);
+                            
+                            // Mute/Deaf state
+                            if (u.deaf) {
+                                statusIcon.style.display = 'flex';
+                                statusIcon.innerHTML = '<i data-lucide="headphones"></i>';
+                                if (window.lucide) window.lucide.createIcons({ root: statusIcon });
+                            } else if (u.mute) {
+                                statusIcon.style.display = 'flex';
+                                statusIcon.innerHTML = '<i data-lucide="mic-off"></i>';
+                                if (window.lucide) window.lucide.createIcons({ root: statusIcon });
+                            } else {
+                                statusIcon.style.display = 'none';
+                            }
+                        });
+                        
+                    } else {
+                        if (dom.discVcContainer.style.display !== 'none') {
+                            dom.discVcContainer.style.display = 'none';
+                            dom.discHeaderBasic.style.display = 'flex';
+                            dom.panelDiscord.style.justifyContent = 'center';
+                            dom.panelDiscord.style.flex = '0 0 auto';
+                            dom.panelDiscord.style.maxHeight = 'none';
+                            dom.vcUsersList.innerHTML = '';
+                        }
                     }
                 }
 

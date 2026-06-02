@@ -811,6 +811,7 @@ class DiscordIPC:
         self.running = False
         self.voice_state = {"mute": False, "deaf": False}
         self.voice_supported = False
+        self.voice_channel = None
         self.auth_pending = False
         self.pre_deafen_mute = False
         self.is_vesktop = False
@@ -923,7 +924,7 @@ class DiscordIPC:
 
     def get_auth_url(self):
         """Generates the URL the user must visit to authorize the app."""
-        scopes = "rpc rpc.voice.read rpc.voice.write"
+        scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
         redirect_uri = urllib.parse.quote("http://127.0.0.1:5000/disc_callback")
         return f"https://discord.com/api/oauth2/authorize?client_id={self.client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scopes}"
 
@@ -963,7 +964,9 @@ class DiscordIPC:
             return
 
         self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_SETTINGS_UPDATE", "args": {}, "nonce": str(uuid.uuid4())})
+        self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_CHANNEL_SELECT", "args": {}, "nonce": str(uuid.uuid4())})
         self.send(1, {"cmd": "GET_VOICE_SETTINGS", "args": {}, "nonce": "GET_VOICE"})
+        self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
         self.auth_pending = False
         
         for _ in range(2):
@@ -1015,6 +1018,102 @@ class DiscordIPC:
                             data = res.get("data", {})
                             if "mute" in data: self.voice_state["mute"] = data["mute"]
                             if "deaf" in data: self.voice_state["deaf"] = data["deaf"]
+                            if main_event_loop and sys_data_trigger:
+                                main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
+                            
+                        if res.get("cmd") == "GET_SELECTED_VOICE_CHANNEL" or res.get("evt") == "VOICE_CHANNEL_SELECT":
+                            data = res.get("data") or {}
+                            cid = data.get("id") or data.get("channel_id")
+                            if not cid:
+                                self.voice_channel = None
+                            else:
+                                if res.get("evt") == "VOICE_CHANNEL_SELECT":
+                                    self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
+                                else:
+                                    self.voice_channel = {
+                                        "id": data.get("id"),
+                                        "name": data.get("name"),
+                                        "guild_id": data.get("guild_id"),
+                                        "guild_name": None,
+                                        "users": {}
+                                    }
+                                    cid_str = str(data.get("id"))
+                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_STATE_CREATE", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
+                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_STATE_UPDATE", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
+                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_STATE_DELETE", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
+                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "SPEAKING_START", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
+                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "SPEAKING_STOP", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
+                                    
+                                    if data.get("guild_id"):
+                                        self.send(1, {"cmd": "GET_GUILD", "args": {"guild_id": str(data.get("guild_id")), "timeout": 3}, "nonce": "GET_GUILD_VC"})
+                                        
+                                    for vs in data.get("voice_states", []):
+                                        user = vs.get("user", {})
+                                        uid = user.get("id")
+                                        if uid is not None:
+                                            uid = str(uid)
+                                            self.voice_channel["users"][uid] = {
+                                                "id": uid,
+                                                "name": vs.get("nick") or user.get("global_name") or user.get("username"),
+                                                "avatar": user.get("avatar"),
+                                                "mute": vs.get("voice_state", {}).get("mute") or vs.get("voice_state", {}).get("self_mute"),
+                                                "deaf": vs.get("voice_state", {}).get("deaf") or vs.get("voice_state", {}).get("self_deaf"),
+                                                "speaking": False
+                                            }
+                                    if main_event_loop and sys_data_trigger:
+                                        main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
+                        
+                        elif res.get("evt") in ["VOICE_STATE_CREATE", "VOICE_STATE_UPDATE"] and self.voice_channel:
+                            data = res.get("data", {})
+                            user = data.get("user", {})
+                            uid = user.get("id")
+                            if uid is not None:
+                                uid = str(uid)
+                                if uid not in self.voice_channel["users"]:
+                                    self.voice_channel["users"][uid] = {"id": uid, "speaking": False}
+                                u = self.voice_channel["users"][uid]
+                                u["name"] = data.get("nick") or user.get("global_name") or user.get("username")
+                                u["avatar"] = user.get("avatar")
+                                vs = data.get("voice_state", {})
+                                u["mute"] = vs.get("mute") or vs.get("self_mute")
+                                u["deaf"] = vs.get("deaf") or vs.get("self_deaf")
+                                if main_event_loop and sys_data_trigger:
+                                    main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
+                                
+                        elif res.get("evt") == "VOICE_STATE_DELETE" and self.voice_channel:
+                            uid = res.get("data", {}).get("user", {}).get("id")
+                            if uid is not None:
+                                uid = str(uid)
+                                if uid in self.voice_channel["users"]:
+                                    del self.voice_channel["users"][uid]
+                                
+                        elif res.get("evt") in ["SPEAKING_START", "SPEAKING_STOP"] and self.voice_channel:
+                            uid = res.get("data", {}).get("user_id")
+                            if uid is not None:
+                                uid = str(uid)
+                                if uid in self.voice_channel["users"]:
+                                    self.voice_channel["users"][uid]["speaking"] = (res.get("evt") == "SPEAKING_START")
+                                    if main_event_loop and sys_data_trigger:
+                                        main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
+                                        
+                        elif res.get("nonce") == "GET_GUILD_VC" and self.voice_channel:
+                            if "data" in res and res.get("evt") != "ERROR":
+                                g_id = str(res["data"].get("id"))
+                                if str(self.voice_channel.get("guild_id")) == g_id:
+                                    self.voice_channel["guild_name"] = res["data"].get("name")
+                                    if main_event_loop and sys_data_trigger:
+                                        main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
+                                        
+                        elif res.get("evt") == "ERROR" and res.get("nonce") == "GET_GUILD_VC":
+                            # The user hasn't granted rpc.guilds.read! Force a re-auth.
+                            self.access_token = ""
+                            with CONFIG_LOCK:
+                                config["disc_token"] = ""
+                                save_config()
+                            self.auth_pending = True
+                            if main_event_loop and sys_data_trigger:
+                                main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
+                                
                 except Exception as e:
                     logger.error(f"Discord loop error: {e}")
                     self.close()
@@ -1171,11 +1270,17 @@ class ConnectionManager:
             self.disconnect(connection)
 
 ws_manager = ConnectionManager()
+main_event_loop = None
+sys_data_trigger = None
 
 # --- Background Tasks ---
 async def hardware_loop():
     global last_spotify_check, spotify_cache, last_audio_devs, force_media_update, current_media_source
-    global mpris_burst_active
+    global mpris_burst_active, main_event_loop, sys_data_trigger
+    
+    main_event_loop = asyncio.get_running_loop()
+    sys_data_trigger = asyncio.Event()
+    
     last_gpu_check, gpu_cache = 0, ""
     
     last_audio_check = 0
@@ -1233,7 +1338,7 @@ async def hardware_loop():
         
         fallback_auth_url = ""
         if disc_has_creds and not disc_has_token:
-            scopes = "rpc rpc.voice.read rpc.voice.write"
+            scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
             redirect_uri = urllib.parse.quote("http://127.0.0.1:5000/disc_callback")
             fallback_auth_url = f"https://discord.com/api/oauth2/authorize?client_id={config['disc_id']}&redirect_uri={redirect_uri}&response_type=code&scope={scopes}"
 
@@ -1255,6 +1360,7 @@ async def hardware_loop():
             if disc_ipc_instance.connected:
                 disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
                 disc_state["deaf"] = disc_ipc_instance.voice_state.get("deaf", False)
+                disc_state["voice_channel"] = disc_ipc_instance.voice_channel
             
             if not disc_has_token and disc_ipc_instance.auth_pending:
                 disc_state["auth_url"] = disc_ipc_instance.get_auth_url()
@@ -1273,7 +1379,11 @@ async def hardware_loop():
         })
         
         sleep_duration = 0.2 if mpris_burst_active else 1.0
-        await asyncio.sleep(sleep_duration)
+        try:
+            await asyncio.wait_for(sys_data_trigger.wait(), timeout=sleep_duration)
+            sys_data_trigger.clear()
+        except asyncio.TimeoutError:
+            pass
 async def fetch_weather():
     global last_weather_data, weather_force_update
     
@@ -1676,7 +1786,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             "cmd": "AUTHORIZE", 
                             "args": {
                                 "client_id": disc_ipc_instance.client_id, 
-                                "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write"]
+                                "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]
                             }, 
                             "nonce": str(uuid.uuid4())
                         })
@@ -1714,6 +1824,9 @@ async def websocket_endpoint(websocket: WebSocket):
                             import evdev
                             await asyncio.to_thread(MacroSystem.send_keys, evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTSHIFT, evdev.ecodes.KEY_D)
                         except: pass
+                elif action == 'disc_disconnect':
+                    if disc_ipc_instance and disc_ipc_instance.connected:
+                        disc_ipc_instance.send(1, {"cmd": "SELECT_VOICE_CHANNEL", "args": {"channel_id": None}, "nonce": str(uuid.uuid4())})
                 
                 elif action == 'disc_cam':
                     pass
