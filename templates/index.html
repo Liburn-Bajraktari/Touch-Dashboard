@@ -30,6 +30,10 @@
             --text-main: #f8fafc; --text-muted: #8b9bb2; --surface: rgba(10, 16, 28, 0.86);
             --radius: 10px; --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
             --gap: 1.5rem; --pad: 1.5rem;
+            --modal-width: 72vw;
+            --modal-height: 75vh;
+            --modal-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(8, 13, 23, 0.98));
+            --modal-pad: 2.5rem;
         }
 
         * { box-sizing: border-box; user-select: none; -webkit-user-drag: none; -webkit-tap-highlight-color: transparent; outline: none; }
@@ -228,7 +232,7 @@
         .spotify.expanded #spot-info { transform: scale(1.1); }
 
         /* --- Settings --- */
-        .modal-card { background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(8, 13, 23, 0.98)); padding: 2.5rem; border-radius: var(--radius); width: 60vw; height: 75vh; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow);}
+        .modal-card { background: var(--modal-bg); padding: var(--modal-pad); border-radius: var(--radius); width: var(--modal-width); height: var(--modal-height); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow); max-width: 90vw; max-height: 90vh; overflow-y: auto; overflow-x: hidden; }
         .tabs { display: flex; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
         .tab { background: none; border: none; color: var(--text-muted); font-size: 1.5rem; font-weight: bold; cursor: pointer; padding: 0.5rem 1rem; transition: color 0.2s, border-color 0.2s; }
         .tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
@@ -247,6 +251,23 @@
 
         #view-wrapper { flex: 1; position: relative; min-height: 0; width: 100%; }
         #main-view { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+
+        /* --- Desktop Titlebar --- */
+        .desktop-titlebar {
+            display: none; height: 3.5rem; align-items: center; justify-content: space-between;
+            background: linear-gradient(180deg, rgba(18, 27, 43, 0.98), rgba(9, 14, 24, 0.98));
+            border-bottom: 1px solid var(--border);
+            margin: calc(var(--pad) * -1) calc(var(--pad) * -1) 0 calc(var(--pad) * -1);
+            padding: 0 1rem; z-index: 9999; position: relative; flex: 0 0 auto;
+        }
+        .win-btn {
+            background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+            width: 2.5rem; height: 2.5rem; border-radius: 0.5rem; display: flex; justify-content: center; align-items: center;
+            transition: background 0.15s, color 0.15s;
+        }
+        .win-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-main); }
+        .win-btn.win-close:hover { background: #ef4444; color: white; }
+        .win-btn i { width: 1.2rem; height: 1.2rem; }
 
         /* Seamless marquee */
         .marquee-wrapper { width: 100%; overflow: hidden; white-space: nowrap; display: block; position: relative; min-width: 0; contain: paint layout; isolation: isolate; }
@@ -301,6 +322,28 @@
     </style>
 </head>
 <body id="body">
+    <div class="desktop-titlebar" id="desktop-titlebar">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <button class="win-btn" onclick="document.getElementById('win-menu').style.display = document.getElementById('win-menu').style.display === 'none' ? 'flex' : 'none'"><i data-lucide="menu"></i></button>
+            <span id="win-ip-label" style="font-size: 1rem; color: var(--text-muted); font-weight: bold; letter-spacing: 1px;">IP: --</span>
+        </div>
+        
+        <div class="pywebview-drag-region" style="flex: 1; height: 100%; cursor: grab;"></div>
+        
+        <div style="display: flex; gap: 0.2rem; align-items: center;">
+            <button class="win-btn" onclick="pywebview.api.minimize()"><i data-lucide="minus"></i></button>
+            <button class="win-btn" onclick="pywebview.api.maximize()"><i data-lucide="square"></i></button>
+            <button class="win-btn win-close" onclick="pywebview.api.close()"><i data-lucide="x"></i></button>
+        </div>
+        
+        <div id="win-menu" style="display: none; position: absolute; top: 3.5rem; left: 0.5rem; background: linear-gradient(180deg, rgba(18, 27, 43, 0.98), rgba(9, 14, 24, 0.98)); border: 1px solid var(--border); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--shadow); flex-direction: column; gap: 1.5rem;">
+            <button class="btn" style="background: rgba(14, 165, 233, 0.1); border: 1px solid #7dd3fc; color: var(--accent); font-weight: bold; width: 100%; height: 3.5rem; min-height: 0; font-size: 1.1rem;" onclick="document.getElementById('win-menu').style.display='none'; document.getElementById('modal').classList.add('active');"><i data-lucide="settings" style="margin-right: 0.5rem; width: 1.4rem; height: 1.4rem;"></i> Settings Dashboard</button>
+            <label style="display: flex; align-items: center; gap: 1rem; font-size: 1.1rem; cursor: pointer; color: var(--text-main);">
+                <input type="checkbox" id="win-min-tray" checked onchange="pywebview.api.set_minimize_to_tray(this.checked)" style="width: 1.5rem; height: 1.5rem;">
+                Minimize to System Tray on Close
+            </label>
+        </div>
+    </div>
 
     <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
         <symbol id="icon-discord" viewBox="0 0 127.14 96.36"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53.65s5-12.04,11.43-12.04S54,47.39,53.89,53.65C53.89,60,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.31,60,73.31,53.65s5-12.04,11.43-12.04S96.16,47.39,96.06,53.65C96.06,60,91.01,65.69,84.69,65.69Z"/></symbol>
@@ -325,6 +368,11 @@
     <!-- --- Settings Modal --- -->
     <div id="modal" class="modal-overlay">
         <div class="modal-card" id="modal-card">
+            <div id="browser-warning" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); padding: 1rem; border-radius: var(--radius); margin-bottom: 0.5rem;">
+                <p style="color: var(--text-main); font-size: 0.95rem; margin: 0; font-weight: bold; display: flex; align-items: center; gap: 0.5rem;"><i data-lucide="alert-triangle" style="width: 1.2rem; height: 1.2rem; color: var(--danger);"></i> Browser Mode Active</p>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0.5rem 0 0 0; line-height: 1.4;">For optimal performance and full capability, prefer using the installed desktop application. Some system-level settings may not function properly from a web browser.</p>
+            </div>
+            
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('tab-spotify')">Spotify</button>
                 <button class="tab" onclick="switchTab('tab-weather')">Weather</button>
@@ -409,7 +457,7 @@
 
     <!-- --- Soundboard Modal --- -->
     <div id="sp-modal" class="modal-overlay">
-        <div class="modal-card" id="sp-modal-card" style="width: 45vw;">
+        <div class="modal-card" id="sp-modal-card">
             <h3 style="margin: 0 0 1.5rem 0; color: var(--text-main); font-size: 2rem;" id="sp-modal-title">Edit Button</h3>
             <div class="form-group" style="gap: 1rem;">
                 <label>Audio File / Command</label>
@@ -428,7 +476,7 @@
 
     <!-- --- Macro Editor Modal --- -->
     <div id="macro-modal" class="modal-overlay">
-        <div class="modal-card" id="macro-modal-card" style="width: 600px; max-width: 90vw; max-height: 90vh; overflow-y: auto; overflow-x: hidden;">
+        <div class="modal-card" id="macro-modal-card">
             <h3 style="margin: 0 0 1.5rem 0; color: var(--text-main); font-size: 2rem;" id="macro-modal-title">Edit Macro</h3>
             
             <div class="form-group" style="gap: 1rem;">
@@ -607,7 +655,20 @@
     </div>
     </div>
     <script>
+        window.addEventListener('pywebviewready', () => {
+            document.getElementById('desktop-titlebar').style.display = 'flex';
+            pywebview.api.get_local_ip().then(ip => {
+                document.getElementById('win-ip-label').innerText = 'IP: ' + ip;
+            });
+        });
+
         // --- Startup ---
+        setTimeout(() => {
+            if (!window.pywebview) {
+                document.getElementById('browser-warning').style.display = 'block';
+            }
+        }, 500);
+
         try {
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.getRegistrations().then(function(regs) {
@@ -1897,6 +1958,20 @@
                 }
             }
             
+            function applyOptimisticUnmute() {
+                const target = type === 'speaker' ? 'spk' : 'mic';
+                const elIcon = target === 'spk' ? dom.iconSpk : dom.iconMic;
+                if (elIcon && elIcon.classList.contains('muted')) {
+                    elIcon.classList.remove('muted');
+                    elIcon.innerHTML = `<i data-lucide="${target === 'mic' ? 'mic' : 'volume-2'}"></i>`;
+                    if (window.lucide) window.lucide.createIcons({ root: elIcon });
+                    if (target === 'spk') lastAudioState.spk.muted = false;
+                    else lastAudioState.mic.muted = false;
+                }
+                if (target === 'spk') audioLockSpk = Date.now() + 1000;
+                else audioLockMic = Date.now() + 1000;
+            }
+            
             function drag(e) {
                 if (!dCheck()) return;
                 if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
@@ -1927,19 +2002,6 @@
                     sendSocket('set_volume', {type: type, val: pct});
                     lastEmit = now;
                 }
-            }
-            function applyOptimisticUnmute() {
-                const target = type === 'speaker' ? 'spk' : 'mic';
-                const elIcon = target === 'spk' ? dom.iconSpk : dom.iconMic;
-                if (elIcon && elIcon.classList.contains('muted')) {
-                    elIcon.classList.remove('muted');
-                    elIcon.innerHTML = `<i data-lucide="${target === 'mic' ? 'mic' : 'volume-2'}"></i>`;
-                    if (window.lucide) window.lucide.createIcons({ root: elIcon });
-                    if (target === 'spk') lastAudioState.spk.muted = false;
-                    else lastAudioState.mic.muted = false;
-                }
-                if (target === 'spk') audioLockSpk = Date.now() + 1000;
-                else audioLockMic = Date.now() + 1000;
             }
             function startDrag(e) {
                 if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
@@ -2008,6 +2070,7 @@
         document.addEventListener('dblclick', (e) => {
             if(e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
             if (e.pointerType === 'touch' || window.matchMedia("(pointer: coarse)").matches) return;
+            if (window.pywebview) return;
             document.getElementById('modal').classList.add('active');
         });
 

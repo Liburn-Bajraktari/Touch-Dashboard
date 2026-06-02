@@ -18,6 +18,19 @@ import site
 import shutil
 import ipaddress
 
+# --- Optimize QtWebEngine/Chromium Memory ---
+# Disable heavy sandboxing, renderer isolations, and limit V8 heap size
+# to bring the idle footprint down from ~2GB to ~200MB for this trusted dashboard.
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+    "--disable-site-isolation-trials "
+    "--disable-features=RendererCodeIntegrity "
+    "--js-flags='--max-old-space-size=128' "
+    "--disable-gpu-memory-buffer-video-frames "
+    "--disable-reading-from-canvas "
+    "--disable-dev-shm-usage "
+    "--disable-logging"
+)
+
 RUNTIME_DEPENDENCIES = [
     ("fastapi", "fastapi"),
     ("uvicorn", "uvicorn[standard]"),
@@ -231,6 +244,7 @@ ask_dependency_popup.last_result = None
 ensure_runtime_dependencies()
 
 import requests
+REQ_SESSION = requests.Session()
 import psutil
 import speedtest
 import spotipy
@@ -690,40 +704,52 @@ class AudioSystem:
             return {
                 "sinks": [{"id": 1, "name": "Windows Audio", "raw_name": "Windows Default", "custom_name": "", "is_active": True}], 
                 "active_sink_name": "Windows Audio",
-                "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'), 
-                "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@')
+                "spk": {"vol": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'), "muted": AudioSystem.is_muted('@DEFAULT_AUDIO_SINK@')}, 
+                "mic": {"vol": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@'), "muted": AudioSystem.is_muted('@DEFAULT_AUDIO_SOURCE@')}
             }
             
         sinks = []
         active_sink_name = "NONE"
+        spk_vol, spk_muted = 0, False
+        mic_vol, mic_muted = 0, False
         try:
             out = AudioSystem.run(['wpctl', 'status'])
             section = None
             for line in out.splitlines():
                 if 'Sinks:' in line: section = 'sinks'; continue
-                elif any(x in line for x in ['Sources:', 'Filters:', 'Streams:', 'Video:', 'Devices:']): 
-                    if section == 'sinks': section = None
-                    continue
+                elif 'Sources:' in line: section = 'sources'; continue
+                elif any(x in line for x in ['Filters:', 'Streams:', 'Video:', 'Devices:']): 
+                    section = None; continue
                 
-                if section == 'sinks':
-                    clean = line.translate(str.maketrans('', '', '\u2502\u251c\u2514\u2500')).strip()
+                if section in ['sinks', 'sources']:
+                    clean = line.translate(str.maketrans('', '', '│├└─')).strip()
                     if not clean: continue
-                    match = re.search(r'^(\*)?\s*(\d+)\.\s+([^\[]+)', clean)
+                    match = re.search(r'^(\*)?\s*(\d+)\.\s+(.+?)\s+\[vol:\s*([\d\.]+)(.*)\]', clean)
                     if match:
-                        is_active, dev_id, raw_name = bool(match.group(1)), match.group(2), match.group(3).strip()
+                        is_active, dev_id, raw_name, vol_str, extras = bool(match.group(1)), match.group(2), match.group(3).strip(), match.group(4), match.group(5)
+                        is_muted = "MUTED" in extras
+                        vol = int(float(vol_str) * 100)
                         
-                        if "Dashboard-Soundboard" in raw_name:
-                            continue
-                            
-                        custom_name = config.get("audio_names", {}).get(raw_name, "")
-                        display_name = custom_name[:10] if custom_name else raw_name[:5].upper()
-                        sinks.append({"id": dev_id, "name": display_name, "raw_name": raw_name, "custom_name": custom_name, "is_active": is_active})
-                        if is_active: active_sink_name = display_name
+                        if is_active:
+                            if section == 'sinks':
+                                spk_vol, spk_muted = vol, is_muted
+                            else:
+                                mic_vol, mic_muted = vol, is_muted
+                                
+                        if section == 'sinks':
+                            if "Dashboard-Soundboard" in raw_name:
+                                continue
+                                
+                            custom_name = config.get("audio_names", {}).get(raw_name, "")
+                            display_name = custom_name[:10] if custom_name else raw_name[:5].upper()
+                            sinks.append({"id": dev_id, "name": display_name, "raw_name": raw_name, "custom_name": custom_name, "is_active": is_active})
+                            if is_active: active_sink_name = display_name
         except Exception as e: logger.error(f"Audio parse error: {e}")
         
         return {
             "sinks": sinks, "active_sink_name": active_sink_name if sinks else "NONE",
-            "spk": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'), "mic": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@')
+            "spk": {"vol": spk_vol, "muted": spk_muted}, 
+            "mic": {"vol": mic_vol, "muted": mic_muted}
         }
 
     @staticmethod
@@ -911,7 +937,7 @@ class DiscordIPC:
                 "code": code,
                 "redirect_uri": "http://127.0.0.1:5000/disc_callback"
             }
-            r = requests.post("https://discord.com/api/oauth2/token", data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=5)
+            r = REQ_SESSION.post("https://discord.com/api/oauth2/token", data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=5)
             if r.status_code == 200:
                 self.access_token = r.json().get("access_token")
                 with CONFIG_LOCK:
@@ -1036,8 +1062,7 @@ def get_spotify_api_meta():
     try:
         token_info = sp_oauth.get_cached_token()
         if not token_info: return {"status": "Auth_Required", "artist": "", "title": "Spotify Not Authorized", "art_url": ""}
-        
-        sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3)
+        sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3, requests_session=REQ_SESSION)
         curr = sp.current_playback()
         if curr and curr.get('item'):
             art_url = curr['item']['album']['images'][0]['url'] if curr['item'].get('album') and curr['item']['album'].get('images') else ""
@@ -1257,7 +1282,7 @@ async def fetch_weather():
         if config.get("weather_api") and config.get("weather_city"):
             try:
                 res = await asyncio.to_thread(
-                    requests.get, 
+                    REQ_SESSION.get, 
                     "http://api.openweathermap.org/data/2.5/weather", 
                     params={"q": config['weather_city'], "appid": config['weather_api'], "units": "metric"}, 
                     timeout=5
@@ -2126,6 +2151,31 @@ def set_windows_window_icon(window, title="Touch Dashboard"):
         _WINDOW_ICON_HANDLES.extend(handle for handle in (large_icon, small_icon) if handle)
 
 
+class Api:
+    def __init__(self, desktop_app):
+        self.app = desktop_app
+
+    def minimize(self):
+        if self.app.window:
+            self.app.window.minimize()
+
+    def maximize(self):
+        if self.app.window:
+            self.app.window.toggle_fullscreen()
+
+    def close(self):
+        if self.app.window:
+            if self.app.minimize_to_tray:
+                self.app.hide_window()
+            else:
+                self.app.quit()
+
+    def set_minimize_to_tray(self, val):
+        self.app.minimize_to_tray = bool(val)
+
+    def get_local_ip(self):
+        return self.app.local_ip
+
 class DesktopTrayApp:
     def __init__(self, port=5000):
         self.port = port
@@ -2136,6 +2186,7 @@ class DesktopTrayApp:
         self.window_visible = False
         self.shutting_down = False
         self.tray_available = False
+        self.minimize_to_tray = True
         self.lock = threading.RLock()
 
     def make_icon_image(self):
@@ -2181,10 +2232,7 @@ class DesktopTrayApp:
 
     def on_webview_ready(self):
         set_windows_window_icon(self.window, self.window_title)
-        if self.tray_available:
-            self.hide_window()
-        else:
-            self.show_window()
+        self.window_visible = True
 
     def attach_window(self, window):
         self.window = window
@@ -2196,8 +2244,10 @@ class DesktopTrayApp:
     def on_window_closing(self):
         if self.shutting_down:
             return True
-        self.hide_window()
-        return False
+        if self.minimize_to_tray:
+            self.hide_window()
+            return False
+        return True
 
     def toggle_window(self, icon=None, item=None):
         with self.lock:
@@ -2262,13 +2312,17 @@ def launch_desktop(host='0.0.0.0', port=5000):
     time.sleep(1.0)
 
     desktop_app = DesktopTrayApp(port=port)
+    api = Api(desktop_app)
     window_kwargs = {
         "title": desktop_app.window_title,
         "url": f"http://127.0.0.1:{port}",
         "frameless": True,
         "width": 1280,
         "height": 800,
-        "hidden": True,
+        "hidden": False,
+        "easy_drag": False,
+        "transparent": True,
+        "js_api": api,
     }
     try:
         window = webview.create_window(**window_kwargs)
@@ -2278,7 +2332,7 @@ def launch_desktop(host='0.0.0.0', port=5000):
     desktop_app.attach_window(window)
     desktop_app.start_tray()
     if sys.platform.startswith("linux"):
-        webview.start(desktop_app.on_webview_ready, gui="gtk")
+        webview.start(desktop_app.on_webview_ready, gui="qt")
     else:
         webview.start(desktop_app.on_webview_ready)
     stop_fastapi_server()
