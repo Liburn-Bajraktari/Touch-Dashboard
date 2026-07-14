@@ -20,3 +20,9 @@ pkg/
 src/
 touch-dashboard-*.tar.gz
 *.pkg.tar.*
+
+installers/
+Lib/
+Include/
+Scripts/
+touch-dashboard.spec

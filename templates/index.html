@@ -17,9 +17,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#090e17">
     <meta name="color-scheme" content="dark">
-    <script src="https://unpkg.com/lucide@0.292.0"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-    <script src="static/sw.js?v=1.8"></script>
+    <script src="static/lucide.min.js"></script>
+    <script src="static/sw.js?v=2.0"></script>
     <style>
         /* --- Theme --- */
         :root {
@@ -1019,35 +1018,25 @@
 
         function setDiscordPanelVisible(show) {
             if (!dom.panelDiscord || discordPanelVisible === show) return;
-            if (window.gsap) gsap.killTweensOf(dom.panelDiscord);
             discordPanelVisible = show;
             discordPanelAnimating = true;
             if (show) {
                 dom.panelDiscord.style.display = 'flex';
                 dom.spotifyPanel?.classList.remove('expanded');
-                if (window.gsap) {
-                    dom.panelDiscord.classList.add('animating-blur');
-                    gsap.fromTo(dom.panelDiscord, { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.22, ease: "power2.out", force3D: true, onComplete: () => { 
-                        dom.panelDiscord.classList.remove('animating-blur');
-                        discordPanelAnimating = false; 
-                    } });
-                } else {
+                // CSS transition handles the reveal (opacity+transform via .discord-panel-enter)
+                requestAnimationFrame(() => {
                     dom.panelDiscord.style.opacity = '1';
+                    dom.panelDiscord.style.transform = 'translateY(0)';
                     discordPanelAnimating = false;
-                }
+                });
             } else {
                 dom.spotifyPanel?.classList.add('expanded');
-                if (window.gsap) {
-                    dom.panelDiscord.classList.add('animating-blur');
-                    gsap.to(dom.panelDiscord, { autoAlpha: 0, y: 10, duration: 0.18, ease: "power2.in", force3D: true, onComplete: () => {
-                        dom.panelDiscord.style.display = 'none';
-                        dom.panelDiscord.classList.remove('animating-blur');
-                        discordPanelAnimating = false;
-                    }});
-                } else {
-                    dom.panelDiscord.style.display = 'none';
+                dom.panelDiscord.style.opacity = '0';
+                dom.panelDiscord.style.transform = 'translateY(10px)';
+                setTimeout(() => {
+                    if (!discordPanelVisible) dom.panelDiscord.style.display = 'none';
                     discordPanelAnimating = false;
-                }
+                }, 180);
             }
         }
 
@@ -1088,6 +1077,22 @@
                 document.getElementById('cfg-disc-enabled').checked = c.disc_enabled !== false;
                 document.getElementById('cfg-disc-vc').checked = c.disc_vc_enabled !== false;
                 toggleDiscordModule();
+
+                // Apply initial Discord state from server (replaces Python DOM surgery)
+                if (d.disc_init) {
+                    const di = d.disc_init;
+                    const show = di.connected && di.authorized;
+                    if (dom.panelDiscord) {
+                        dom.panelDiscord.style.display = show ? 'flex' : 'none';
+                        discordPanelVisible = show;
+                    }
+                    if (show) {
+                        if (di.mute)  dom.btnDiscMute?.classList.add('muted');
+                        else          dom.btnDiscMute?.classList.remove('muted');
+                        if (di.deaf)  dom.btnDiscDeaf?.classList.add('muted');
+                        else          dom.btnDiscDeaf?.classList.remove('muted');
+                    }
+                }
                 
                 const spLabel = document.getElementById('label-macro-sp');
                 if (osTarget === 'linux') {
@@ -1095,8 +1100,14 @@
                     spBtns = c.local_buttons || [];
                     if(spLabel) spLabel.innerText = 'SOUNDBOARD';
                     sendSocket('req_local_sounds');
+                } else if (osTarget === 'windows' && c.sounds_path) {
+                    // Windows local soundboard: show tab when a sounds path is configured
+                    document.getElementById('tab-btn-sb').style.display = 'block';
+                    spBtns = c.local_buttons || [];
+                    if(spLabel) spLabel.innerText = 'SOUNDBOARD';
+                    sendSocket('req_local_sounds');
                 } else {
-                    document.getElementById('tab-btn-sb').style.display = 'none';
+                    document.getElementById('tab-btn-sb').style.display = c.sounds_path ? 'block' : 'none';
                     spBtns = c.soundpad_buttons || [];
                     if(spLabel) spLabel.innerText = 'SOUNDPAD';
                 }
@@ -1169,8 +1180,21 @@
             connectDashboardSocket();
         }
 
+        // ── Page Visibility: pause heavy rendering when tab is hidden ──────────
+        let _pageVisible = !document.hidden;
+        document.addEventListener('visibilitychange', () => {
+            _pageVisible = !document.hidden;
+            if (_pageVisible && pendingSysData) {
+                updateSysDataDOM(pendingSysData);
+                pendingSysData = null;
+            }
+        });
+
+
+
         // --- System Data Rendering ---
         function updateSysDataDOM(d) {
+            if (!_pageVisible) { pendingSysData = d; return; }
             requestAnimationFrame(() => {
                 setText(dom.sysCpu, d.cpu + '%');
                 setText(dom.sysRam, d.ram + '%');
@@ -1760,22 +1784,22 @@
                         </datalist>`;
             } else if (type === 'premade') {
                 const opts = [
-                    {val: 'app_term', lbl: 'Terminal'},
-                    {val: 'app_web', lbl: 'Browser'},
-                    {val: 'app_task', lbl: 'Task Manager'}
+                    {val: 'app_term', lbl: 'Terminal', icon: 'lucide-terminal'},
+                    {val: 'app_web', lbl: 'Browser', icon: 'lucide-globe'},
+                    {val: 'app_task', lbl: 'Task Manager', icon: 'lucide-cpu'}
                 ];
                 html = `<label>Module</label>
                         <select id="macro-premade-select" style="width: 100%; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.75rem;">
-                            ${opts.map(o => `<option value="${o.val}" ${existingActionData === o.val ? 'selected' : ''}>${o.lbl}</option>`).join('')}
+                            ${opts.map(o => `<option value="${o.val}" data-icon="${o.icon}" data-lbl="${o.lbl}" ${existingActionData === o.val ? 'selected' : ''}>${o.lbl}</option>`).join('')}
                         </select>`;
             } else if (type === 'plugin') {
                 const opts = [
-                    {val: 'app_soundpad', lbl: 'Soundboard'},
-                    {val: 'app_clip', lbl: 'Clip Recording'}
+                    {val: 'app_soundpad', lbl: 'Soundboard', icon: 'lucide-music'},
+                    {val: 'app_clip', lbl: 'Clip Recording', icon: 'lucide-clapperboard'}
                 ];
                 html = `<label>Plugin</label>
                         <select id="macro-plugin-select" style="width: 100%; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.75rem;">
-                            ${opts.map(o => `<option value="${o.val}" ${existingActionData === o.val ? 'selected' : ''}>${o.lbl}</option>`).join('')}
+                            ${opts.map(o => `<option value="${o.val}" data-icon="${o.icon}" data-lbl="${o.lbl}" ${existingActionData === o.val ? 'selected' : ''}>${o.lbl}</option>`).join('')}
                         </select>`;
             } else if (type === 'macro') {
                 const keysDisplay = Array.isArray(existingActionData) ? existingActionData.join(' + ') : (existingActionData || 'None');
@@ -1795,11 +1819,26 @@
                     appInput.addEventListener('change', (e) => {
                         const val = e.target.value;
                         const matchedApp = osApps.find(a => a.exec === val);
-                        if (matchedApp && !dom.macroName.value) {
-                            dom.macroName.value = matchedApp.name;
+                        if (matchedApp) {
+                            if (!dom.macroName.value) dom.macroName.value = matchedApp.name;
                             if (!dom.macroIcon.value && matchedApp.icon) dom.macroIcon.value = matchedApp.icon;
                         }
                     });
+                    if (!existingActionData && !dom.macroName.value) appInput.dispatchEvent(new Event('change'));
+                }
+            } else if (type === 'premade' || type === 'plugin') {
+                const selectEl = document.getElementById(type === 'premade' ? 'macro-premade-select' : 'macro-plugin-select');
+                if (selectEl) {
+                    selectEl.addEventListener('change', (e) => {
+                        const selectedOpt = e.target.options[e.target.selectedIndex];
+                        if (selectedOpt) {
+                            const lbl = selectedOpt.getAttribute('data-lbl');
+                            const icon = selectedOpt.getAttribute('data-icon');
+                            dom.macroName.value = lbl;
+                            dom.macroIcon.value = icon;
+                        }
+                    });
+                    if (!existingActionData && !dom.macroName.value) selectEl.dispatchEvent(new Event('change'));
                 }
             }
         }

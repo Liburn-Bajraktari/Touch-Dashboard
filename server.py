@@ -1,168 +1,94 @@
-import asyncio
-import os
-import json
-import time
-import logging
-import threading
-import subprocess
-import re
-import socket
-import struct
-import uuid
-import base64
-import urllib.parse
-import argparse
+"""
+server.py — Touch Dashboard backend.
+
+Architecture:
+  FastAPI + uvicorn handle HTTP and WebSocket transport.
+  pywebview (Linux/Windows) or server-only mode provides the desktop window.
+  pystray provides the system-tray icon on all platforms.
+
+Platform logic lives in the companion modules:
+  audio_system.py  — cross-platform audio
+  discord_ipc.py   — Discord IPC client
+  macro_system.py  — keyboard macros + app enumeration
+  media.py         — Spotify / MPRIS / Windows Media Transport
+"""
+from __future__ import annotations
+
 import sys
+import os
+
+# PyInstaller windowless mode sets sys.stdout and sys.stderr to None.
+# Some third-party libraries like speedtest-cli expect them to have a 'fileno' attribute.
+# We patch them to os.devnull to prevent fatal crashes on startup.
+if sys.stdout is None: sys.stdout = open(os.devnull, 'w')
+if sys.stderr is None: sys.stderr = open(os.devnull, 'w')
+if sys.stdin is None:  sys.stdin = open(os.devnull, 'r')
+import asyncio
+import ipaddress
+import json
+import logging
+import os
+import shutil
+import socket
+import sys
+import threading
+import time
+import urllib.parse
+import uuid
+import argparse
 import importlib.util
 import site
-import shutil
-import ipaddress
+import subprocess
 
-# --- Optimize QtWebEngine/Chromium Memory ---
-# Disable heavy sandboxing, renderer isolations, and limit V8 heap size
-# to bring the idle footprint down from ~2GB to ~200MB for this trusted dashboard.
-os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
-    "--disable-site-isolation-trials "
-    "--disable-features=RendererCodeIntegrity "
-    "--js-flags='--max-old-space-size=128' "
-    "--disable-gpu-memory-buffer-video-frames "
-    "--disable-reading-from-canvas "
-    "--disable-dev-shm-usage "
-    "--disable-logging"
+# ─── ChromiumFlags (before any Qt/CE import) ──────────────────────────────────
+os.environ.setdefault(
+    "QTWEBENGINE_CHROMIUM_FLAGS",
+    (
+        "--disable-site-isolation-trials "
+        "--disable-features=RendererCodeIntegrity "
+        "--js-flags=--max-old-space-size=128 "
+        "--disable-gpu-memory-buffer-video-frames "
+        "--disable-reading-from-canvas "
+        "--disable-dev-shm-usage "
+        "--disable-logging"
+    ),
 )
 
+# ─── Fast JSON (orjson → stdlib fallback) ─────────────────────────────────────
+try:
+    import orjson as _json_lib  # type: ignore[import]
+
+    def _dumps(obj) -> str:
+        return _json_lib.dumps(obj).decode()
+
+    def _loads(s: str | bytes):
+        return _json_lib.loads(s)
+
+except ImportError:
+    _dumps = json.dumps   # type: ignore[assignment]
+    _loads = json.loads   # type: ignore[assignment]
+
+# ─── Runtime dependency check ─────────────────────────────────────────────────
+
 RUNTIME_DEPENDENCIES = [
-    ("fastapi", "fastapi"),
-    ("uvicorn", "uvicorn[standard]"),
-    ("requests", "requests"),
-    ("psutil", "psutil"),
+    ("fastapi",   "fastapi"),
+    ("uvicorn",   "uvicorn[standard]"),
+    ("requests",  "requests"),
+    ("psutil",    "psutil"),
     ("speedtest", "speedtest-cli"),
-    ("spotipy", "spotipy"),
-    ("webview", "pywebview"),
-    ("pystray", "pystray"),
-    ("PIL", "Pillow"),
-    ("pynvml", "pynvml"),
+    ("spotipy",   "spotipy"),
+    ("webview",   "pywebview"),
+    ("pystray",   "pystray"),
+    ("PIL",       "Pillow"),
+    ("pynvml",    "pynvml"),
 ]
-
 if sys.platform.startswith("linux"):
-    RUNTIME_DEPENDENCIES.append(("evdev", "evdev"))
-    RUNTIME_DEPENDENCIES.append(("gi", "PyGObject"))
+    RUNTIME_DEPENDENCIES += [("evdev", "evdev"), ("gi", "PyGObject")]
 elif sys.platform.startswith("win"):
-    RUNTIME_DEPENDENCIES.append(("pycaw", "pycaw"))
+    RUNTIME_DEPENDENCIES += [("pycaw", "pycaw"), ("comtypes", "comtypes")]
 
 
-def ensure_runtime_dependencies():
-    missing_packages = [
-        package_name
-        for module_name, package_name in RUNTIME_DEPENDENCIES
-        if importlib.util.find_spec(module_name) is None
-    ]
-    if not missing_packages:
-        return
-
-    if getattr(sys, "frozen", False):
-        show_dependency_notice(
-            missing_packages,
-            "Touch Dashboard is missing bundled dependencies and cannot repair a packaged build automatically.\n"
-            "Please reinstall the app or rebuild it with the listed dependencies included.",
-        )
-        raise SystemExit("Touch Dashboard packaged build is missing dependencies: " + ", ".join(missing_packages))
-
-    if os.environ.get("TOUCH_DASHBOARD_SKIP_AUTO_INSTALL") == "1":
-        show_dependency_notice(
-            missing_packages,
-            "Automatic dependency installation is disabled by TOUCH_DASHBOARD_SKIP_AUTO_INSTALL=1.\n"
-            "Install the listed dependencies manually.",
-        )
-        raise SystemExit("Touch Dashboard dependencies are missing and auto-install is disabled: " + ", ".join(missing_packages))
-
-    if not request_dependency_install_permission(missing_packages):
-        raise SystemExit(
-            "Touch Dashboard cannot start because required Python dependencies are missing: "
-            + ", ".join(missing_packages)
-        )
-
-    print("Touch Dashboard: installing missing Python dependencies: " + ", ".join(missing_packages), flush=True)
-    in_virtualenv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
-    cmd = [sys.executable, "-m", "pip", "install"]
-    if not in_virtualenv:
-        cmd.append("--user")
-        import sysconfig
-        stdlib_path = sysconfig.get_path("stdlib", sysconfig.get_default_scheme())
-        if stdlib_path and os.path.exists(os.path.join(stdlib_path, "EXTERNALLY-MANAGED")):
-            cmd.append("--break-system-packages")
-    cmd.extend(missing_packages)
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        raise RuntimeError(
-            "Failed to install missing Python dependencies. "
-            "Run `pip install -r requirements.txt` manually, or set TOUCH_DASHBOARD_SKIP_AUTO_INSTALL=1 to disable auto-install."
-        )
-
-    try:
-        site.main()
-    except Exception:
-        pass
-    importlib.invalidate_caches()
-
-
-def format_dependency_message(missing_packages, lead):
-    return (
-        lead
-        + "\n\nMissing dependencies:\n\n"
-        + "\n".join(f"- {pkg}" for pkg in missing_packages)
-    )
-
-
-def show_dependency_popup(title, message):
-    try:
-        import tkinter as tk
-        from tkinter import messagebox
-
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        messagebox.showinfo(title, message, parent=root)
-        root.destroy()
-        return True
-    except Exception as e:
-        print(f"Touch Dashboard: dependency popup failed: {e}", flush=True)
-
-    if sys.platform.startswith("win"):
-        try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(None, message, title, 0x40)
-            return True
-        except Exception as e:
-            print(f"Touch Dashboard: native dependency popup failed: {e}", flush=True)
-
-    if sys.platform.startswith("linux") and not is_linux_cli_launch():
-        if shutil.which("zenity"):
-            try:
-                subprocess.run(["zenity", "--info", "--title", title, "--text", message], check=False)
-                return True
-            except Exception as e:
-                print(f"Touch Dashboard: zenity dependency popup failed: {e}", flush=True)
-        if shutil.which("kdialog"):
-            try:
-                subprocess.run(["kdialog", "--title", title, "--msgbox", message], check=False)
-                return True
-            except Exception as e:
-                print(f"Touch Dashboard: kdialog dependency popup failed: {e}", flush=True)
-
-    return False
-
-
-def show_dependency_notice(missing_packages, lead):
-    message = format_dependency_message(missing_packages, lead)
-    shown = False
-    if not is_linux_cli_launch():
-        shown = show_dependency_popup("Touch Dashboard Dependencies", message)
-    print(message, flush=True)
-    return shown
-
-
-def is_linux_cli_launch():
+def _is_linux_cli():
     if not sys.platform.startswith("linux"):
         return False
     if "--server-only" in sys.argv or "--reload" in sys.argv:
@@ -170,1885 +96,305 @@ def is_linux_cli_launch():
     return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
-def request_dependency_install_permission(missing_packages):
-    message = format_dependency_message(
-        missing_packages,
-        "Touch Dashboard needs to install these missing Python dependencies.",
-    ) + "\n\nDo you agree to install them now?"
-
-    print(message, flush=True)
-
-    if not is_linux_cli_launch():
-        if ask_dependency_popup("Touch Dashboard Dependencies", message) is True:
-            return True
-        if ask_dependency_popup.last_result is False:
-            return False
-
-    try:
-        answer = input("Install missing dependencies? [y/N]: ").strip().lower()
-    except EOFError:
-        return False
-    return answer in {"y", "yes"}
+def _format_dep_msg(pkgs, lead):
+    return lead + "\n\nMissing dependencies:\n\n" + "\n".join(f"  - {p}" for p in pkgs)
 
 
-def ask_dependency_popup(title, message):
-    ask_dependency_popup.last_result = None
+def _show_popup(title, msg):
     try:
         import tkinter as tk
         from tkinter import messagebox
-
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        approved = messagebox.askyesno(title, message, parent=root)
-        root.destroy()
-        ask_dependency_popup.last_result = approved
-        return approved
-    except Exception as e:
-        print(f"Touch Dashboard: dependency permission popup failed: {e}", flush=True)
-
+        r = tk.Tk(); r.withdraw(); r.attributes("-topmost", True)
+        messagebox.showinfo(title, msg, parent=r); r.destroy()
+        return True
+    except Exception:
+        pass
     if sys.platform.startswith("win"):
         try:
             import ctypes
-            result = ctypes.windll.user32.MessageBoxW(None, message, title, 0x24)
-            approved = result == 6
-            ask_dependency_popup.last_result = approved
-            return approved
-        except Exception as e:
-            print(f"Touch Dashboard: native dependency permission popup failed: {e}", flush=True)
+            ctypes.windll.user32.MessageBoxW(None, msg, title, 0x40)
+            return True
+        except Exception:
+            pass
+    if sys.platform.startswith("linux") and not _is_linux_cli():
+        for tool in (["zenity", "--info", "--title", title, "--text", msg],
+                     ["kdialog", "--title", title, "--msgbox", msg]):
+            if shutil.which(tool[0]):
+                try: subprocess.run(tool, check=False); return True
+                except Exception: pass
+    return False
 
-    if sys.platform.startswith("linux") and not is_linux_cli_launch():
-        if shutil.which("zenity"):
-            try:
-                result = subprocess.run(["zenity", "--question", "--title", title, "--text", message], check=False)
-                approved = result.returncode == 0
-                ask_dependency_popup.last_result = approved
-                return approved
-            except Exception as e:
-                print(f"Touch Dashboard: zenity dependency permission popup failed: {e}", flush=True)
-        if shutil.which("kdialog"):
-            try:
-                result = subprocess.run(["kdialog", "--title", title, "--yesno", message], check=False)
-                approved = result.returncode == 0
-                ask_dependency_popup.last_result = approved
-                return approved
-            except Exception as e:
-                print(f"Touch Dashboard: kdialog dependency permission popup failed: {e}", flush=True)
 
+def _ask_popup(title, msg) -> bool | None:
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        r = tk.Tk(); r.withdraw(); r.attributes("-topmost", True)
+        ans = messagebox.askyesno(title, msg, parent=r); r.destroy()
+        return ans
+    except Exception:
+        pass
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            res = ctypes.windll.user32.MessageBoxW(None, msg, title, 0x24)
+            return res == 6
+        except Exception:
+            pass
+    if sys.platform.startswith("linux") and not _is_linux_cli():
+        for tool in (["zenity", "--question", "--title", title, "--text", msg],
+                     ["kdialog", "--title", title, "--yesno", msg]):
+            if shutil.which(tool[0]):
+                try:
+                    r = subprocess.run(tool, check=False)
+                    return r.returncode == 0
+                except Exception:
+                    pass
     return None
 
 
-ask_dependency_popup.last_result = None
+def ensure_runtime_dependencies():
+    missing = [pkg for mod, pkg in RUNTIME_DEPENDENCIES
+               if importlib.util.find_spec(mod) is None]
+    if not missing:
+        return
+
+    if getattr(sys, "frozen", False):
+        _show_popup("Touch Dashboard", _format_dep_msg(
+            missing, "Packaged build is missing dependencies. Please reinstall."))
+        raise SystemExit(f"Missing deps: {missing}")
+
+    if os.environ.get("TOUCH_DASHBOARD_SKIP_AUTO_INSTALL") == "1":
+        _show_popup("Touch Dashboard", _format_dep_msg(
+            missing, "Auto-install disabled. Install deps manually."))
+        raise SystemExit(f"Missing deps: {missing}")
+
+    msg = _format_dep_msg(
+        missing, "Touch Dashboard needs to install missing Python dependencies."
+    ) + "\n\nInstall them now?"
+    print(msg, flush=True)
+
+    approved = _ask_popup("Touch Dashboard Dependencies", msg)
+    if approved is None:
+        try:
+            approved = input("Install? [y/N]: ").strip().lower() in ("y", "yes")
+        except EOFError:
+            approved = False
+    if not approved:
+        raise SystemExit("Dependency install declined.")
+
+    in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    cmd = [sys.executable, "-m", "pip", "install"]
+    if not in_venv:
+        cmd.append("--user")
+        try:
+            import sysconfig
+            stdlib = sysconfig.get_path("stdlib", sysconfig.get_default_scheme())
+            if stdlib and os.path.exists(os.path.join(stdlib, "EXTERNALLY-MANAGED")):
+                cmd.append("--break-system-packages")
+        except Exception:
+            pass
+    cmd.extend(missing)
+    if subprocess.run(cmd).returncode != 0:
+        raise RuntimeError("Failed to install deps. Run `pip install -r requirements.txt` manually.")
+    try: site.main()
+    except Exception: pass
+    importlib.invalidate_caches()
 
 
 ensure_runtime_dependencies()
 
+# ─── Third-party imports (after dep check) ────────────────────────────────────
+
 import requests
-REQ_SESSION = requests.Session()
 import psutil
-import speedtest
+import speedtest as speedtest_lib
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
-from fastapi.staticfiles import StaticFiles 
-import hashlib
 
 try:
-    import webview
+    import webview  # type: ignore[import]
 except ImportError:
     webview = None
 
 try:
-    import pystray
-    from PIL import Image, ImageDraw
+    import pystray  # type: ignore[import]
+    from PIL import Image, ImageDraw  # type: ignore[import]
 except ImportError:
-    pystray = None
-    Image = None
-    ImageDraw = None
+    pystray = Image = ImageDraw = None
 
 try:
-    import pynvml
+    import pynvml  # type: ignore[import]
 except ImportError:
     pynvml = None
 
-# --- Configuration ---
-BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+# ─── Local modules ─────────────────────────────────────────────────────────────
+
+from audio_system import AudioSystem
+from discord_ipc import DiscordIPC
+from macro_system import MacroSystem, AppEnumerator
+import media as media_module
+
+# ─── Paths & config ────────────────────────────────────────────────────────────
+
+BASE_DIR     = os.path.dirname(sys.executable if getattr(sys, "frozen", False)
+                               else os.path.abspath(__file__))
 RESOURCE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 APP_ICON_PATH = os.path.join(RESOURCE_DIR, "static", "favicon.ico")
 WINDOWS_APP_USER_MODEL_ID = "TouchDashboard.TouchDashboard"
 
-DATA_DIR = os.path.join(os.path.expanduser("~"), ".config", "touch-dashboard")
 if sys.platform.startswith("win"):
     DATA_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "touch-dashboard")
+else:
+    DATA_DIR = os.path.join(os.path.expanduser("~"), ".config", "touch-dashboard")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
-WEATHER_CACHE_FILE = os.path.join(DATA_DIR, "weather_cache.json")
-SPOTIFY_CACHE_FILE = os.path.join(DATA_DIR, ".cache")
-SOUNDS_DIR = os.path.join(DATA_DIR, "sounds")
+CONFIG_FILE         = os.path.join(DATA_DIR, "config.json")
+WEATHER_CACHE_FILE  = os.path.join(DATA_DIR, "weather_cache.json")
+SPOTIFY_CACHE_FILE  = os.path.join(DATA_DIR, ".cache")
+SOUNDS_DIR          = os.path.join(DATA_DIR, "sounds")
 os.makedirs(SOUNDS_DIR, exist_ok=True)
 
 CONFIG_LOCK = threading.RLock()
 
-def migrate_config():
-    old_config = os.path.join(BASE_DIR, "config.json")
-    old_spot = os.path.join(BASE_DIR, ".cache")
-    old_weather = os.path.join(BASE_DIR, "weather_cache.json")
-    
-    if os.path.exists(old_config):
-        try:
-            with open(old_config, "r") as f:
-                old_data = json.load(f)
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, "r") as f:
-                    new_data = json.load(f)
-                # Merge old into new (new takes precedence for keys it has, but old fills in missing/empty ones)
-                for k, v in old_data.items():
-                    if k not in new_data or not new_data[k]:
-                        new_data[k] = v
-                with open(CONFIG_FILE, "w") as f:
-                    json.dump(new_data, f, indent=4)
-            else:
-                shutil.copy2(old_config, CONFIG_FILE)
-        except: pass
-
-    if os.path.exists(old_spot) and not os.path.exists(SPOTIFY_CACHE_FILE):
-        try: shutil.copy2(old_spot, SPOTIFY_CACHE_FILE)
-        except: pass
-    if os.path.exists(old_weather) and not os.path.exists(WEATHER_CACHE_FILE):
-        try: shutil.copy2(old_weather, WEATHER_CACHE_FILE)
-        except: pass
-
-migrate_config()
-
-current_audio_process = None
-uvicorn_server = None
-
-logging.basicConfig(
-    filename=os.path.join(DATA_DIR, 'server.log'),
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict = {
     "weather_api": "", "weather_city": "Pristina",
     "spot_id": "", "spot_secret": "",
     "disc_id": "", "disc_secret": "",
+    "disc_enabled": True,
     "audio_names": {},
     "soundpad_buttons": [],
     "local_buttons": [],
-    "sounds_path": ""
+    "sounds_path": "",
+    "macros": [],
 }
 
-global_sp_oauth = None
 
-has_nvml = False
-nvml_handle = None
-try:
-    if pynvml is not None:
-        pynvml.nvmlInit()
-        nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        has_nvml = True
-except Exception as e:
-    logger.error(f"NVML Init failed: {e}")
+def _migrate_config():
+    for old, new in (
+        (os.path.join(BASE_DIR, "config.json"),       CONFIG_FILE),
+        (os.path.join(BASE_DIR, ".cache"),             SPOTIFY_CACHE_FILE),
+        (os.path.join(BASE_DIR, "weather_cache.json"), WEATHER_CACHE_FILE),
+    ):
+        if os.path.exists(old) and not os.path.exists(new):
+            try: shutil.copy2(old, new)
+            except Exception: pass
+        elif os.path.exists(old) and old == os.path.join(BASE_DIR, "config.json"):
+            try:
+                with open(old) as f: old_data = json.load(f)
+                with open(new)  as f: new_data = json.load(f)
+                for k, v in old_data.items():
+                    if k not in new_data or not new_data[k]:
+                        new_data[k] = v
+                with open(new, "w") as f: json.dump(new_data, f, indent=2)
+            except Exception: pass
 
-def load_config():
+
+def load_config() -> dict:
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, "r") as f: return {**DEFAULT_CONFIG, **json.load(f)}
-        except: return DEFAULT_CONFIG
-    return DEFAULT_CONFIG
+            with open(CONFIG_FILE) as f:
+                return {**DEFAULT_CONFIG, **json.load(f)}
+        except Exception:
+            pass
+    return dict(DEFAULT_CONFIG)
+
 
 def save_config():
     with CONFIG_LOCK:
-        tmp_file = f"{CONFIG_FILE}.tmp"
-        with open(tmp_file, "w") as f:
-            json.dump(config, f, indent=4)
-        os.replace(tmp_file, CONFIG_FILE)
+        tmp = CONFIG_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(config, f, indent=2)
+        os.replace(tmp, CONFIG_FILE)
 
+
+_migrate_config()
 config = load_config()
 
-# --- Platform ---
-def get_os_target():
-    return "windows" if os.name == 'nt' else "linux"
+# ─── Logging ───────────────────────────────────────────────────────────────────
 
-def get_local_sounds():
-    """Scans the dynamically configured sounds directory for audio files."""
-    sounds_dir = config.get("sounds_path", "")
-    
-    if not sounds_dir or not os.path.exists(sounds_dir):
-        return []
-        
-    allowed_exts = {'.mp3', '.wav', '.ogg'}
-    sounds = []
-    
-    try:
-        for f in os.listdir(sounds_dir):
-            ext = os.path.splitext(f)[1].lower()
-            if ext in allowed_exts:
-                sounds.append({
-                    "id": f, 
-                    "name": os.path.splitext(f)[0]
-                })
-        return sorted(sounds, key=lambda x: x['name'].lower())
-    except Exception as e:
-        logger.error(f"Failed to scan sounds directory: {e}")
-        return []
+logging.basicConfig(
+    filename=os.path.join(DATA_DIR, "server.log"),
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-# --- Local Soundboard ---
-def resolve_sound_path(filename):
-    sounds_dir = config.get("sounds_path", "")
-    if not sounds_dir:
-        return None
+# ─── Shared state ──────────────────────────────────────────────────────────────
 
-    base_path = os.path.realpath(sounds_dir)
-    candidate = os.path.realpath(os.path.join(base_path, filename))
-    if candidate != base_path and candidate.startswith(base_path + os.sep) and os.path.isfile(candidate):
-        return candidate
-    return None
+REQ_SESSION = requests.Session()
 
-def play_local_sound(filename):
-    global current_audio_process
-    filepath = resolve_sound_path(filename)
-    if not filepath:
-        logger.warning(f"Rejected local sound path outside configured directory: {filename}")
-        return
+global_sp_oauth: SpotifyOAuth | None = None
+disc_ipc_instance: DiscordIPC | None = None
+uvicorn_server = None
 
-    if current_audio_process is not None and current_audio_process.poll() is None:
-        current_audio_process.terminate()
+# NVML
+has_nvml = False
+nvml_handle = None
+if pynvml:
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=FutureWarning)
         try:
-            current_audio_process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            current_audio_process.kill()
-            current_audio_process.wait(timeout=1)
-
-    current_audio_process = subprocess.Popen(
-        ['pw-play', '--volume=1.0', '--target', 'Dashboard-Soundboard', filepath],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-
-def stop_local_sound():
-    global current_audio_process
-    if current_audio_process is not None and current_audio_process.poll() is None:
-        current_audio_process.terminate()
-        try:
-            current_audio_process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            current_audio_process.kill()
-            current_audio_process.wait(timeout=1)
-        current_audio_process = None
-
-# --- Macros ---
-class MacroSystem:
-    _ui = None
-    
-    @staticmethod
-    def _init():
-        if MacroSystem._ui is None and os.name != 'nt':
-            try:
-                import evdev
-                MacroSystem._ui = evdev.UInput()
-            except Exception as e:
-                logger.error(f"Failed to init UInput for macros: {e}")
-
-    @staticmethod
-    def send_keys(*keys):
-        if os.name == 'nt':
-            try:
-                import ctypes
-                PUL = ctypes.POINTER(ctypes.c_ulong)
-                class KeyBdInput(ctypes.Structure):
-                    _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort), ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
-                class HardwareInput(ctypes.Structure):
-                    _fields_ = [("uMsg", ctypes.c_ulong), ("wParamL", ctypes.c_short), ("wParamH", ctypes.c_ushort)]
-                class MouseInput(ctypes.Structure):
-                    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long), ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
-                class Input_I(ctypes.Union):
-                    _fields_ = [("ki", KeyBdInput), ("mi", MouseInput), ("hi", HardwareInput)]
-                class Input(ctypes.Structure):
-                    _fields_ = [("type", ctypes.c_ulong), ("ii", Input_I)]
-
-                vk_map = {
-                    "KEY_A": 0x41, "KEY_B": 0x42, "KEY_C": 0x43, "KEY_D": 0x44, "KEY_E": 0x45, "KEY_F": 0x46, "KEY_G": 0x47, "KEY_H": 0x48,
-                    "KEY_I": 0x49, "KEY_J": 0x4A, "KEY_K": 0x4B, "KEY_L": 0x4C, "KEY_M": 0x4D, "KEY_N": 0x4E, "KEY_O": 0x4F, "KEY_P": 0x50,
-                    "KEY_Q": 0x51, "KEY_R": 0x52, "KEY_S": 0x53, "KEY_T": 0x54, "KEY_U": 0x55, "KEY_V": 0x56, "KEY_W": 0x57, "KEY_X": 0x58,
-                    "KEY_Y": 0x59, "KEY_Z": 0x5A,
-                    "KEY_0": 0x30, "KEY_1": 0x31, "KEY_2": 0x32, "KEY_3": 0x33, "KEY_4": 0x34, "KEY_5": 0x35, "KEY_6": 0x36, "KEY_7": 0x37,
-                    "KEY_8": 0x38, "KEY_9": 0x39,
-                    "KEY_LEFTCTRL": 0xA2, "KEY_RIGHTCTRL": 0xA3, "KEY_LEFTSHIFT": 0xA0, "KEY_RIGHTSHIFT": 0xA1,
-                    "KEY_LEFTALT": 0xA4, "KEY_RIGHTALT": 0xA5, "KEY_ENTER": 0x0D, "KEY_ESC": 0x1B, "KEY_BACKSPACE": 0x08,
-                    "KEY_TAB": 0x09, "KEY_SPACE": 0x20, "KEY_PAUSE": 0x13,
-                    "KEY_F1": 0x70, "KEY_F2": 0x71, "KEY_F3": 0x72, "KEY_F4": 0x73, "KEY_F5": 0x74, "KEY_F6": 0x75, "KEY_F7": 0x76, "KEY_F8": 0x77,
-                    "KEY_F9": 0x78, "KEY_F10": 0x79, "KEY_F11": 0x7A, "KEY_F12": 0x7B,
-                    "KEY_MUTE": 0xAD, "KEY_VOLUMEDOWN": 0xAE, "KEY_VOLUMEUP": 0xAF,
-                    "KEY_NEXTSONG": 0xB0, "KEY_PREVIOUSSONG": 0xB1, "KEY_STOPCD": 0xB2, "KEY_PLAYPAUSE": 0xB3
-                }
-
-                inputs_down = []
-                inputs_up = []
-                for k in keys:
-                    vk = k if isinstance(k, int) else vk_map.get(str(k).upper(), 0)
-                    if not vk: continue
-                    ii_down = Input_I()
-                    ii_down.ki = KeyBdInput(vk, 0, 0, 0, None)
-                    inputs_down.append(Input(1, ii_down))
-                    
-                    ii_up = Input_I()
-                    ii_up.ki = KeyBdInput(vk, 0, 0x0002, 0, None)
-                    inputs_up.insert(0, Input(1, ii_up))
-                
-                if inputs_down:
-                    ctypes.windll.user32.SendInput(len(inputs_down), (Input * len(inputs_down))(*inputs_down), ctypes.sizeof(Input))
-                    time.sleep(0.05)
-                    ctypes.windll.user32.SendInput(len(inputs_up), (Input * len(inputs_up))(*inputs_up), ctypes.sizeof(Input))
-            except Exception as e:
-                logger.error(f"Windows MacroSystem failed: {e}")
-            return
-
-        try:
-            import evdev
-            MacroSystem._init()
-            if MacroSystem._ui:
-                for k in keys:
-                    ecode = k if isinstance(k, int) else getattr(evdev.ecodes, str(k).upper(), None)
-                    if ecode is not None:
-                        MacroSystem._ui.write(evdev.ecodes.EV_KEY, ecode, 1)
-                MacroSystem._ui.syn()
-                for k in reversed(keys):
-                    ecode = k if isinstance(k, int) else getattr(evdev.ecodes, str(k).upper(), None)
-                    if ecode is not None:
-                        MacroSystem._ui.write(evdev.ecodes.EV_KEY, ecode, 0)
-                MacroSystem._ui.syn()
+            pynvml.nvmlInit()
+            nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            has_nvml = True
         except Exception as e:
-            logger.error(f"MacroSystem failed: {e}")
+            logger.debug(f"NVML init: {e}")
 
-# --- App Enumeration ---
-class AppEnumerator:
-    _cached_apps = None
-    _lock = threading.Lock()
-
-    @staticmethod
-    def get_apps():
-        with AppEnumerator._lock:
-            if AppEnumerator._cached_apps is not None:
-                return AppEnumerator._cached_apps
-
-            apps = []
-            if os.name == 'nt':
-                try:
-                    ps_script = """
-                    $apps = Get-StartApps | Select-Object Name, AppID
-                    $result = @()
-                    foreach ($app in $apps) {
-                        $result += [PSCustomObject]@{
-                            name = $app.Name
-                            exec = $app.AppID
-                        }
-                    }
-                    $result | ConvertTo-Json
-                    """
-                    out = subprocess.check_output(['powershell', '-NoProfile', '-Command', ps_script], stderr=subprocess.DEVNULL, timeout=10).decode().strip()
-                    if out:
-                        data = json.loads(out)
-                        for d in data:
-                            apps.append({"name": d.get("name"), "exec": d.get("exec"), "icon": ""})
-                except Exception as e:
-                    logger.error(f"Failed to enumerate Windows apps: {e}")
-            else:
-                try:
-                    paths = [
-                        os.path.expanduser('~/.local/share/applications'),
-                        '/usr/share/applications'
-                    ]
-                    for path in paths:
-                        if not os.path.exists(path): continue
-                        for root_dir, dirs, files in os.walk(path):
-                            for file in files:
-                                if file.endswith('.desktop'):
-                                    filepath = os.path.join(root_dir, file)
-                                    try:
-                                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                                            content = f.read()
-                                            
-                                        name = ""
-                                        exec_cmd = ""
-                                        icon = ""
-                                        in_desktop_entry = False
-                                        for line in content.splitlines():
-                                            line = line.strip()
-                                            if line == '[Desktop Entry]':
-                                                in_desktop_entry = True
-                                            elif line.startswith('[') and line != '[Desktop Entry]':
-                                                in_desktop_entry = False
-                                            
-                                            if in_desktop_entry:
-                                                if line.startswith('Name=') and not name:
-                                                    name = line.split('=', 1)[1]
-                                                elif line.startswith('Exec=') and not exec_cmd:
-                                                    exec_cmd = line.split('=', 1)[1]
-                                                elif line.startswith('Icon=') and not icon:
-                                                    icon = line.split('=', 1)[1]
-                                                    
-                                        if name and exec_cmd and not 'NoDisplay=true' in content:
-                                            exec_cmd = exec_cmd.replace('%f', '').replace('%F', '').replace('%u', '').replace('%U', '').replace('%c', '').replace('%k', '').strip()
-                                            apps.append({"name": name, "exec": exec_cmd, "icon": icon})
-                                    except: pass
-                except Exception as e:
-                    logger.error(f"Failed to enumerate Linux apps: {e}")
-
-            unique_apps = {}
-            for a in apps:
-                if a['name'] not in unique_apps:
-                    unique_apps[a['name']] = a
-            
-            AppEnumerator._cached_apps = sorted(list(unique_apps.values()), key=lambda x: x['name'].lower() if x['name'] else "")
-            return AppEnumerator._cached_apps
-
-    @staticmethod
-    def launch_app(exec_cmd):
-        if os.name == 'nt':
-            try:
-                subprocess.Popen(['explorer.exe', f'shell:AppsFolder\\{exec_cmd}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception as e:
-                logger.error(f"Failed to launch Windows app {exec_cmd}: {e}")
-        else:
-            try:
-                import shlex
-                args = shlex.split(exec_cmd)
-                subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-            except Exception as e:
-                logger.error(f"Failed to launch Linux app {exec_cmd}: {e}")
-
-# --- Audio ---
-class AudioSystem:
-    _last_state = {}
-    _vol_targets = {}
-    _vol_lock = threading.Lock()
-    _vol_thread = None
-
-    @staticmethod
-    def _vol_worker():
-        while True:
-            tasks = []
-            with AudioSystem._vol_lock:
-                for target, val in list(AudioSystem._vol_targets.items()):
-                    tasks.append((target, val))
-                AudioSystem._vol_targets.clear()
-            
-            if not tasks:
-                time.sleep(0.05)
-                continue
-                
-            for target, val in tasks:
-                if os.name == 'nt':
-                    try:
-                        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-                        from ctypes import cast, POINTER
-                        from comtypes import CLSCTX_ALL
-                        import comtypes
-                        comtypes.CoInitialize()
-                        device = AudioUtilities.GetMicrophone() if target == '@DEFAULT_AUDIO_SOURCE@' else AudioUtilities.GetSpeakers()
-                        if device:
-                            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-                            volume = cast(interface, POINTER(IAudioEndpointVolume))
-                            volume.SetMasterVolumeLevelScalar(val / 100.0, None)
-                            volume.SetMute(0, None)
-                    except: pass
-                else:
-                    AudioSystem.run(['wpctl', 'set-volume', target, f"{val}%"])
-                    AudioSystem.run(['wpctl', 'set-mute', target, '0'])
-
-    @staticmethod
-    def start_worker():
-        if AudioSystem._vol_thread is None:
-            AudioSystem._vol_thread = threading.Thread(target=AudioSystem._vol_worker, daemon=True)
-            AudioSystem._vol_thread.start()
-
-    @staticmethod
-    def run(cmd):
-        try: return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2).decode().strip()
-        except Exception as e:
-            logger.debug(f"AudioSystem.run failed for cmd {cmd}: {e}")
-            return ""
-
-    @staticmethod
-    def get_state(target):
-        if os.name == 'nt':
-            try:
-                from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-                from ctypes import cast, POINTER
-                from comtypes import CLSCTX_ALL
-                import comtypes
-                comtypes.CoInitialize()
-                device = AudioUtilities.GetMicrophone() if target == '@DEFAULT_AUDIO_SOURCE@' else AudioUtilities.GetSpeakers()
-                if not device: return AudioSystem._last_state.get(target, {"vol": 0, "muted": False})
-                interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-                volume = cast(interface, POINTER(IAudioEndpointVolume))
-                vol = round(volume.GetMasterVolumeLevelScalar() * 100)
-                muted = bool(volume.GetMute())
-                state = {"vol": vol, "muted": muted}
-                AudioSystem._last_state[target] = state
-                return state
-            except:
-                return AudioSystem._last_state.get(target, {"vol": 0, "muted": False})
-
-        out = AudioSystem.run(['wpctl', 'get-volume', target])
-        if not out: 
-            return AudioSystem._last_state.get(target, {"vol": 0, "muted": False})
-        try:
-            parts = out.split()
-            vol = int(float(parts[1]) * 100) if len(parts) > 1 else 0
-        except Exception: vol = 0
-        
-        state = {"vol": vol, "muted": '[MUTED]' in out}
-        AudioSystem._last_state[target] = state
-        return state
-
-    @staticmethod
-    def poll_all():
-        if os.name == 'nt':
-            return {
-                "sinks": [{"id": 1, "name": "Windows Audio", "raw_name": "Windows Default", "custom_name": "", "is_active": True}], 
-                "active_sink_name": "Windows Audio",
-                "spk": {"vol": AudioSystem.get_state('@DEFAULT_AUDIO_SINK@'), "muted": AudioSystem.is_muted('@DEFAULT_AUDIO_SINK@')}, 
-                "mic": {"vol": AudioSystem.get_state('@DEFAULT_AUDIO_SOURCE@'), "muted": AudioSystem.is_muted('@DEFAULT_AUDIO_SOURCE@')}
-            }
-            
-        sinks = []
-        active_sink_name = "NONE"
-        spk_vol, spk_muted = 0, False
-        mic_vol, mic_muted = 0, False
-        try:
-            out = AudioSystem.run(['wpctl', 'status'])
-            section = None
-            for line in out.splitlines():
-                if 'Sinks:' in line: section = 'sinks'; continue
-                elif 'Sources:' in line: section = 'sources'; continue
-                elif any(x in line for x in ['Filters:', 'Streams:', 'Video:', 'Devices:']): 
-                    section = None; continue
-                
-                if section in ['sinks', 'sources']:
-                    clean = line.translate(str.maketrans('', '', '│├└─')).strip()
-                    if not clean: continue
-                    match = re.search(r'^(\*)?\s*(\d+)\.\s+(.+?)\s+\[vol:\s*([\d\.]+)(.*)\]', clean)
-                    if match:
-                        is_active, dev_id, raw_name, vol_str, extras = bool(match.group(1)), match.group(2), match.group(3).strip(), match.group(4), match.group(5)
-                        is_muted = "MUTED" in extras
-                        vol = int(float(vol_str) * 100)
-                        
-                        if is_active:
-                            if section == 'sinks':
-                                spk_vol, spk_muted = vol, is_muted
-                            else:
-                                mic_vol, mic_muted = vol, is_muted
-                                
-                        if section == 'sinks':
-                            if "Dashboard-Soundboard" in raw_name:
-                                continue
-                                
-                            custom_name = config.get("audio_names", {}).get(raw_name, "")
-                            display_name = custom_name[:10] if custom_name else raw_name[:5].upper()
-                            sinks.append({"id": dev_id, "name": display_name, "raw_name": raw_name, "custom_name": custom_name, "is_active": is_active})
-                            if is_active: active_sink_name = display_name
-        except Exception as e: logger.error(f"Audio parse error: {e}")
-        
-        return {
-            "sinks": sinks, "active_sink_name": active_sink_name if sinks else "NONE",
-            "spk": {"vol": spk_vol, "muted": spk_muted}, 
-            "mic": {"vol": mic_vol, "muted": mic_muted}
-        }
-
-    @staticmethod
-    def get_hardware_sinks(): return AudioSystem.poll_all()['sinks']
-    @staticmethod
-    def get_active_sink_id(sinks=None):
-        if sinks is None: sinks = AudioSystem.poll_all()['sinks']
-        for s in sinks:
-            if s.get('is_active'): return s['id']
-        return None
-    @staticmethod
-    def set_vol(target, val): 
-        AudioSystem.start_worker()
-        with AudioSystem._vol_lock:
-            AudioSystem._vol_targets[target] = val
-
-    @staticmethod
-    def toggle_mute(target):
-        if get_os_target() == 'linux':
-            AudioSystem.run(['wpctl', 'set-mute', target, 'toggle'])
-        elif os.name == 'nt':
-            if target == '@DEFAULT_AUDIO_SINK@':
-                MacroSystem.send_keys('KEY_MUTE')
-            elif target == '@DEFAULT_AUDIO_SOURCE@':
-                try:
-                    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-                    from ctypes import cast, POINTER
-                    from comtypes import CLSCTX_ALL
-                    import comtypes
-                    comtypes.CoInitialize()
-                    device = AudioUtilities.GetMicrophone()
-                    if device:
-                        interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-                        volume = cast(interface, POINTER(IAudioEndpointVolume))
-                        current_mute = volume.GetMute()
-                        volume.SetMute(not current_mute, None)
-                except: pass
-    @staticmethod
-    def cycle_device():
-        sinks = AudioSystem.poll_all()['sinks']
-        if not sinks: return
-        active_id = AudioSystem.get_active_sink_id(sinks)
-        next_sink = sinks[0]
-        if active_id:
-            for i, s in enumerate(sinks):
-                if s['id'] == active_id:
-                    next_sink = sinks[(i + 1) % len(sinks)]
-                    break
-        AudioSystem.run(['wpctl', 'set-default', next_sink['id']])
-
-# --- Discord IPC ---
-class DiscordIPC:
-    def __init__(self, client_id, client_secret):
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.sock = None
-        self.access_token = config.get("disc_token", "")
-        self.connected = False
-        self.running = False
-        self.voice_state = {"mute": False, "deaf": False}
-        self.voice_supported = False
-        self.voice_channel = None
-        self.auth_pending = False
-        self.pre_deafen_mute = False
-        self.is_vesktop = False
-
-    def get_pipe_paths(self):
-        paths_found = []
-        if os.name == 'nt': 
-            if os.path.exists(r'\\.\pipe\discord-ipc-0'):
-                paths_found.append(r'\\.\pipe\discord-ipc-0')
-            return paths_found
-        
-        env_vars = ['XDG_RUNTIME_DIR', 'TMPDIR', 'TMP', 'TEMP']
-        paths = [os.environ.get(v) for v in env_vars if os.environ.get(v)]
-        paths.extend([f"/run/user/{os.getuid()}", "/tmp"])
-        
-        for base_path in paths:
-            for i in range(10):
-                path = os.path.join(base_path, f"discord-ipc-{i}")
-                flatpak_path = os.path.join(base_path, "app/com.discordapp.Discord", f"discord-ipc-{i}")
-                
-                if os.path.exists(path) and path not in paths_found: paths_found.append(path)
-                if os.path.exists(flatpak_path) and flatpak_path not in paths_found: paths_found.append(flatpak_path)
-        return paths_found
-
-    def connect(self):
-        pipe_paths = self.get_pipe_paths()
-        if not pipe_paths: return False
-        
-        for pipe_path in pipe_paths:
-            try:
-                if os.name == 'nt': 
-                    self.sock = open(pipe_path, 'w+b')
-                else:
-                    self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                    self.sock.connect(pipe_path)
-                    self.sock.settimeout(2.0)
-                
-                self.send(0, {"v": 1, "client_id": self.client_id})
-                res = self.recv()
-                if not res:
-                    self.close()
-                    continue
-                    
-                self.is_vesktop = (res.get("data", {}).get("user", {}).get("username") == "arrpc")
-                
-                if self.is_vesktop:
-                    self.auth_pending = False
-                    self.connected = True
-                    return True
-                
-                if not self.access_token:
-                    self.auth_pending = True
-                    self.connected = True
-                    return True
-                
-                self.authenticate()
-                self.connected = True
-                return True
-            except Exception as e:
-                logger.error(f"Discord connect error on {pipe_path}: {e}")
-                self.close()
-                
-        return False
-
-    def close(self):
-        self.connected = False
-        if self.sock:
-            try: self.sock.close()
-            except: pass
-        self.sock = None
-
-    def sock_send(self, data):
-        if os.name == 'nt':
-            self.sock.write(data)
-            self.sock.flush()
-        else: 
-            self.sock.sendall(data)
-
-    def sock_recv(self, length):
-        data = b""
-        while len(data) < length:
-            chunk = self.sock.read(length - len(data)) if os.name == 'nt' else self.sock.recv(length - len(data))
-            if not chunk: return b""
-            data += chunk
-        return data
-
-    def send(self, opcode, payload):
-        logger.info(f"DISCORD SEND [{opcode}]: {payload}")
-        data = json.dumps(payload).encode('utf-8')
-        try: self.sock_send(struct.pack("<II", opcode, len(data)) + data)
-        except Exception: self.connected = False
-
-    def recv(self):
-        try:
-            header = self.sock_recv(8)
-            if not header or len(header) < 8: 
-                return None
-            opcode, length = struct.unpack("<II", header)
-            payload = self.sock_recv(length)
-            if not payload:
-                return None
-            res = json.loads(payload.decode('utf-8'))
-            logger.info(f"DISCORD RECV [{opcode}]: {res}")
-            return res
-        except socket.timeout:
-            return {}
-        except Exception as e:
-            logger.error(f"DISCORD RECV ERROR: {e}")
-            return None
-
-    def get_auth_url(self):
-        """Generates the URL the user must visit to authorize the app."""
-        scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
-        redirect_uri = urllib.parse.quote("http://127.0.0.1:5000/disc_callback")
-        return f"https://discord.com/api/oauth2/authorize?client_id={self.client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scopes}"
-
-    def exchange_code(self, code):
-        """Exchanges the callback code for an access token."""
-        try:
-            data = {
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": "http://127.0.0.1:5000/disc_callback"
-            }
-            r = REQ_SESSION.post("https://discord.com/api/oauth2/token", data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=5)
-            if r.status_code == 200:
-                self.access_token = r.json().get("access_token")
-                with CONFIG_LOCK:
-                    config["disc_token"] = self.access_token
-                    save_config()
-                return True
-            logger.error(f"Discord Token Exchange Failed: {r.text}")
-        except Exception as e:
-             logger.error(f"Discord Token Exception: {e}")
-        return False
-
-    def authenticate(self):
-        self.send(1, {"cmd": "AUTHENTICATE", "args": {"access_token": self.access_token}, "nonce": str(uuid.uuid4())})
-        
-        auth_res = self.recv()
-        if auth_res and auth_res.get("evt") == "ERROR":
-            logger.error(f"Discord IPC Auth Error: {auth_res}")
-            self.access_token = ""
-            with CONFIG_LOCK:
-                config["disc_token"] = ""
-                save_config()
-            self.auth_pending = True
-            return
-
-        self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_SETTINGS_UPDATE", "args": {}, "nonce": str(uuid.uuid4())})
-        self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_CHANNEL_SELECT", "args": {}, "nonce": str(uuid.uuid4())})
-        self.send(1, {"cmd": "GET_VOICE_SETTINGS", "args": {}, "nonce": "GET_VOICE"})
-        self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
-        self.auth_pending = False
-
-    def loop(self):
-        self.running = True
-        last_ping = time.time()
-        while self.running:
-            if getattr(self, "needs_reauth", False) and self.connected:
-                self.needs_reauth = False
-                self.authenticate()
-                
-            if not self.connected:
-                if not self.connect():
-                    time.sleep(5)
-                    continue
-            if self.connected:
-                try:
-                    if os.name != 'nt': self.sock.settimeout(5.0)
-                    res = self.recv()
-                    if res is None: 
-                        self.close()
-                        continue
-                        
-                    if res:
-                        if res.get("evt") == "ERROR":
-                            logger.error(f"DISCORD IPC ERROR: {res}")
-                            
-                        if res.get("cmd") == "AUTHORIZE" and "data" in res and "code" in res["data"]:
-                            code = res["data"]["code"]
-                            logger.info(f"Got IPC AUTH code: {code}")
-                            success = self.exchange_code(code)
-                            if success:
-                                self.authenticate()
-
-                        if (
-                            res.get("evt") == "VOICE_SETTINGS_UPDATE" or 
-                            res.get("cmd") == "GET_VOICE_SETTINGS" or 
-                            res.get("cmd") == "SET_VOICE_SETTINGS" or
-                            res.get("nonce") == "GET_VOICE"
-                        ):
-                            self.voice_supported = True
-                            data = res.get("data", {})
-                            if "mute" in data: self.voice_state["mute"] = data["mute"]
-                            if "deaf" in data: self.voice_state["deaf"] = data["deaf"]
-                            if main_event_loop and sys_data_trigger:
-                                main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
-                            
-                        if res.get("cmd") == "GET_SELECTED_VOICE_CHANNEL" or res.get("evt") == "VOICE_CHANNEL_SELECT":
-                            data = res.get("data") or {}
-                            cid = data.get("id") or data.get("channel_id")
-                            if not cid:
-                                self.voice_channel = None
-                            else:
-                                if res.get("evt") == "VOICE_CHANNEL_SELECT":
-                                    self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
-                                else:
-                                    self.voice_channel = {
-                                        "id": data.get("id"),
-                                        "name": data.get("name"),
-                                        "guild_id": data.get("guild_id"),
-                                        "guild_name": None,
-                                        "users": {}
-                                    }
-                                    cid_str = str(data.get("id"))
-                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_STATE_CREATE", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
-                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_STATE_UPDATE", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
-                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "VOICE_STATE_DELETE", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
-                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "SPEAKING_START", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
-                                    self.send(1, {"cmd": "SUBSCRIBE", "evt": "SPEAKING_STOP", "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
-                                    
-                                    if data.get("guild_id"):
-                                        self.send(1, {"cmd": "GET_GUILD", "args": {"guild_id": str(data.get("guild_id")), "timeout": 3}, "nonce": "GET_GUILD_VC"})
-                                        
-                                    for vs in data.get("voice_states", []):
-                                        user = vs.get("user", {})
-                                        uid = user.get("id")
-                                        if uid is not None:
-                                            uid = str(uid)
-                                            self.voice_channel["users"][uid] = {
-                                                "id": uid,
-                                                "name": vs.get("nick") or user.get("global_name") or user.get("username"),
-                                                "avatar": user.get("avatar"),
-                                                "mute": vs.get("voice_state", {}).get("mute") or vs.get("voice_state", {}).get("self_mute"),
-                                                "deaf": vs.get("voice_state", {}).get("deaf") or vs.get("voice_state", {}).get("self_deaf"),
-                                                "speaking": False
-                                            }
-                                    if main_event_loop and sys_data_trigger:
-                                        main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
-                        
-                        elif res.get("evt") in ["VOICE_STATE_CREATE", "VOICE_STATE_UPDATE"] and self.voice_channel:
-                            data = res.get("data", {})
-                            user = data.get("user", {})
-                            uid = user.get("id")
-                            if uid is not None:
-                                uid = str(uid)
-                                if uid not in self.voice_channel["users"]:
-                                    self.voice_channel["users"][uid] = {"id": uid, "speaking": False}
-                                u = self.voice_channel["users"][uid]
-                                u["name"] = data.get("nick") or user.get("global_name") or user.get("username")
-                                u["avatar"] = user.get("avatar")
-                                vs = data.get("voice_state", {})
-                                u["mute"] = vs.get("mute") or vs.get("self_mute")
-                                u["deaf"] = vs.get("deaf") or vs.get("self_deaf")
-                                if main_event_loop and sys_data_trigger:
-                                    main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
-                                
-                        elif res.get("evt") == "VOICE_STATE_DELETE" and self.voice_channel:
-                            uid = res.get("data", {}).get("user", {}).get("id")
-                            if uid is not None:
-                                uid = str(uid)
-                                if uid in self.voice_channel["users"]:
-                                    del self.voice_channel["users"][uid]
-                                
-                        elif res.get("evt") in ["SPEAKING_START", "SPEAKING_STOP"] and self.voice_channel:
-                            uid = res.get("data", {}).get("user_id")
-                            if uid is not None:
-                                uid = str(uid)
-                                if uid in self.voice_channel["users"]:
-                                    self.voice_channel["users"][uid]["speaking"] = (res.get("evt") == "SPEAKING_START")
-                                    if main_event_loop and sys_data_trigger:
-                                        main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
-                                        
-                        elif res.get("nonce") == "GET_GUILD_VC" and self.voice_channel:
-                            if "data" in res and res.get("evt") != "ERROR":
-                                g_id = str(res["data"].get("id"))
-                                if str(self.voice_channel.get("guild_id")) == g_id:
-                                    self.voice_channel["guild_name"] = res["data"].get("name")
-                                    if main_event_loop and sys_data_trigger:
-                                        main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
-                                        
-                        elif res.get("evt") == "ERROR" and res.get("nonce") == "GET_GUILD_VC":
-                            # The user hasn't granted rpc.guilds.read! Force a re-auth.
-                            self.access_token = ""
-                            with CONFIG_LOCK:
-                                config["disc_token"] = ""
-                                save_config()
-                            self.auth_pending = True
-                            if main_event_loop and sys_data_trigger:
-                                main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
-                                
-                except Exception as e:
-                    logger.error(f"Discord loop error: {e}")
-                    self.close()
-                    time.sleep(2)
-            else:
-                 time.sleep(2)
-
-    def set_voice(self, mute=None, deaf=None):
-        if not self.connected: return
-        args = {}
-        if mute is not None: args["mute"] = mute
-        if deaf is not None: args["deaf"] = deaf
-        self.send(1, {"cmd": "SET_VOICE_SETTINGS", "args": args, "nonce": str(uuid.uuid4())})
-disc_ipc_instance = None
-def restart_discord_ipc():
-    global disc_ipc_instance
-    if disc_ipc_instance:
-        disc_ipc_instance.running = False
-        disc_ipc_instance.close()
-        disc_ipc_instance = None
-    if config.get("disc_enabled", True) and config.get("disc_id") and config.get("disc_secret"):
-        disc_ipc_instance = DiscordIPC(config["disc_id"], config["disc_secret"])
-        threading.Thread(target=disc_ipc_instance.loop, daemon=True).start()
-
-# --- Spotify ---
-def get_sp_oauth():
-    global global_sp_oauth
-    if not config.get("spot_id") or not config.get("spot_secret"): return None
-    
-    if global_sp_oauth is None:
-        global_sp_oauth = SpotifyOAuth(
-            client_id=config["spot_id"], 
-            client_secret=config["spot_secret"], 
-            redirect_uri="http://127.0.0.1:5000/callback", 
-            scope="user-read-playback-state user-modify-playback-state", 
-            open_browser=False, 
-            cache_path=SPOTIFY_CACHE_FILE
-        )
-    return global_sp_oauth
-
-# --- Media Metadata ---
-def get_spotify_api_meta():
-    sp_oauth = get_sp_oauth()
-    if not sp_oauth: return None
-    try:
-        token_info = sp_oauth.get_cached_token()
-        if not token_info: return {"status": "Auth_Required", "artist": "", "title": "Spotify Not Authorized", "art_url": ""}
-        sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3, requests_session=REQ_SESSION)
-        curr = sp.current_playback()
-        if curr and curr.get('item'):
-            art_url = curr['item']['album']['images'][0]['url'] if curr['item'].get('album') and curr['item']['album'].get('images') else ""
-            return {
-                "status": "Playing" if curr.get('is_playing') else "Paused",
-                "artist": curr['item']['artists'][0]['name'] if curr.get('item', {}).get('artists') else "Unknown",
-                "title": curr['item'].get('name', 'Unknown'),
-                "art_url": art_url
-            }
-    except Exception as e: logger.debug(f"Spotify API error: {e}")
-    return None
-
-last_mpris_title = ""
-last_mpris_path = ""
-mpris_burst_active = False
-mpris_burst_start = 0
-last_art_url = ""
-
-def get_local_mpris_meta():
-    global last_mpris_title, last_mpris_path, mpris_burst_active, mpris_burst_start, last_art_url
-    try:
-        meta = AudioSystem.run(['playerctl', 'metadata', '--format', '{{status}}|||{{artist}}|||{{title}}|||{{mpris:artUrl}}'])
-        if not meta: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
-        parts = meta.split('|||')
-        status = parts[0].strip() if len(parts) > 0 else "Stopped"
-        if status not in ['Playing', 'Paused']: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
-        
-        artist = parts[1].strip() if len(parts) > 1 else "Unknown"
-        title = parts[2].strip() if len(parts) > 2 else "Unknown"
-        raw_art_url = parts[3].strip() if len(parts) > 3 else ""
-
-        current_song = f"{artist}-{title}"
-
-        # Some players expose cover art before the file is fully written.
-        if current_song != last_mpris_title:
-            last_mpris_title = current_song
-            mpris_burst_active = True
-            mpris_burst_start = time.time()
-            last_art_url = "WAITING"
-
-        if mpris_burst_active:
-            if raw_art_url.startswith('file://'):
-                path = urllib.parse.unquote(raw_art_url.replace('file://', ''))
-                if os.path.exists(path) and os.path.getsize(path) > 0:
-                    last_mpris_path = path
-                    mod_time = str(os.path.getmtime(path))
-                    f_size = str(os.path.getsize(path))
-                    song_hash = hashlib.md5((current_song + mod_time + f_size).encode()).hexdigest()
-                    last_art_url = f"/api/local_art?h={song_hash}"
-                    mpris_burst_active = False
-                elif time.time() - mpris_burst_start > 6.0:
-                    last_art_url = ""
-                    mpris_burst_active = False
-            else:
-                last_art_url = raw_art_url
-                mpris_burst_active = False
-        else:
-            if raw_art_url.startswith('file://'):
-                path = urllib.parse.unquote(raw_art_url.replace('file://', ''))
-                if os.path.exists(path) and os.path.getsize(path) > 0:
-                    last_mpris_path = path
-                    mod_time = str(os.path.getmtime(path))
-                    f_size = str(os.path.getsize(path))
-                    song_hash = hashlib.md5((current_song + mod_time + f_size).encode()).hexdigest()
-                    last_art_url = f"/api/local_art?h={song_hash}"
-
-        return {"status": status, "artist": artist, "title": title, "art_url": last_art_url}
-    except: return {"status": "Stopped", "artist": "", "title": "Nothing Playing", "art_url": ""}
-
-# --- Shared State ---
-force_media_update, current_media_source = False, "local"
-spotify_cache, last_spotify_check, last_audio_devs = None, 0, []
-last_weather_data = {"temp": "--", "desc": "--", "timestamp": 0}
+# Misc media state
+force_media_update   = False
+current_media_source = "local"
+spotify_cache: dict | None = None
+last_spotify_check   = 0.0
+last_audio_devs: list = []
+last_weather_data    = {"temp": "--", "desc": "--", "timestamp": 0}
 weather_update_event = asyncio.Event()
-last_host_url = "127.0.0.1:5000"
-index_template_cache = {"mtime": 0.0, "html": ""}
-speedtest_lock = asyncio.Lock()
+last_host_url        = "127.0.0.1:5000"
+speedtest_lock       = asyncio.Lock()
 
-def load_index_template():
-    path = os.path.join(RESOURCE_DIR, "templates", "index.html")
+# Template cache (mtime-based)
+_tmpl_cache = {"mtime": 0.0, "html": ""}
+
+def _load_template() -> str:
+    path  = os.path.join(RESOURCE_DIR, "templates", "index.html")
     mtime = os.path.getmtime(path)
-    if index_template_cache["mtime"] != mtime:
-        with open(path, "r", encoding="utf-8") as f:
-            index_template_cache["html"] = f.read()
-        index_template_cache["mtime"] = mtime
-    return index_template_cache["html"]
+    if _tmpl_cache["mtime"] != mtime:
+        with open(path, encoding="utf-8") as f:
+            _tmpl_cache["html"]  = f.read()
+        _tmpl_cache["mtime"] = mtime
+    return _tmpl_cache["html"]
 
-class ConnectionManager:
-    def __init__(self): self.active_connections: list[WebSocket] = []
-    def has_clients(self):
-        return bool(self.active_connections)
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections: self.active_connections.remove(websocket)
-    async def broadcast(self, message: dict):
-        stale_connections = []
-        for connection in list(self.active_connections):
-            try:
-                await connection.send_json(message)
-            except Exception as e:
-                logger.debug(f"WebSocket broadcast failed; dropping stale connection: {e}")
-                stale_connections.append(connection)
-        for connection in stale_connections:
-            self.disconnect(connection)
+# ─── Helpers ───────────────────────────────────────────────────────────────────
 
-ws_manager = ConnectionManager()
-main_event_loop = None
-sys_data_trigger = None
-
-# --- Background Tasks ---
-async def hardware_loop():
-    global last_spotify_check, spotify_cache, last_audio_devs, force_media_update, current_media_source
-    global mpris_burst_active, main_event_loop, sys_data_trigger
-    
-    main_event_loop = asyncio.get_running_loop()
-    sys_data_trigger = asyncio.Event()
-    
-    last_gpu_check, gpu_cache = 0, ""
-    
-    last_audio_check = 0
-    audio_cache = {"spk": {"vol": 0, "muted": False}, "mic": {"vol": 0, "muted": False}, "active_dev": "NONE"}
-    batt_cache = "--"
-
-    def read_batt():
-        try:
-            with open("/tmp/g502_battery.txt", "r") as f: return f.read().strip()
-        except: return "--"
-        
-    while True:
-        curr_time = time.time()
-
-        if not ws_manager.has_clients():
-            await asyncio.sleep(2.0)
-            continue
-        
-        # Keep hardware polling slower during short media-art bursts.
-        if curr_time - last_audio_check >= 1.0:
-            audio_data = await asyncio.to_thread(AudioSystem.poll_all)
-            curr_sinks = audio_data['sinks']
-            if [s['raw_name'] for s in curr_sinks] != [s['raw_name'] for s in last_audio_devs]:
-                last_audio_devs = curr_sinks
-                await ws_manager.broadcast({"type": "hw_scan_results", "data": curr_sinks})
-            
-            audio_cache = {"spk": audio_data['spk'], "mic": audio_data['mic'], "active_dev": audio_data['active_sink_name']}
-            batt_cache = await asyncio.to_thread(read_batt)
-            last_audio_check = curr_time
-
-        if curr_time - last_spotify_check > 3.0 or force_media_update:
-            if force_media_update: await asyncio.sleep(0.4)
-            spotify_cache = await asyncio.to_thread(get_spotify_api_meta) 
-            last_spotify_check = time.time()
-            force_media_update = False
-
-        media = spotify_cache
-        if not media or media['status'] != 'Playing':
-            local_media = await asyncio.to_thread(get_local_mpris_meta)
-            if local_media['status'] == 'Playing' or not media: 
-                media, current_media_source = local_media, "local"
-            else: current_media_source = "spotify"
-        else: current_media_source = "spotify"
-
-        if curr_time - last_gpu_check > 2.0:
-            if has_nvml:
-                try:
-                    util = await asyncio.to_thread(pynvml.nvmlDeviceGetUtilizationRates, nvml_handle)
-                    gpu_cache = str(util.gpu)
-                except: gpu_cache = ""
-            last_gpu_check = curr_time
-
-        disc_has_token = bool(config.get("disc_token", ""))
-        disc_has_creds = bool(config.get("disc_id")) and bool(config.get("disc_secret"))
-        
-        fallback_auth_url = ""
-        if disc_has_creds and not disc_has_token:
-            scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
-            redirect_uri = urllib.parse.quote("http://127.0.0.1:5000/disc_callback")
-            fallback_auth_url = f"https://discord.com/api/oauth2/authorize?client_id={config['disc_id']}&redirect_uri={redirect_uri}&response_type=code&scope={scopes}"
-
-        disc_state = {
-            "mute": False, 
-            "deaf": False, 
-            "auth_required": disc_has_creds and not disc_has_token, 
-            "auth_url": fallback_auth_url, 
-            "connected": False, 
-            "voice_supported": False,
-            "authorized": disc_has_token
-        }
-        
-        if disc_ipc_instance:
-            disc_state["connected"] = disc_ipc_instance.connected
-            disc_state["voice_supported"] = getattr(disc_ipc_instance, "voice_supported", False)
-            disc_state["auth_pending"] = getattr(disc_ipc_instance, "auth_pending", False)
-            
-            if disc_ipc_instance.connected:
-                disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
-                disc_state["deaf"] = disc_ipc_instance.voice_state.get("deaf", False)
-                disc_state["voice_channel"] = disc_ipc_instance.voice_channel
-            
-            if not disc_has_token and disc_ipc_instance.auth_pending:
-                disc_state["auth_url"] = disc_ipc_instance.get_auth_url()
-
-        await ws_manager.broadcast({
-            "type": "sys_data",
-            "data": {
-                "cpu": psutil.cpu_percent(interval=None), 
-                "ram": psutil.virtual_memory().percent,
-                "gpu": gpu_cache if gpu_cache else None, 
-                "mouse_batt": batt_cache, 
-                "spotify": media,
-                "discord": disc_state,
-                "audio": {"spk": audio_cache['spk'], "mic": audio_cache['mic'], "active_dev": audio_cache['active_dev']}
-            }
-        })
-        
-        sleep_duration = 0.2 if mpris_burst_active else 1.0
-        try:
-            await asyncio.wait_for(sys_data_trigger.wait(), timeout=sleep_duration)
-            sys_data_trigger.clear()
-        except asyncio.TimeoutError:
-            pass
-async def fetch_weather():
-    global last_weather_data, weather_force_update
-    
-    async def do_fetch():
-        global last_weather_data
-        if config.get("weather_api") and config.get("weather_city"):
-            try:
-                res = await asyncio.to_thread(
-                    REQ_SESSION.get, 
-                    "http://api.openweathermap.org/data/2.5/weather", 
-                    params={"q": config['weather_city'], "appid": config['weather_api'], "units": "metric"}, 
-                    timeout=5
-                )
-                res_data = res.json()
-                if "main" in res_data:
-                    last_weather_data = {"temp": round(res_data["main"]["temp"]), "desc": res_data["weather"][0]["description"].title(), "timestamp": time.time()}
-                    with open(WEATHER_CACHE_FILE, "w") as f: json.dump(last_weather_data, f)
-                    
-                    await ws_manager.broadcast({"type": "weather_data", "data": last_weather_data})
-            except Exception as e:
-                logger.debug(f"Weather fetch error: {e}")
-                
-        last_weather_data["timestamp"] = time.time()
-
-    if os.path.exists(WEATHER_CACHE_FILE):
-        try:
-            with open(WEATHER_CACHE_FILE, "r") as f: last_weather_data = json.load(f)
-        except: pass
-
-    if time.time() - last_weather_data.get("timestamp", 0) > 1800: 
-        await do_fetch()
-
-    while True:
-        try:
-            await asyncio.wait_for(weather_update_event.wait(), timeout=1800)
-            weather_update_event.clear() 
-        except asyncio.TimeoutError:
-            pass 
-        await do_fetch()
-
-# --- PipeWire Routing ---
-async def pipewire_auto_router():
-    """Injects Soundboard audio directly into applications using the microphone."""
-    async def check_output_limited(cmd, timeout=2):
-        return await asyncio.to_thread(
-            subprocess.check_output,
-            cmd,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout
-        )
-
-    async def run_limited(cmd, timeout=2):
-        return await asyncio.to_thread(
-            subprocess.run,
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout
-        )
-
-    while True:
-        try:
-            def_src = (await check_output_limited(['pactl', 'get-default-source'])).decode().strip()
-
-            pw_out = (await check_output_limited(['pw-link', '-o'])).decode()
-            sb_monitors = [p.strip() for p in pw_out.splitlines() if 'Dashboard-Soundboard' in p and 'monitor' in p]
-            
-            if not sb_monitors:
-                await asyncio.sleep(2)
-                continue
-            
-            sb_FL = sb_monitors[0]
-            sb_FR = sb_monitors[1] if len(sb_monitors) > 1 else sb_FL
-
-            pw_links = (await check_output_limited(['pw-link', '-l'])).decode()
-            target_app_ports = []
-            is_mic_capture = False
-            
-            for line in pw_links.splitlines():
-                if not line.startswith((' ', '\t')):
-                    is_mic_capture = (def_src in line and 'capture' in line)
-                elif is_mic_capture and '|->' in line:
-                    app_port = line.split('|->')[1].strip()
-                    if 'Dashboard-Soundboard' not in app_port and 'loopback' not in app_port.lower():
-                        target_app_ports.append(app_port)
-
-            for i, app_port in enumerate(target_app_ports):
-                src = sb_FL if i % 2 == 0 else sb_FR
-                await run_limited(['pw-link', src, app_port])
-
-        except Exception as e:
-            logger.debug(f"PipeWire auto-router error: {e}")
-        
-        await asyncio.sleep(5) 
+def get_os_target() -> str:
+    return "windows" if sys.platform.startswith("win") else "linux"
 
 
-# --- FastAPI App ---
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    os.makedirs(SOUNDS_DIR, exist_ok=True)
-
-    def check_output_limited(cmd, timeout=3):
-        return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=timeout)
-
-    def run_limited(cmd, timeout=3, check=False):
-        return subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout,
-            check=check
-        )
-    
-    if get_os_target() == "linux":
-        try:
-            # Preserve the real defaults before creating the virtual sink.
-            try:
-                real_sink = check_output_limited(['pactl', 'get-default-sink']).decode().strip()
-                real_src = check_output_limited(['pactl', 'get-default-source']).decode().strip()
-            except:
-                real_sink, real_src = "", ""
-
-            sinks_output = check_output_limited(['pactl', 'list', 'short', 'sinks']).decode()
-            if 'Dashboard-Soundboard' not in sinks_output:
-                logger.info("Virtual Sink 'Dashboard-Soundboard' not found. Creating it now...")
-                run_limited([
-                    'pactl', 'load-module', 'module-null-sink', 
-                    'sink_name=Dashboard-Soundboard', 
-                    'sink_properties=device.description="Dashboard-Soundboard"'
-                ], check=True)
-            
-            run_limited(['pactl', 'set-sink-volume', 'Dashboard-Soundboard', '100%'])
-            run_limited(['pactl', 'set-sink-mute', 'Dashboard-Soundboard', '0'])
-            
-            modules_output = check_output_limited(['pactl', 'list', 'short', 'modules']).decode()
-            if 'source=Dashboard-Soundboard.monitor' not in modules_output:
-                run_limited(['pactl', 'load-module', 'module-loopback', 'source=Dashboard-Soundboard.monitor'], check=True)
-                logger.info("Native Audio Loopback established.")
-
-            if real_sink and 'Dashboard' not in real_sink:
-                run_limited(['pactl', 'set-default-sink', real_sink])
-            if real_src and 'Dashboard' not in real_src:
-                run_limited(['pactl', 'set-default-source', real_src])
-                
-        except Exception as e:
-            logger.error(f"Failed to setup PipeWire virtual sink: {e}")
-
-    restart_discord_ipc()
-    app.state.background_tasks = [
-        asyncio.create_task(hardware_loop(), name="hardware_loop"),
-        asyncio.create_task(fetch_weather(), name="fetch_weather"),
-    ]
-    
-    if get_os_target() == "linux":
-        app.state.background_tasks.append(asyncio.create_task(pipewire_auto_router(), name="pipewire_auto_router"))
-        
-    yield
-    for task in getattr(app.state, "background_tasks", []):
-        task.cancel()
-    if getattr(app.state, "background_tasks", []):
-        await asyncio.gather(*app.state.background_tasks, return_exceptions=True)
-    if disc_ipc_instance: disc_ipc_instance.close()
-
-app = FastAPI(lifespan=lifespan)
-
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' ws: wss: https://unpkg.com https://cdnjs.cloudflare.com; img-src 'self' data: https:;"
-    return response
-
-app.mount("/static", StaticFiles(directory=os.path.join(RESOURCE_DIR, "static")), name="static")
-
-# --- Routes ---
-@app.get('/api/local_art')
-async def serve_local_art():
-    global last_mpris_path
-    if last_mpris_path and os.path.exists(last_mpris_path):
-        return FileResponse(last_mpris_path)
-    return JSONResponse({"error": "No art found"}, status_code=404)
-
-@app.get('/')
-async def index(request: Request):
-    global last_host_url
-    last_host_url = request.url.netloc
-    
-    html = load_index_template()
-
-    if disc_ipc_instance and disc_ipc_instance.connected and not disc_ipc_instance.auth_pending:
-        html = html.replace('id="panel-discord" class="glass panel" style="display: none;', 'id="panel-discord" class="glass panel" style="display: flex;')
-        if disc_ipc_instance.voice_state.get("mute", False):
-            html = html.replace('class="btn" id="btn-disc-mute"', 'class="btn muted" id="btn-disc-mute"')
-        if disc_ipc_instance.voice_state.get("deaf", False):
-            html = html.replace('class="btn" id="btn-disc-deaf"', 'class="btn muted" id="btn-disc-deaf"')
-
-    response = HTMLResponse(content=html)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
-
-@app.get('/favicon.ico')
-async def favicon():
-    return JSONResponse({})
-
-@app.get('/manifest.json')
-async def manifest():
-    return JSONResponse(content={
-        "name": "Command Center Dashboard",
-        "short_name": "CmdCenter",
-        "start_url": "/?v=1.6",
-        "display": "standalone",
-        "orientation": "landscape",
-        "background_color": "#090e17",
-        "theme_color": "#0ea5e9",
-        "icons": [
-            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
-        ]
-    }, headers={"Cache-Control": "no-cache"})
-
-@app.get('/spotify_login')
-async def spotify_login(request: Request):
-    sp_oauth = get_sp_oauth()
-    if not sp_oauth: return JSONResponse({"error": "No credentials"})
-    return RedirectResponse(sp_oauth.get_authorize_url())
-
-@app.get('/callback')
-async def callback(request: Request, code: str = None):
-    sp_oauth = get_sp_oauth()
-    if not sp_oauth or not code: return RedirectResponse('/')
-    try: await asyncio.to_thread(sp_oauth.get_access_token, code)
-    except: pass
-    return RedirectResponse('/')
-
-@app.get('/disc_callback')
-async def discord_callback(request: Request, code: str = None):
-    """Catches the OAuth2 redirect from Discord."""
-    if not code or not disc_ipc_instance:
-        return RedirectResponse('/')
-    
-    success = await asyncio.to_thread(disc_ipc_instance.exchange_code, code)
-    if success:
-        logger.info("Discord authorization successful!")
-        # Safely flag for re-auth on the next loop tick instead of closing the socket
-        disc_ipc_instance.needs_reauth = True
-    else:
-        logger.error("Discord authorization failed during callback.")
-        
-    return RedirectResponse('/')
-
-# --- WebSocket ---
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    global config, weather_force_update, force_media_update, current_media_source, current_audio_process, global_sp_oauth
-    
-    await ws_manager.connect(websocket)
-    
+def _is_lan_ipv4(addr: str) -> bool:
     try:
-        initial_hardware = await asyncio.to_thread(AudioSystem.get_hardware_sinks)
-        await websocket.send_json({
-            "type": "config_sync",
-            "data": {
-                "cfg": config,
-                "hw": initial_hardware,
-                "os_target": get_os_target(),
-                "host_ip": get_lan_ip(),
-            },
-        })
-
-        if last_weather_data.get("temp") != "--":
-            await websocket.send_json({"type": "weather_data", "data": last_weather_data})
-
-        while True:
-            text = await websocket.receive_text()
-            msg = json.loads(text)
-            msg_type, data = msg.get("type"), msg.get("data")
-            
-            if msg_type == 'req_local_sounds':
-                sounds = await asyncio.to_thread(get_local_sounds)
-                await websocket.send_json({"type": "local_sounds_list", "data": sounds})
-                
-            elif msg_type == 'req_apps_list':
-                apps = await asyncio.to_thread(AppEnumerator.get_apps)
-                await websocket.send_json({"type": "apps_list", "data": apps})
-                
-            elif msg_type == 'save_macros':
-                with CONFIG_LOCK:
-                    config["macros"] = data
-                await asyncio.to_thread(save_config)
-                audio_data = await asyncio.to_thread(AudioSystem.poll_all)
-                await ws_manager.broadcast({
-                    "type": "config_sync",
-                    "data": {
-                        "cfg": config,
-                        "hw": audio_data['sinks'],
-                        "os_target": get_os_target(),
-                        "host_ip": get_lan_ip(),
-                    },
-                })
-                
-            elif msg_type == 'macro_exec':
-                m_type = data.get('type')
-                action_data = data.get('action_data')
-                
-                if m_type == 'app':
-                    await asyncio.to_thread(AppEnumerator.launch_app, action_data)
-                elif m_type == 'macro':
-                    keys = action_data if isinstance(action_data, list) else [action_data]
-                    await asyncio.to_thread(MacroSystem.send_keys, *keys)
-                elif m_type in ('premade', 'plugin'):
-                    # Fallback into the existing action system
-                    msg_type = 'action'
-                    data = action_data
-                    
-            if msg_type == 'save_config':
-                old_disc_enabled = config.get("disc_enabled", True)
-                old_id, old_secret = config.get("disc_id"), config.get("disc_secret")
-                old_weather_api, old_weather_city = config.get("weather_api"), config.get("weather_city")
-                old_spot_id = config.get("spot_id")
-
-                with CONFIG_LOCK:
-                    config.update(data)
-                await asyncio.to_thread(save_config)
-
-                if old_spot_id != config.get("spot_id"):
-                    global_sp_oauth = None
-                
-                audio_data = await asyncio.to_thread(AudioSystem.poll_all)
-                await ws_manager.broadcast({
-                    "type": "config_sync",
-                    "data": {
-                        "cfg": config,
-                        "hw": audio_data['sinks'],
-                        "os_target": get_os_target(),
-                        "host_ip": get_lan_ip(),
-                    },
-                })
-                
-                if old_disc_enabled != config.get("disc_enabled", True) or old_id != config.get("disc_id") or old_secret != config.get("disc_secret"): restart_discord_ipc()
-                if old_weather_api != config.get("weather_api") or old_weather_city != config.get("weather_city"): 
-                    weather_update_event.set()
-
-            elif msg_type == 'action':
-                action = data
-                
-                if action.startswith('local_play_'):
-                    filename = action.removeprefix('local_play_')
-                    await asyncio.to_thread(play_local_sound, filename)
-                
-                elif action == 'stop_local_audio':
-                    await asyncio.to_thread(stop_local_sound)
-                
-                elif action.startswith('spot_'):
-                    routed_to_spot = False
-                    sp_oauth = get_sp_oauth()
-                    if current_media_source == "spotify" and sp_oauth:
-                        try:
-                            token_info = await asyncio.to_thread(sp_oauth.get_cached_token)
-                            if token_info:
-                                sp = spotipy.Spotify(auth=token_info['access_token'], requests_timeout=3)
-                                if action == 'spot_play':
-                                    c = await asyncio.to_thread(sp.current_playback)
-                                    if c and c.get('is_playing'): await asyncio.to_thread(sp.pause_playback)
-                                    else: await asyncio.to_thread(sp.start_playback)
-                                elif action == 'spot_next': await asyncio.to_thread(sp.next_track)
-                                elif action == 'spot_prev': await asyncio.to_thread(sp.previous_track)
-                                routed_to_spot, force_media_update = True, True
-                        except: pass
-                    if not routed_to_spot:
-                        if action == 'spot_play': await asyncio.to_thread(AudioSystem.run, ['playerctl', 'play-pause'])
-                        elif action == 'spot_next': await asyncio.to_thread(AudioSystem.run, ['playerctl', 'next'])
-                        elif action == 'spot_prev': await asyncio.to_thread(AudioSystem.run, ['playerctl', 'previous'])
-                        force_media_update = True
-                
-                elif action.startswith('sp_play_'): 
-                    sp_id = action.split('sp_play_')[1]
-                    if os.name == 'nt':
-                        sp_path = r"C:\Program Files\Soundpad\Soundpad.exe"
-                        if not os.path.exists(sp_path):
-                            sp_path = r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe"
-                        if os.path.exists(sp_path):
-                            await asyncio.to_thread(AudioSystem.run, [sp_path, '-rc', f'DoPlaySound({sp_id})'])
-
-                elif action == 'spot_clear_auth':
-                    global_sp_oauth = None 
-                    with CONFIG_LOCK:
-                        config["spot_token"] = ""
-                        save_config()
-                    if os.path.exists(SPOTIFY_CACHE_FILE):
-                        try: os.remove(SPOTIFY_CACHE_FILE)
-                        except: pass
-
-                elif action == 'disc_clear_auth':
-                    with CONFIG_LOCK:
-                        config["disc_token"] = ""
-                        save_config()
-                    restart_discord_ipc()
-
-                elif action == 'disc_auth':
-                    if disc_ipc_instance and disc_ipc_instance.connected:
-                        disc_ipc_instance.send(1, {
-                            "cmd": "AUTHORIZE", 
-                            "args": {
-                                "client_id": disc_ipc_instance.client_id, 
-                                "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]
-                            }, 
-                            "nonce": str(uuid.uuid4())
-                        })
-
-                elif action == 'disc_mute':
-                    if disc_ipc_instance and disc_ipc_instance.connected and getattr(disc_ipc_instance, "voice_supported", False):
-                        is_deaf = disc_ipc_instance.voice_state.get("deaf", False)
-                        is_mute = disc_ipc_instance.voice_state.get("mute", False)
-                        
-                        if is_deaf:
-                            disc_ipc_instance.set_voice(deaf=False, mute=True)
-                            disc_ipc_instance.pre_deafen_mute = True
-                        else:
-                            disc_ipc_instance.set_voice(mute=not is_mute)
-                            disc_ipc_instance.pre_deafen_mute = not is_mute
-                    else:
-                        try:
-                            import evdev
-                            await asyncio.to_thread(MacroSystem.send_keys, evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTSHIFT, evdev.ecodes.KEY_M)
-                        except: pass
-                
-                elif action == 'disc_deaf':
-                    if disc_ipc_instance and disc_ipc_instance.connected and getattr(disc_ipc_instance, "voice_supported", False):
-                        is_deaf = disc_ipc_instance.voice_state.get("deaf", False)
-                        is_mute = disc_ipc_instance.voice_state.get("mute", False)
-                        
-                        if not is_deaf:
-                            disc_ipc_instance.pre_deafen_mute = is_mute
-                            disc_ipc_instance.set_voice(deaf=True, mute=True)
-                        else:
-                            restore_mute = getattr(disc_ipc_instance, "pre_deafen_mute", False)
-                            disc_ipc_instance.set_voice(deaf=False, mute=restore_mute)
-                    else:
-                        try:
-                            import evdev
-                            await asyncio.to_thread(MacroSystem.send_keys, evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTSHIFT, evdev.ecodes.KEY_D)
-                        except: pass
-                elif action == 'disc_disconnect':
-                    if disc_ipc_instance and disc_ipc_instance.connected:
-                        disc_ipc_instance.send(1, {"cmd": "SELECT_VOICE_CHANNEL", "args": {"channel_id": None}, "nonce": str(uuid.uuid4())})
-                
-                elif action == 'disc_cam':
-                    pass
-                
-                elif action == 'disc_screen':
-                    pass
-                elif action == 'app_term':
-                    cmd = None
-                    if os.name == 'nt':
-                        if shutil.which('wt.exe'):
-                            cmd = ['wt.exe']
-                        else:
-                            cmd = ['cmd.exe', '/c', 'start', 'cmd.exe']
-                    elif sys.platform == 'darwin':
-                        cmd = ['open', '-a', 'Terminal']
-                    else:
-                        if 'TERMINAL' in os.environ and shutil.which(os.environ['TERMINAL']):
-                            cmd = [os.environ['TERMINAL']]
-                        else:
-                            de = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
-                            
-                            if 'kde' in de:
-                                for kread in ['kreadconfig6', 'kreadconfig5']:
-                                    if shutil.which(kread):
-                                        try:
-                                            kde_term = subprocess.check_output([kread, '--file', 'kdeglobals', '--group', 'General', '--key', 'TerminalApplication']).decode().strip()
-                                            if kde_term and shutil.which(kde_term):
-                                                cmd = [kde_term]
-                                                break
-                                        except: pass
-                                        
-                            elif 'gnome' in de or 'cinnamon' in de or 'mate' in de:
-                                if shutil.which('gsettings'):
-                                    schema = 'org.gnome.desktop.default-applications.terminal'
-                                    if 'cinnamon' in de: schema = 'org.cinnamon.desktop.default-applications.terminal'
-                                    elif 'mate' in de: schema = 'org.mate.applications-terminal'
-                                    try:
-                                        term_exec = subprocess.check_output(['gsettings', 'get', schema, 'exec']).decode().strip().strip("'\"")
-                                        if term_exec and shutil.which(term_exec):
-                                            cmd = [term_exec]
-                                    except: pass
-                                    
-                            elif 'xfce' in de:
-                                if shutil.which('exo-open'):
-                                    cmd = ['exo-open', '--launch', 'TerminalEmulator']
-                                
-                            if not cmd:
-                                for wrapper in ['xdg-terminal-exec', 'xdg-terminal', 'i3-sensible-terminal']:
-                                    if shutil.which(wrapper):
-                                        cmd = [wrapper]
-                                        break
-                                
-                            if not cmd:
-                                term_list = ['x-terminal-emulator', 'gnome-terminal', 'konsole', 'xfce4-terminal', 'mate-terminal', 'lxterminal', 'alacritty', 'kitty', 'wezterm', 'terminator', 'urxvt', 'xterm']
-                                for t in term_list:
-                                    if shutil.which(t):
-                                        cmd = [t]
-                                        break
-                    if cmd:
-                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
-                elif action == 'app_web':
-                    cmd = None
-                    if os.name == 'nt':
-                        cmd = ['cmd.exe', '/c', 'start', 'http://']
-                    elif sys.platform == 'darwin':
-                        cmd = ['open', 'http://']
-                    else:
-                        de = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
-                        if 'BROWSER' in os.environ and shutil.which(os.environ['BROWSER']):
-                            cmd = [os.environ['BROWSER']]
-                        else:
-                            if 'kde' in de:
-                                for kread in ['kreadconfig6', 'kreadconfig5']:
-                                    if shutil.which(kread):
-                                        try:
-                                            kde_browser = subprocess.check_output([kread, '--file', 'kdeglobals', '--group', 'General', '--key', 'BrowserApplication']).decode().strip()
-                                            if kde_browser:
-                                                bin_name = kde_browser.replace('.desktop', '')
-                                                if bin_name.startswith('!'): bin_name = bin_name[1:]
-                                                if bin_name == 'brave-browser': bin_name = 'brave'
-                                                if shutil.which(bin_name):
-                                                    cmd = [bin_name]
-                                                    break
-                                        except: pass
-                            
-                            if not cmd and shutil.which('xdg-settings'):
-                                try:
-                                    browser_desktop = subprocess.check_output(['xdg-settings', 'get', 'default-web-browser']).decode().strip()
-                                    if browser_desktop:
-                                        bin_name = browser_desktop.replace('.desktop', '')
-                                        if bin_name == 'brave-browser': bin_name = 'brave'
-                                        if shutil.which(bin_name):
-                                            cmd = [bin_name]
-                                except: pass
-                                
-                            if not cmd and shutil.which('xdg-open'):
-                                cmd = ['xdg-open', 'http://']
-                                
-                            if not cmd:
-                                browser_list = ['x-www-browser', 'firefox', 'brave', 'google-chrome', 'chromium', 'vivaldi', 'opera', 'epiphany', 'midori']
-                                for b in browser_list:
-                                    if shutil.which(b):
-                                        cmd = [b]
-                                        break
-                    if cmd:
-                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
-                elif action == 'app_task':
-                    cmd = None
-                    if os.name == 'nt':
-                        cmd = ['taskmgr.exe']
-                    elif sys.platform == 'darwin':
-                        cmd = ['open', '-a', 'Activity Monitor']
-                    else:
-                        de = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
-                        if 'kde' in de:
-                            task_list = ['plasma-systemmonitor', 'ksysguard']
-                        elif 'gnome' in de or 'cinnamon' in de or 'mate' in de:
-                            task_list = ['gnome-system-monitor', 'mate-system-monitor']
-                        elif 'xfce' in de:
-                            task_list = ['xfce4-taskmanager']
-                        else:
-                            task_list = ['plasma-systemmonitor', 'gnome-system-monitor', 'xfce4-taskmanager', 'ksysguard', 'htop', 'top']
-                            
-                        for t in task_list:
-                            if shutil.which(t):
-                                if t in ['htop', 'top']:
-                                    # Need a terminal to run CLI task managers
-                                    if shutil.which('x-terminal-emulator'):
-                                        cmd = ['x-terminal-emulator', '-e', t]
-                                    else:
-                                        cmd = ['xterm', '-e', t]
-                                else:
-                                    cmd = [t]
-                                break
-                    if cmd:
-                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != 'nt'))
-                elif action == 'app_clip': await asyncio.to_thread(MacroSystem.send_keys, 119)
-                elif action == 'app_soundpad': 
-                    if os.name == 'nt':
-                        sp_path = r"C:\Program Files\Soundpad\Soundpad.exe"
-                        if not os.path.exists(sp_path):
-                            sp_path = r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe"
-                        if os.path.exists(sp_path):
-                            subprocess.Popen([sp_path])
-                            
-                elif action == 'audio_cycle': await asyncio.to_thread(AudioSystem.cycle_device)
-                elif action == 'audio_mute_spk': await asyncio.to_thread(AudioSystem.toggle_mute, '@DEFAULT_AUDIO_SINK@')
-                elif action == 'audio_mute_mic': await asyncio.to_thread(AudioSystem.toggle_mute, '@DEFAULT_AUDIO_SOURCE@')
-
-            elif msg_type == 'set_volume':
-                target = '@DEFAULT_AUDIO_SINK@' if data['type'] == 'speaker' else '@DEFAULT_AUDIO_SOURCE@'
-                await asyncio.to_thread(AudioSystem.set_vol, target, data['val'])
-
-            elif msg_type == 'run_speedtest':
-                async def run_st():
-                    if speedtest_lock.locked():
-                        await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': 'BUSY', 'up': 'BUSY'}})
-                        return
-                    async with speedtest_lock:
-                        try:
-                            st = await asyncio.to_thread(speedtest.Speedtest)
-                            await asyncio.to_thread(st.get_best_server)
-                            down, up = await asyncio.to_thread(st.download), await asyncio.to_thread(st.upload)
-                            await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': round(down / 1_000_000, 1), 'up': round(up / 1_000_000, 1)}})
-                        except: await ws_manager.broadcast({"type": "speedtest_result", "data": {'down': 'ERR', 'up': 'ERR'}})
-                asyncio.create_task(run_st())
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        logger.error(f"WebSocket handler error: {e}")
-    finally:
-        ws_manager.disconnect(websocket)
-
-def _is_lan_ipv4(ip_addr):
-    try:
-        ip = ipaddress.ip_address(ip_addr)
+        ip = ipaddress.ip_address(addr)
+        return (ip.version == 4 and not ip.is_loopback
+                and not ip.is_unspecified and not ip.is_link_local
+                and not ip.is_multicast)
     except ValueError:
         return False
-    return (
-        ip.version == 4
-        and not ip.is_loopback
-        and not ip.is_unspecified
-        and not ip.is_link_local
-        and not ip.is_multicast
-    )
 
 
-def _pick_lan_ipv4(candidates):
-    seen = set()
-    valid = []
-    for ip_addr in candidates:
-        if not ip_addr or ip_addr in seen or not _is_lan_ipv4(ip_addr):
-            continue
-        seen.add(ip_addr)
-        valid.append(ip_addr)
-
-    private_ips = [ip_addr for ip_addr in valid if ipaddress.ip_address(ip_addr).is_private]
-    if private_ips:
-        return private_ips[0]
-    return valid[0] if valid else None
-
-
-def get_lan_ip():
-    candidates = []
-
+def get_lan_ip() -> str:
+    candidates: list[str] = []
     for target in ("8.8.8.8", "1.1.1.1"):
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.connect((target, 80))
-                candidates.append(sock.getsockname()[0])
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect((target, 80))
+                candidates.append(s.getsockname()[0])
         except Exception:
             pass
-
     try:
         for addrs in psutil.net_if_addrs().values():
             for addr in addrs:
@@ -2056,313 +402,1164 @@ def get_lan_ip():
                     candidates.append(addr.address)
     except Exception:
         pass
-
     try:
-        hostname = socket.gethostname()
-        candidates.extend(socket.gethostbyname_ex(hostname)[2])
+        candidates.extend(socket.gethostbyname_ex(socket.gethostname())[2])
     except Exception:
         pass
+    valid = []
+    seen: set = set()
+    for ip in candidates:
+        if ip not in seen and _is_lan_ipv4(ip):
+            seen.add(ip)
+            valid.append(ip)
+    private = [ip for ip in valid if ipaddress.ip_address(ip).is_private]
+    return (private or valid or ["LAN unavailable"])[0]
 
-    return _pick_lan_ipv4(candidates) or "LAN unavailable"
 
-
-def stop_fastapi_server():
-    if uvicorn_server is not None:
-        uvicorn_server.should_exit = True
-
-
-def run_fastapi_server(host='0.0.0.0', port=5000, reload=False):
-    global uvicorn_server
-    if reload:
-        uvicorn.run(
-            "server:app",
-            host=host,
-            port=port,
-            reload=True,
-            reload_dirs=[BASE_DIR, os.path.join(RESOURCE_DIR, "templates")],
+def get_sp_oauth() -> SpotifyOAuth | None:
+    global global_sp_oauth
+    if not config.get("spot_id") or not config.get("spot_secret"):
+        return None
+    if global_sp_oauth is None:
+        global_sp_oauth = SpotifyOAuth(
+            client_id=config["spot_id"],
+            client_secret=config["spot_secret"],
+            redirect_uri="http://127.0.0.1:5000/callback",
+            scope="user-read-playback-state user-modify-playback-state",
+            open_browser=False,
+            cache_path=SPOTIFY_CACHE_FILE,
         )
-    else:
-        config_obj = uvicorn.Config(app, host=host, port=port, reload=False, log_level="info")
-        uvicorn_server = uvicorn.Server(config_obj)
-        uvicorn_server.run()
+    return global_sp_oauth
 
 
-_WINDOW_ICON_HANDLES = []
+def resolve_sound_path(filename: str) -> str | None:
+    sounds_dir = config.get("sounds_path", "")
+    if not sounds_dir:
+        return None
+    base = os.path.realpath(sounds_dir)
+    candidate = os.path.realpath(os.path.join(base, filename))
+    if (candidate != base and candidate.startswith(base + os.sep)
+            and os.path.isfile(candidate)):
+        return candidate
+    return None
+
+
+def get_local_sounds() -> list[dict]:
+    sounds_dir = config.get("sounds_path", "")
+    if not sounds_dir or not os.path.isdir(sounds_dir):
+        return []
+    allowed = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
+    try:
+        items = []
+        for fname in os.listdir(sounds_dir):
+            if os.path.splitext(fname)[1].lower() in allowed:
+                items.append({"id": fname, "name": os.path.splitext(fname)[0]})
+        return sorted(items, key=lambda x: x["name"].lower())
+    except Exception as e:
+        logger.error(f"Scan sounds dir: {e}")
+        return []
+
+
+def restart_discord_ipc():
+    global disc_ipc_instance
+    if disc_ipc_instance:
+        disc_ipc_instance.running = False
+        disc_ipc_instance.close()
+        disc_ipc_instance = None
+    if (config.get("disc_enabled", True)
+            and config.get("disc_id") and config.get("disc_secret")):
+
+        def _save_token(token: str):
+            with CONFIG_LOCK:
+                config["disc_token"] = token
+                save_config()
+
+        disc_ipc_instance = DiscordIPC(
+            client_id=config["disc_id"],
+            client_secret=config["disc_secret"],
+            access_token=config.get("disc_token", ""),
+            config_save_fn=_save_token,
+        )
+        # Wire up state-change trigger
+        def _on_disc_change():
+            if main_event_loop and sys_data_trigger:
+                main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
+
+        disc_ipc_instance.on_state_change = _on_disc_change
+        threading.Thread(target=disc_ipc_instance.loop, daemon=True,
+                         name="discord-ipc").start()
+
+
+# ─── WebSocket manager ─────────────────────────────────────────────────────────
+
+class ConnectionManager:
+    def __init__(self):
+        self._conns: list[WebSocket] = []
+
+    def has_clients(self) -> bool:
+        return bool(self._conns)
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self._conns.append(ws)
+
+    def disconnect(self, ws: WebSocket):
+        if ws in self._conns:
+            self._conns.remove(ws)
+
+    async def broadcast(self, msg: dict):
+        if not self._conns:
+            return
+        payload = _dumps(msg)
+        
+        async def _send(ws: WebSocket):
+            try:
+                await ws.send_text(payload)
+                return None
+            except Exception:
+                return ws
+                
+        results = await asyncio.gather(*[_send(ws) for ws in self._conns])
+        
+        stale = [ws for ws in results if ws is not None]
+        for ws in stale:
+            self.disconnect(ws)
+
+
+ws_manager       = ConnectionManager()
+main_event_loop: asyncio.AbstractEventLoop | None = None
+sys_data_trigger: asyncio.Event | None            = None
+
+# ─── Background tasks ──────────────────────────────────────────────────────────
+
+async def hardware_loop():
+    global last_spotify_check, spotify_cache, last_audio_devs
+    global force_media_update, current_media_source, main_event_loop, sys_data_trigger
+
+    main_event_loop  = asyncio.get_running_loop()
+    sys_data_trigger = asyncio.Event()
+
+    last_gpu_check  = 0.0
+    gpu_cache       = ""
+    last_audio_check = 0.0
+    audio_cache     = {
+        "spk": {"vol": 0, "muted": False},
+        "mic": {"vol": 0, "muted": False},
+        "active_dev": "NONE",
+    }
+    batt_cache = "--"
+    last_sys_data_payload = {}
+
+    def _read_batt() -> str:
+        # Mouse battery — reads a file written by an external script.
+        # Path is /tmp/g502_battery.txt on Linux; on Windows looks in %TEMP%.
+        candidates = [
+            "/tmp/g502_battery.txt",
+            os.path.join(os.environ.get("TEMP", ""), "g502_battery.txt"),
+        ]
+        for p in candidates:
+            try:
+                with open(p) as f:
+                    return f.read().strip()
+            except Exception:
+                pass
+        return "--"
+
+    while True:
+        if not ws_manager.has_clients():
+            await asyncio.sleep(2.0)
+            continue
+
+        curr = time.monotonic()
+
+        # Audio (1 Hz)
+        if curr - last_audio_check >= 1.0:
+            audio_names  = config.get("audio_names", {})
+            audio_data   = await asyncio.to_thread(AudioSystem.poll_all, audio_names)
+            curr_sinks   = audio_data["sinks"]
+            if [s["raw_name"] for s in curr_sinks] != [s["raw_name"] for s in last_audio_devs]:
+                last_audio_devs = curr_sinks
+                await ws_manager.broadcast({"type": "hw_scan_results", "data": curr_sinks})
+            audio_cache = {
+                "spk": audio_data["spk"],
+                "mic": audio_data["mic"],
+                "active_dev": audio_data["active_sink_name"],
+            }
+            batt_cache      = await asyncio.to_thread(_read_batt)
+            last_audio_check = curr
+
+        # Spotify (3 Hz max, or on demand)
+        if time.monotonic() - last_spotify_check > 3.0 or force_media_update:
+            if force_media_update:
+                await asyncio.sleep(0.4)
+            sp_oauth        = get_sp_oauth()
+            spotify_cache   = await asyncio.to_thread(
+                media_module.get_spotify_api_meta, sp_oauth, REQ_SESSION
+            )
+            last_spotify_check = time.monotonic()
+            force_media_update = False
+
+        # Determine active media source
+        media = spotify_cache
+        if not media or media["status"] != "Playing":
+            if sys.platform.startswith("win"):
+                local_media = await media_module.get_windows_media_meta_async()
+            else:
+                local_media = await asyncio.to_thread(media_module.get_local_mpris_meta)
+            if local_media and local_media.get("status") in ("Playing", "Paused"):
+                if not media or local_media["status"] == "Playing":
+                    media, current_media_source = local_media, "local"
+                else:
+                    current_media_source = "spotify"
+            elif media:
+                current_media_source = "spotify"
+        else:
+            current_media_source = "spotify"
+
+        # GPU (0.5 Hz)
+        if curr - last_gpu_check > 2.0:
+            if has_nvml and nvml_handle:
+                try:
+                    util      = await asyncio.to_thread(
+                        pynvml.nvmlDeviceGetUtilizationRates, nvml_handle
+                    )
+                    gpu_cache = str(util.gpu)
+                except Exception:
+                    gpu_cache = ""
+            last_gpu_check = curr
+
+        # Discord state snapshot
+        disc_has_token = bool(config.get("disc_token", ""))
+        disc_has_creds = bool(config.get("disc_id")) and bool(config.get("disc_secret"))
+        disc_state: dict = {
+            "mute": False, "deaf": False,
+            "auth_required": disc_has_creds and not disc_has_token,
+            "auth_url": "",
+            "connected": False,
+            "voice_supported": False,
+            "authorized": disc_has_token,
+        }
+        if disc_has_creds and not disc_has_token:
+            scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
+            redir  = urllib.parse.quote("http://127.0.0.1:5000/disc_callback")
+            disc_state["auth_url"] = (
+                f"https://discord.com/api/oauth2/authorize"
+                f"?client_id={config['disc_id']}&redirect_uri={redir}"
+                f"&response_type=code&scope={scopes}"
+            )
+        if disc_ipc_instance:
+            disc_state.update({
+                "connected":       disc_ipc_instance.connected,
+                "voice_supported": disc_ipc_instance.voice_supported,
+                "auth_pending":    disc_ipc_instance.auth_pending,
+            })
+            if disc_ipc_instance.connected:
+                disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
+                disc_state["deaf"] = disc_ipc_instance.voice_state.get("deaf", False)
+                disc_state["voice_channel"] = disc_ipc_instance.voice_channel
+            if not disc_has_token and disc_ipc_instance.auth_pending:
+                disc_state["auth_url"] = disc_ipc_instance.get_auth_url()
+
+        new_payload = {
+            "cpu":        psutil.cpu_percent(interval=None),
+            "ram":        psutil.virtual_memory().percent,
+            "gpu":        gpu_cache or None,
+            "mouse_batt": batt_cache,
+            "spotify":    media,
+            "discord":    disc_state,
+            "audio": {
+                "spk": audio_cache["spk"],
+                "mic": audio_cache["mic"],
+                "active_dev": audio_cache["active_dev"],
+            },
+        }
+
+        if new_payload != last_sys_data_payload:
+            last_sys_data_payload = new_payload
+            await ws_manager.broadcast({
+                "type": "sys_data",
+                "data": new_payload,
+            })
+
+        burst = (sys.platform.startswith("linux")
+                 and media_module.is_mpris_burst_active())
+        sleep_time = 0.2 if burst else 1.0
+        try:
+            await asyncio.wait_for(sys_data_trigger.wait(), timeout=sleep_time)
+            sys_data_trigger.clear()
+        except asyncio.TimeoutError:
+            pass
+
+
+async def fetch_weather():
+    global last_weather_data
+
+    async def _do_fetch():
+        global last_weather_data
+        if not (config.get("weather_api") and config.get("weather_city")):
+            last_weather_data["timestamp"] = time.time()
+            return
+        try:
+            res = await asyncio.to_thread(
+                REQ_SESSION.get,
+                "http://api.openweathermap.org/data/2.5/weather",
+                params={"q": config["weather_city"], "appid": config["weather_api"],
+                        "units": "metric"},
+                timeout=5,
+            )
+            data = res.json()
+            if "main" in data:
+                last_weather_data = {
+                    "temp":      round(data["main"]["temp"]),
+                    "desc":      data["weather"][0]["description"].title(),
+                    "timestamp": time.time(),
+                }
+                with open(WEATHER_CACHE_FILE, "w") as f:
+                    json.dump(last_weather_data, f)
+                await ws_manager.broadcast({"type": "weather_data", "data": last_weather_data})
+        except Exception as e:
+            logger.debug(f"Weather fetch: {e}")
+        last_weather_data["timestamp"] = time.time()
+
+    if os.path.exists(WEATHER_CACHE_FILE):
+        try:
+            with open(WEATHER_CACHE_FILE) as f:
+                last_weather_data = json.load(f)
+        except Exception:
+            pass
+
+    if time.time() - last_weather_data.get("timestamp", 0) > 1800:
+        await _do_fetch()
+
+    while True:
+        try:
+            await asyncio.wait_for(weather_update_event.wait(), timeout=1800)
+            weather_update_event.clear()
+        except asyncio.TimeoutError:
+            pass
+        await _do_fetch()
+
+
+async def pipewire_auto_router():
+    """Route Dashboard-Soundboard monitor into microphone capture targets (Linux only)."""
+    while True:
+        try:
+            def _run(cmd):
+                return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2)
+
+            def_src = (await asyncio.to_thread(_run, ["pactl", "get-default-source"])).decode().strip()
+            pw_out  = (await asyncio.to_thread(_run, ["pw-link", "-o"])).decode()
+            monitors = [p.strip() for p in pw_out.splitlines()
+                        if "Dashboard-Soundboard" in p and "monitor" in p]
+            if not monitors:
+                await asyncio.sleep(2)
+                continue
+
+            sb_FL = monitors[0]
+            sb_FR = monitors[1] if len(monitors) > 1 else sb_FL
+
+            pw_links  = (await asyncio.to_thread(_run, ["pw-link", "-l"])).decode()
+            app_ports: list[str] = []
+            is_cap    = False
+            for line in pw_links.splitlines():
+                if not line.startswith((" ", "\t")):
+                    is_cap = def_src in line and "capture" in line
+                elif is_cap and "|->" in line:
+                    port = line.split("|->")[1].strip()
+                    if "Dashboard-Soundboard" not in port and "loopback" not in port.lower():
+                        app_ports.append(port)
+
+            for i, port in enumerate(app_ports):
+                src = sb_FL if i % 2 == 0 else sb_FR
+                await asyncio.to_thread(
+                    subprocess.run, ["pw-link", src, port],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
+                )
+        except Exception as e:
+            logger.debug(f"PipeWire router: {e}")
+        await asyncio.sleep(5)
+
+
+# ─── FastAPI app ────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    os.makedirs(SOUNDS_DIR, exist_ok=True)
+
+    # Linux: create Dashboard-Soundboard virtual sink
+    if get_os_target() == "linux":
+        def _run(cmd, timeout=3):
+            return subprocess.run(cmd, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, timeout=timeout)
+        def _out(cmd, timeout=3):
+            return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=timeout)
+
+        try:
+            try:
+                real_sink = _out(["pactl", "get-default-sink"]).decode().strip()
+                real_src  = _out(["pactl", "get-default-source"]).decode().strip()
+            except Exception:
+                real_sink = real_src = ""
+
+            sinks_out = _out(["pactl", "list", "short", "sinks"]).decode()
+            if "Dashboard-Soundboard" not in sinks_out:
+                _run(["pactl", "load-module", "module-null-sink",
+                      "sink_name=Dashboard-Soundboard",
+                      'sink_properties=device.description="Dashboard-Soundboard"'])
+            _run(["pactl", "set-sink-volume", "Dashboard-Soundboard", "100%"])
+            _run(["pactl", "set-sink-mute",   "Dashboard-Soundboard", "0"])
+
+            mods_out = _out(["pactl", "list", "short", "modules"]).decode()
+            if "source=Dashboard-Soundboard.monitor" not in mods_out:
+                _run(["pactl", "load-module", "module-loopback",
+                      "source=Dashboard-Soundboard.monitor"])
+
+            if real_sink and "Dashboard" not in real_sink:
+                _run(["pactl", "set-default-sink",   real_sink])
+            if real_src  and "Dashboard" not in real_src:
+                _run(["pactl", "set-default-source", real_src])
+        except Exception as e:
+            logger.error(f"PipeWire setup: {e}")
+
+    restart_discord_ipc()
+
+    tasks = [
+        asyncio.create_task(hardware_loop(),  name="hardware_loop"),
+        asyncio.create_task(fetch_weather(),  name="fetch_weather"),
+    ]
+    if get_os_target() == "linux":
+        tasks.append(asyncio.create_task(pipewire_auto_router(), name="pw_router"))
+
+    app.state.bg_tasks = tasks
+    yield
+
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    if disc_ipc_instance:
+        disc_ipc_instance.close()
+
+
+_app = FastAPI(lifespan=lifespan)
+
+
+@_app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers["X-Frame-Options"]        = "DENY"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval' ws: wss:; "
+        "img-src 'self' data: https:;"
+    )
+    return resp
+
+
+_app.mount("/static", StaticFiles(directory=os.path.join(RESOURCE_DIR, "static")), name="static")
+
+# ─── HTTP routes ───────────────────────────────────────────────────────────────
+
+@_app.get("/api/local_art")
+async def serve_local_art():
+    path = media_module.get_last_mpris_art_path()
+    if path and os.path.exists(path):
+        return FileResponse(path)
+    return JSONResponse({"error": "No art"}, status_code=404)
+
+
+@_app.get("/")
+async def index(request: Request):
+    global last_host_url
+    last_host_url = request.url.netloc
+    html = _load_template()
+    # NOTE: Discord initial state is now delivered via WS config_sync,
+    # so we no longer mutate the HTML here.
+    resp = HTMLResponse(content=html)
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"]        = "no-cache"
+    resp.headers["Expires"]       = "0"
+    return resp
+
+
+@_app.get("/favicon.ico")
+async def _favicon():
+    return JSONResponse({})
+
+
+@_app.get("/manifest.json")
+async def _manifest():
+    return JSONResponse({
+        "name": "Touch Dashboard", "short_name": "Dashboard",
+        "start_url": "/?v=2.0", "display": "standalone",
+        "orientation": "landscape",
+        "background_color": "#090e17", "theme_color": "#0ea5e9",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192",
+             "type": "image/png", "purpose": "any maskable"},
+            {"src": "/static/icon-512.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "any maskable"},
+        ],
+    }, headers={"Cache-Control": "no-cache"})
+
+
+@_app.get("/spotify_login")
+async def spotify_login():
+    sp = get_sp_oauth()
+    if not sp:
+        return JSONResponse({"error": "No Spotify credentials configured"})
+    return RedirectResponse(sp.get_authorize_url())
+
+
+@_app.get("/callback")
+async def spotify_callback(code: str = None):
+    sp = get_sp_oauth()
+    if not sp or not code:
+        return RedirectResponse("/")
+    try:
+        await asyncio.to_thread(sp.get_access_token, code)
+    except Exception:
+        pass
+    return RedirectResponse("/")
+
+
+@_app.get("/disc_callback")
+async def discord_callback(code: str = None):
+    if not code or not disc_ipc_instance:
+        return RedirectResponse("/")
+    ok = await asyncio.to_thread(disc_ipc_instance.exchange_code, code)
+    if ok:
+        disc_ipc_instance.needs_reauth = True
+    return RedirectResponse("/")
+
+
+# ─── WebSocket ─────────────────────────────────────────────────────────────────
+
+@_app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    global config, force_media_update, current_media_source, global_sp_oauth
+
+    await ws_manager.connect(ws)
+    try:
+        audio_names = config.get("audio_names", {})
+        hw = await asyncio.to_thread(AudioSystem.get_hardware_sinks, audio_names)
+
+        # Initial state push — Discord state included here (replaces DOM surgery)
+        disc_has_token = bool(config.get("disc_token", ""))
+        initial_disc = {
+            "connected": bool(disc_ipc_instance and disc_ipc_instance.connected),
+            "authorized": disc_has_token,
+            "mute": (disc_ipc_instance.voice_state.get("mute", False)
+                     if disc_ipc_instance else False),
+            "deaf": (disc_ipc_instance.voice_state.get("deaf", False)
+                     if disc_ipc_instance else False),
+        }
+        await ws.send_text(_dumps({
+            "type": "config_sync",
+            "data": {
+                "cfg":       config,
+                "hw":        hw,
+                "os_target": get_os_target(),
+                "host_ip":   get_lan_ip(),
+                "disc_init": initial_disc,
+            },
+        }))
+
+        if last_weather_data.get("temp") != "--":
+            await ws.send_text(_dumps({"type": "weather_data", "data": last_weather_data}))
+
+        # ── message loop ───────────────────────────────────────────────────────
+        while True:
+            raw = await ws.receive_text()
+            msg  = _loads(raw)
+            mtype = msg.get("type")
+            data  = msg.get("data")
+
+            # ── queries ────────────────────────────────────────────────────────
+            if mtype == "req_local_sounds":
+                sounds = await asyncio.to_thread(get_local_sounds)
+                await ws.send_text(_dumps({"type": "local_sounds_list", "data": sounds}))
+
+            elif mtype == "req_apps_list":
+                apps = await asyncio.to_thread(AppEnumerator.get_apps)
+                await ws.send_text(_dumps({"type": "apps_list", "data": apps}))
+
+            # ── save macros ────────────────────────────────────────────────────
+            elif mtype == "save_macros":
+                with CONFIG_LOCK:
+                    config["macros"] = data
+                await asyncio.to_thread(save_config)
+                audio_data = await asyncio.to_thread(AudioSystem.poll_all,
+                                                     config.get("audio_names", {}))
+                await ws_manager.broadcast(_make_config_sync(audio_data))
+
+            # ── macro exec ─────────────────────────────────────────────────────
+            elif mtype == "macro_exec":
+                m_type      = data.get("type")
+                action_data = data.get("action_data")
+                if m_type == "app":
+                    await asyncio.to_thread(AppEnumerator.launch_app, action_data)
+                elif m_type == "macro":
+                    keys = action_data if isinstance(action_data, list) else [action_data]
+                    await asyncio.to_thread(MacroSystem.send_keys, *keys)
+                elif m_type in ("premade", "plugin"):
+                    mtype = "action"
+                    data  = action_data
+
+            # ── save config ────────────────────────────────────────────────────
+            if mtype == "save_config":
+                old_disc  = config.get("disc_enabled", True)
+                old_disc_id, old_disc_sec = config.get("disc_id"), config.get("disc_secret")
+                old_wx_api, old_wx_city   = config.get("weather_api"), config.get("weather_city")
+                old_spot_id               = config.get("spot_id")
+
+                with CONFIG_LOCK:
+                    config.update(data)
+                await asyncio.to_thread(save_config)
+
+                if old_spot_id != config.get("spot_id"):
+                    global_sp_oauth = None
+
+                audio_data = await asyncio.to_thread(AudioSystem.poll_all,
+                                                     config.get("audio_names", {}))
+                await ws_manager.broadcast(_make_config_sync(audio_data))
+
+                if (old_disc != config.get("disc_enabled", True)
+                        or old_disc_id  != config.get("disc_id")
+                        or old_disc_sec != config.get("disc_secret")):
+                    restart_discord_ipc()
+
+                if (old_wx_api  != config.get("weather_api")
+                        or old_wx_city != config.get("weather_city")):
+                    weather_update_event.set()
+
+            # ── actions ────────────────────────────────────────────────────────
+            elif mtype == "action":
+                await _handle_action(ws, data)
+
+            # ── volume ─────────────────────────────────────────────────────────
+            elif mtype == "set_volume":
+                target = ("@DEFAULT_AUDIO_SINK@" if data["type"] == "speaker"
+                          else "@DEFAULT_AUDIO_SOURCE@")
+                await asyncio.to_thread(AudioSystem.set_vol, target, data["val"])
+
+            # ── speedtest ──────────────────────────────────────────────────────
+            elif mtype == "run_speedtest":
+                asyncio.create_task(_run_speedtest())
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        ws_manager.disconnect(ws)
+
+
+def _make_config_sync(audio_data: dict) -> dict:
+    return {
+        "type": "config_sync",
+        "data": {
+            "cfg":       config,
+            "hw":        audio_data.get("sinks", []),
+            "os_target": get_os_target(),
+            "host_ip":   get_lan_ip(),
+        },
+    }
+
+
+async def _run_speedtest():
+    if speedtest_lock.locked():
+        await ws_manager.broadcast({"type": "speedtest_result",
+                                     "data": {"down": "BUSY", "up": "BUSY"}})
+        return
+    async with speedtest_lock:
+        try:
+            st   = await asyncio.to_thread(speedtest_lib.Speedtest)
+            await asyncio.to_thread(st.get_best_server)
+            down = await asyncio.to_thread(st.download)
+            up   = await asyncio.to_thread(st.upload)
+            await ws_manager.broadcast({"type": "speedtest_result",
+                                         "data": {"down": round(down / 1e6, 1),
+                                                  "up":   round(up   / 1e6, 1)}})
+        except Exception:
+            await ws_manager.broadcast({"type": "speedtest_result",
+                                         "data": {"down": "ERR", "up": "ERR"}})
+
+
+async def _handle_action(ws: WebSocket, action: str):
+    """Dispatch an 'action' message from the WebSocket client."""
+    global force_media_update, current_media_source
+
+    # ── local soundboard ──────────────────────────────────────────────────────
+    if action.startswith("local_play_"):
+        filename = action.removeprefix("local_play_")
+        filepath = resolve_sound_path(filename)
+        if filepath:
+            await asyncio.to_thread(AudioSystem.play_local_sound, filepath)
+        return
+
+    if action == "stop_local_audio":
+        await asyncio.to_thread(AudioSystem.stop_local_sound)
+        return
+
+    # ── Spotify / media ───────────────────────────────────────────────────────
+    if action.startswith("spot_"):
+        if action == "spot_clear_auth":
+            global global_sp_oauth
+            global_sp_oauth = None
+            with CONFIG_LOCK:
+                config["spot_token"] = ""
+                save_config()
+            if os.path.exists(SPOTIFY_CACHE_FILE):
+                try: os.remove(SPOTIFY_CACHE_FILE)
+                except Exception: pass
+            return
+
+        sp_oauth = get_sp_oauth()
+        routed   = False
+        if current_media_source == "spotify" and sp_oauth:
+            try:
+                token = await asyncio.to_thread(sp_oauth.get_cached_token)
+                if token:
+                    sp = spotipy.Spotify(auth=token["access_token"], requests_timeout=3)
+                    if action == "spot_play":
+                        c = await asyncio.to_thread(sp.current_playback)
+                        if c and c.get("is_playing"):
+                            await asyncio.to_thread(sp.pause_playback)
+                        else:
+                            await asyncio.to_thread(sp.start_playback)
+                    elif action == "spot_next":
+                        await asyncio.to_thread(sp.next_track)
+                    elif action == "spot_prev":
+                        await asyncio.to_thread(sp.previous_track)
+                    routed = True
+                    force_media_update = True
+            except Exception:
+                pass
+
+        if not routed:
+            if sys.platform.startswith("linux") and shutil.which("playerctl"):
+                cmd_map = {
+                    "spot_play": ["playerctl", "play-pause"],
+                    "spot_next": ["playerctl", "next"],
+                    "spot_prev": ["playerctl", "previous"],
+                }
+                if action in cmd_map:
+                    await asyncio.to_thread(
+                        subprocess.run, cmd_map[action],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+            else:
+                # Windows: use media keys
+                key_map = {
+                    "spot_play": "KEY_PLAYPAUSE",
+                    "spot_next": "KEY_NEXTSONG",
+                    "spot_prev": "KEY_PREVIOUSSONG",
+                }
+                if action in key_map:
+                    await asyncio.to_thread(MacroSystem.send_keys, key_map[action])
+            force_media_update = True
+        return
+
+    # ── Soundpad (Windows) ────────────────────────────────────────────────────
+    if action.startswith("sp_play_"):
+        sp_id = action.split("sp_play_")[1]
+        if sys.platform.startswith("win"):
+            for sp_path in (
+                r"C:\Program Files\Soundpad\Soundpad.exe",
+                r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe",
+            ):
+                if os.path.exists(sp_path):
+                    await asyncio.to_thread(
+                        subprocess.run, [sp_path, "-rc", f"DoPlaySound({sp_id})"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    break
+        return
+
+    # ── Discord ────────────────────────────────────────────────────────────────
+    if action == "disc_clear_auth":
+        with CONFIG_LOCK:
+            config["disc_token"] = ""
+            save_config()
+        restart_discord_ipc()
+        return
+
+    if action == "disc_auth":
+        if disc_ipc_instance and disc_ipc_instance.connected:
+            disc_ipc_instance.send(1, {
+                "cmd": "AUTHORIZE",
+                "args": {"client_id": disc_ipc_instance.client_id,
+                          "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]},
+                "nonce": str(uuid.uuid4()),
+            })
+        return
+
+    if action == "disc_mute":
+        if disc_ipc_instance and disc_ipc_instance.connected and disc_ipc_instance.voice_supported:
+            is_deaf = disc_ipc_instance.voice_state.get("deaf", False)
+            is_mute = disc_ipc_instance.voice_state.get("mute", False)
+            if is_deaf:
+                disc_ipc_instance.set_voice(deaf=False, mute=True)
+                disc_ipc_instance.pre_deafen_mute = True
+            else:
+                disc_ipc_instance.set_voice(mute=not is_mute)
+                disc_ipc_instance.pre_deafen_mute = not is_mute
+        else:
+            await asyncio.to_thread(MacroSystem.send_keys, "KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_M")
+        return
+
+    if action == "disc_deaf":
+        if disc_ipc_instance and disc_ipc_instance.connected and disc_ipc_instance.voice_supported:
+            is_deaf = disc_ipc_instance.voice_state.get("deaf", False)
+            is_mute = disc_ipc_instance.voice_state.get("mute", False)
+            if not is_deaf:
+                disc_ipc_instance.pre_deafen_mute = is_mute
+                disc_ipc_instance.set_voice(deaf=True, mute=True)
+            else:
+                restore = getattr(disc_ipc_instance, "pre_deafen_mute", False)
+                disc_ipc_instance.set_voice(deaf=False, mute=restore)
+        else:
+            await asyncio.to_thread(MacroSystem.send_keys, "KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_D")
+        return
+
+    if action == "disc_disconnect":
+        if disc_ipc_instance and disc_ipc_instance.connected:
+            disc_ipc_instance.send(1, {"cmd": "SELECT_VOICE_CHANNEL",
+                                        "args": {"channel_id": None},
+                                        "nonce": str(uuid.uuid4())})
+        return
+
+    # disc_cam / disc_screen — placeholders
+    if action in ("disc_cam", "disc_screen"):
+        return
+
+    # ── system apps ───────────────────────────────────────────────────────────
+    if action == "app_term":
+        await asyncio.to_thread(_launch_terminal)
+        return
+
+    if action == "app_web":
+        await asyncio.to_thread(_launch_browser)
+        return
+
+    if action == "app_task":
+        await asyncio.to_thread(_launch_task_manager)
+        return
+
+    if action == "app_clip":
+        await asyncio.to_thread(MacroSystem.send_keys, 119)  # KEY_SYSRQ / Print Screen
+        return
+
+    if action == "app_soundpad":
+        if sys.platform.startswith("win"):
+            for sp_path in (
+                r"C:\Program Files\Soundpad\Soundpad.exe",
+                r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe",
+            ):
+                if os.path.exists(sp_path):
+                    subprocess.Popen([sp_path])
+                    break
+        return
+
+    # ── audio ─────────────────────────────────────────────────────────────────
+    if action == "audio_cycle":
+        await asyncio.to_thread(AudioSystem.cycle_device, config.get("audio_names", {}))
+        return
+
+    if action == "audio_mute_spk":
+        await asyncio.to_thread(
+            AudioSystem.toggle_mute, "@DEFAULT_AUDIO_SINK@", MacroSystem.send_keys
+        )
+        return
+
+    if action == "audio_mute_mic":
+        await asyncio.to_thread(
+            AudioSystem.toggle_mute, "@DEFAULT_AUDIO_SOURCE@", MacroSystem.send_keys
+        )
+        return
+
+
+# ─── App launch helpers ────────────────────────────────────────────────────────
+
+def _popen(cmd, **kwargs):
+    defaults = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if sys.platform != "win32":
+        defaults["start_new_session"] = True
+    subprocess.Popen(cmd, **{**defaults, **kwargs})
+
+
+def _launch_terminal():
+    if sys.platform.startswith("win"):
+        if shutil.which("wt.exe"):
+            return _popen(["wt.exe"])
+        return _popen(["cmd.exe", "/c", "start", "cmd.exe"])
+    de = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+    if os.environ.get("TERMINAL") and shutil.which(os.environ["TERMINAL"]):
+        return _popen([os.environ["TERMINAL"]])
+    if "kde" in de:
+        for kread in ("kreadconfig6", "kreadconfig5"):
+            if shutil.which(kread):
+                try:
+                    t = subprocess.check_output(
+                        [kread, "--file", "kdeglobals", "--group", "General",
+                         "--key", "TerminalApplication"],
+                        stderr=subprocess.DEVNULL,
+                    ).decode().strip()
+                    if t and shutil.which(t):
+                        return _popen([t])
+                except Exception:
+                    pass
+    if "gnome" in de or "cinnamon" in de or "mate" in de:
+        if shutil.which("gsettings"):
+            schemas = {
+                "gnome":    "org.gnome.desktop.default-applications.terminal",
+                "cinnamon": "org.cinnamon.desktop.default-applications.terminal",
+                "mate":     "org.mate.applications-terminal",
+            }
+            for key, schema in schemas.items():
+                if key in de:
+                    try:
+                        t = subprocess.check_output(
+                            ["gsettings", "get", schema, "exec"],
+                            stderr=subprocess.DEVNULL,
+                        ).decode().strip().strip("'\"")
+                        if t and shutil.which(t):
+                            return _popen([t])
+                    except Exception:
+                        pass
+    if "xfce" in de and shutil.which("exo-open"):
+        return _popen(["exo-open", "--launch", "TerminalEmulator"])
+    for w in ("xdg-terminal-exec", "xdg-terminal", "i3-sensible-terminal"):
+        if shutil.which(w):
+            return _popen([w])
+    for t in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal",
+              "mate-terminal", "lxterminal", "alacritty", "kitty", "wezterm", "xterm"):
+        if shutil.which(t):
+            return _popen([t])
+
+
+def _launch_browser():
+    if sys.platform.startswith("win"):
+        return _popen(["cmd.exe", "/c", "start", "http://"])
+    de = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+    if os.environ.get("BROWSER") and shutil.which(os.environ["BROWSER"]):
+        return _popen([os.environ["BROWSER"]])
+    if shutil.which("xdg-open"):
+        return _popen(["xdg-open", "http://"])
+    for b in ("firefox", "brave", "google-chrome", "chromium", "vivaldi"):
+        if shutil.which(b):
+            return _popen([b])
+
+
+def _launch_task_manager():
+    if sys.platform.startswith("win"):
+        return _popen(["taskmgr.exe"])
+    de = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+    candidates: list[str] = []
+    if "kde"      in de: candidates = ["plasma-systemmonitor", "ksysguard"]
+    elif "gnome"  in de: candidates = ["gnome-system-monitor"]
+    elif "xfce"   in de: candidates = ["xfce4-taskmanager"]
+    elif "mate"   in de: candidates = ["mate-system-monitor"]
+    else: candidates = ["plasma-systemmonitor", "gnome-system-monitor",
+                         "xfce4-taskmanager", "ksysguard"]
+    for t in candidates:
+        if shutil.which(t):
+            return _popen([t])
+    # CLI fallback
+    for cli in ("htop", "top"):
+        if shutil.which(cli):
+            term = shutil.which("x-terminal-emulator") or shutil.which("xterm")
+            if term:
+                return _popen([term, "-e", cli])
+
+
+# ─── Windows desktop helpers ───────────────────────────────────────────────────
+
+_WINDOW_ICON_HANDLES: list = []
 
 
 def configure_windows_app_identity():
     if not sys.platform.startswith("win"):
         return
-
     try:
         import ctypes
-        shell32 = ctypes.windll.shell32
-        shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [ctypes.c_wchar_p]
-        shell32.SetCurrentProcessExplicitAppUserModelID.restype = ctypes.c_long
-        shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_USER_MODEL_ID)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_USER_MODEL_ID)
     except Exception as e:
-        logger.debug(f"Could not set Windows app identity: {e}")
+        logger.debug(f"AppUserModelID: {e}")
 
 
-def _int_handle(value):
-    if value is None:
-        return None
-    if hasattr(value, "ToInt64"):
-        value = value.ToInt64()
-    elif hasattr(value, "ToInt32"):
-        value = value.ToInt32()
-    if hasattr(value, "value"):
-        value = value.value
-    try:
-        handle = int(value)
-    except (TypeError, ValueError):
-        return None
-    return handle or None
-
-
-def _safe_getattr(obj, attr):
-    try:
-        return getattr(obj, attr, None)
-    except Exception:
-        return None
-
-
-def _window_handle_candidates(window):
-    handles = []
-
-    def add_handle(value):
-        handle = _int_handle(value)
-        if handle and handle not in handles:
-            handles.append(handle)
-
-    for obj in (window, _safe_getattr(window, "native"), _safe_getattr(window, "gui")):
-        if obj is None:
-            continue
-        add_handle(obj)
-        for attr in ("hwnd", "handle", "Handle"):
-            add_handle(_safe_getattr(obj, attr))
-
-    return handles
-
-
-def _find_windows_process_handles(title):
-    if not sys.platform.startswith("win"):
-        return []
-
-    try:
-        import ctypes
-        from ctypes import wintypes
-    except Exception:
-        return []
-
-    user32 = ctypes.windll.user32
-    current_pid = os.getpid()
-    handles = []
-
-    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def enum_proc(hwnd, _lparam):
-        pid = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value != current_pid:
-            return True
-
-        if title:
-            length = user32.GetWindowTextLengthW(hwnd)
-            buffer = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buffer, length + 1)
-            if buffer.value != title:
-                return True
-
-        handle = _int_handle(hwnd)
-        if handle and handle not in handles:
-            handles.append(handle)
-        return True
-
-    try:
-        user32.EnumWindows(enum_proc, 0)
-    except Exception:
-        return []
-    return handles
+def _int_handle(v):
+    if v is None: return None
+    for attr in ("ToInt64", "ToInt32"):
+        if hasattr(v, attr): v = getattr(v, attr)()
+    if hasattr(v, "value"): v = v.value
+    try: return int(v) or None
+    except Exception: return None
 
 
 def set_windows_window_icon(window, title="Touch Dashboard"):
     if not sys.platform.startswith("win") or not os.path.exists(APP_ICON_PATH):
         return
-
     try:
         import ctypes
-        from ctypes import wintypes
+        import ctypes.wintypes as wt
+        user32   = ctypes.windll.user32
+        IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
+        WM_SETICON = 0x0080
+        ICON_SMALL, ICON_BIG, ICON_SMALL2 = 0, 1, 2
+
+        user32.LoadImageW.argtypes = [wt.HINSTANCE, wt.LPCWSTR, wt.UINT,
+                                       ctypes.c_int, ctypes.c_int, wt.UINT]
+        user32.LoadImageW.restype  = wt.HANDLE
+
+        large = _int_handle(user32.LoadImageW(None, APP_ICON_PATH, IMAGE_ICON,
+                                               user32.GetSystemMetrics(11),
+                                               user32.GetSystemMetrics(12), LR_LOADFROMFILE))
+        small = _int_handle(user32.LoadImageW(None, APP_ICON_PATH, IMAGE_ICON,
+                                               user32.GetSystemMetrics(49),
+                                               user32.GetSystemMetrics(50), LR_LOADFROMFILE))
+        if not large and not small:
+            return
+
+        hwnd = _get_window_hwnd(window, title)
+        if not hwnd:
+            return
+
+        user32.SendMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+        user32.SendMessageW.restype  = wt.LPARAM
+        if large: user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG,    large)
+        if small:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL,  small)
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL2, small)
+
+        _WINDOW_ICON_HANDLES.extend(h for h in (large, small) if h)
     except Exception as e:
-        logger.debug(f"Could not load Windows icon APIs: {e}")
-        return
-
-    user32 = ctypes.windll.user32
-    IMAGE_ICON = 1
-    LR_LOADFROMFILE = 0x00000010
-    WM_SETICON = 0x0080
-    ICON_SMALL = 0
-    ICON_BIG = 1
-    ICON_SMALL2 = 2
-    SM_CXICON = 11
-    SM_CYICON = 12
-    SM_CXSMICON = 49
-    SM_CYSMICON = 50
-
-    user32.LoadImageW.argtypes = [
-        wintypes.HINSTANCE,
-        wintypes.LPCWSTR,
-        wintypes.UINT,
-        ctypes.c_int,
-        ctypes.c_int,
-        wintypes.UINT,
-    ]
-    user32.LoadImageW.restype = wintypes.HANDLE
-    user32.SendMessageW.argtypes = [
-        wintypes.HWND,
-        wintypes.UINT,
-        wintypes.WPARAM,
-        wintypes.LPARAM,
-    ]
-    user32.SendMessageW.restype = wintypes.LPARAM
-
-    large_icon = _int_handle(
-        user32.LoadImageW(
-            None,
-            APP_ICON_PATH,
-            IMAGE_ICON,
-            user32.GetSystemMetrics(SM_CXICON),
-            user32.GetSystemMetrics(SM_CYICON),
-            LR_LOADFROMFILE,
-        )
-    )
-    small_icon = _int_handle(
-        user32.LoadImageW(
-            None,
-            APP_ICON_PATH,
-            IMAGE_ICON,
-            user32.GetSystemMetrics(SM_CXSMICON),
-            user32.GetSystemMetrics(SM_CYSMICON),
-            LR_LOADFROMFILE,
-        )
-    )
-
-    if not large_icon and not small_icon:
-        logger.debug(f"Could not load Windows app icon from {APP_ICON_PATH}")
-        return
-
-    handles = _window_handle_candidates(window)
-    if not handles:
-        handles = _find_windows_process_handles(title)
-
-    if not handles:
-        logger.debug("Could not find a native Windows handle for the dashboard window")
-        return
-
-    applied = False
-    for hwnd in handles:
-        if large_icon:
-            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, large_icon)
-            applied = True
-        if small_icon:
-            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small_icon)
-            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL2, small_icon)
-            applied = True
-
-    if applied:
-        _WINDOW_ICON_HANDLES.extend(handle for handle in (large_icon, small_icon) if handle)
+        logger.debug(f"Window icon: {e}")
 
 
-class Api:
-    def __init__(self, desktop_app):
-        self.app = desktop_app
+def _get_window_hwnd(window, title: str) -> int | None:
+    # Try pywebview attributes first
+    for obj in (window, getattr(window, "native", None), getattr(window, "gui", None)):
+        if obj is None:
+            continue
+        h = _int_handle(obj)
+        if h: return h
+        for attr in ("hwnd", "handle", "Handle"):
+            h = _int_handle(getattr(obj, attr, None))
+            if h: return h
 
+    # Fallback: enumerate process windows
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        user32 = ctypes.windll.user32
+        pid    = os.getpid()
+        found: list[int] = []
+
+        @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+        def _proc(hwnd, _):
+            p = wt.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
+            if p.value != pid:
+                return True
+            if title:
+                n   = user32.GetWindowTextLengthW(hwnd)
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                if buf.value != title:
+                    return True
+            h = _int_handle(hwnd)
+            if h: found.append(h)
+            return True
+
+        user32.EnumWindows(_proc, 0)
+        return found[0] if found else None
+    except Exception:
+        return None
+
+
+# ─── Tray API (exposed to pywebview JS context) ────────────────────────────────
+
+class _Api:
+    def __init__(self, app):
+        self._app = app
     def minimize(self):
-        if self.app.window:
-            self.app.window.minimize()
-
+        if self._app.window: self._app.window.minimize()
     def maximize(self):
-        if self.app.window:
-            self.app.window.toggle_fullscreen()
-
+        if self._app.window: self._app.window.toggle_fullscreen()
     def close(self):
-        if self.app.window:
-            if self.app.minimize_to_tray:
-                self.app.hide_window()
-            else:
-                self.app.quit()
+        if self._app.window:
+            if self._app.minimize_to_tray: self._app.hide_window()
+            else: self._app.quit()
+    def set_minimize_to_tray(self, val): self._app.minimize_to_tray = bool(val)
+    def get_local_ip(self): return self._app.local_ip
 
-    def set_minimize_to_tray(self, val):
-        self.app.minimize_to_tray = bool(val)
-
-    def get_local_ip(self):
-        return self.app.local_ip
 
 class DesktopTrayApp:
-    def __init__(self, port=5000):
-        self.port = port
-        self.local_ip = get_lan_ip()
-        self.window_title = f"Touch Dashboard - {self.local_ip}"
-        self.window = None
-        self.icon = None
-        self.window_visible = False
-        self.shutting_down = False
-        self.tray_available = False
+    def __init__(self, port: int = 5000):
+        self.port            = port
+        self.local_ip        = get_lan_ip()
+        self.window_title    = f"Touch Dashboard — {self.local_ip}"
+        self.window          = None
+        self.icon            = None
+        self.window_visible  = False
+        self.shutting_down   = False
+        self.tray_available  = False
         self.minimize_to_tray = True
-        self.lock = threading.RLock()
+        self._lock           = threading.RLock()
 
-    def make_icon_image(self):
-        try:
-            if os.path.exists(APP_ICON_PATH):
-                with Image.open(APP_ICON_PATH) as icon:
-                    icon.load()
-                    icon = icon.convert("RGBA")
+    def _make_icon(self):
+        if os.path.exists(APP_ICON_PATH):
+            try:
+                img = Image.open(APP_ICON_PATH).convert("RGBA")
                 resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
-                icon.thumbnail((64, 64), resample)
-                image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-                image.alpha_composite(icon, ((64 - icon.width) // 2, (64 - icon.height) // 2))
-                return image
-        except Exception as e:
-            logger.debug(f"Could not load tray icon from favicon: {e}")
-
-        image = Image.new("RGBA", (64, 64), (9, 14, 23, 255))
-        draw = ImageDraw.Draw(image)
+                img.thumbnail((64, 64), resample)
+                canvas = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+                canvas.alpha_composite(img, ((64 - img.width) // 2, (64 - img.height) // 2))
+                return canvas
+            except Exception:
+                pass
+        # Fallback: draw a simple geometric icon
+        img  = Image.new("RGBA", (64, 64), (9, 14, 23, 255))
+        draw = ImageDraw.Draw(img)
         draw.rounded_rectangle((10, 10, 54, 54), radius=12, fill=(14, 165, 233, 255))
-        draw.rounded_rectangle((18, 18, 46, 46), radius=7, fill=(15, 23, 42, 255))
+        draw.rounded_rectangle((18, 18, 46, 46), radius=7,  fill=(15, 23, 42, 255))
         draw.rectangle((24, 24, 40, 30), fill=(248, 250, 252, 255))
         draw.rectangle((24, 34, 40, 40), fill=(248, 250, 252, 255))
-        return image
+        return img
 
-    def build_menu(self):
+    def _toggle_label(self, _item):
+        return "Hide Dashboard" if self.window_visible else "Show Dashboard"
+
+    def _build_menu(self):
         return pystray.Menu(
             pystray.MenuItem(self._toggle_label, self.toggle_window, default=True),
-            pystray.MenuItem(f"Local IP: {self.local_ip}", lambda icon, item: None, enabled=False),
+            pystray.MenuItem(f"IP: {self.local_ip}", lambda *_: None, enabled=False),
             pystray.MenuItem("Quit", self.quit),
         )
 
-    def _toggle_label(self, item):
-        return "Hide Dashboard" if self.window_visible else "Show Dashboard"
-
     def start_tray(self):
-        self.icon = pystray.Icon("Touch Dashboard", self.make_icon_image(), "Touch Dashboard", self.build_menu())
+        self.icon = pystray.Icon("Touch Dashboard", self._make_icon(),
+                                  "Touch Dashboard", self._build_menu())
         try:
             self.icon.run_detached()
             self.tray_available = True
         except Exception as e:
             self.tray_available = False
-            logger.error(f"Tray startup failed; showing dashboard window directly after GUI starts: {e}")
+            logger.error(f"Tray start failed: {e}")
+
+    def attach_window(self, window):
+        self.window = window
+        try:
+            self.window.events.closing += self._on_close
+        except Exception:
+            pass
 
     def on_webview_ready(self):
         set_windows_window_icon(self.window, self.window_title)
         self.window_visible = True
 
-    def attach_window(self, window):
-        self.window = window
-        try:
-            self.window.events.closing += self.on_window_closing
-        except Exception as e:
-            logger.debug(f"Could not attach window close handler: {e}")
-
-    def on_window_closing(self):
+    def _on_close(self):
         if self.shutting_down:
             return True
         if self.minimize_to_tray:
@@ -2370,106 +1567,114 @@ class DesktopTrayApp:
             return False
         return True
 
-    def toggle_window(self, icon=None, item=None):
-        with self.lock:
-            if self.window_visible:
-                self.hide_window()
-            else:
-                self.show_window()
-            if self.icon:
-                self.icon.update_menu()
+    def toggle_window(self, *_):
+        with self._lock:
+            if self.window_visible: self.hide_window()
+            else: self.show_window()
+            if self.icon: self.icon.update_menu()
 
     def show_window(self):
-        if not self.window:
-            return
-        try:
-            self.window.show()
-            self.window.restore()
+        if not self.window: return
+        try: self.window.show(); self.window.restore()
         except Exception:
-            try:
-                self.window.show()
-            except Exception as e:
-                logger.error(f"Failed to show dashboard window: {e}")
-                return
+            try: self.window.show()
+            except Exception as e: logger.error(f"show_window: {e}"); return
         self.window_visible = True
 
     def hide_window(self):
-        if not self.window:
-            return
-        try:
-            self.window.hide()
-            self.window_visible = False
-        except Exception as e:
-            logger.error(f"Failed to hide dashboard window: {e}")
+        if not self.window: return
+        try: self.window.hide(); self.window_visible = False
+        except Exception as e: logger.error(f"hide_window: {e}")
 
-    def quit(self, icon=None, item=None):
-        with self.lock:
+    def quit(self, *_):
+        with self._lock:
             self.shutting_down = True
             stop_fastapi_server()
             if self.icon:
-                self.icon.stop()
+                try: self.icon.stop()
+                except Exception: pass
             if self.window:
-                try:
-                    self.window.destroy()
-                except Exception as e:
-                    logger.debug(f"Window destroy failed during quit: {e}")
+                try: self.window.destroy()
+                except Exception: pass
 
 
-def launch_desktop(host='0.0.0.0', port=5000):
+# ─── Server lifecycle ──────────────────────────────────────────────────────────
+
+def stop_fastapi_server():
+    if uvicorn_server: uvicorn_server.should_exit = True
+
+
+def run_fastapi_server(host="0.0.0.0", port=5000, reload=False):
+    global uvicorn_server
+    if reload:
+        uvicorn.run("server:_app", host=host, port=port, reload=True,
+                    reload_dirs=[BASE_DIR, os.path.join(RESOURCE_DIR, "templates")])
+    else:
+        cfg = uvicorn.Config(_app, host=host, port=port, log_level="warning")
+        uvicorn_server = uvicorn.Server(cfg)
+        uvicorn_server.run()
+
+
+def launch_desktop(host="0.0.0.0", port=5000):
     if webview is None or pystray is None or Image is None:
-        logger.warning("pywebview, pystray, or Pillow is not installed; starting FastAPI without a tray window.")
-        run_fastapi_server(host=host, port=port, reload=False)
+        logger.warning("pywebview/pystray/Pillow missing — server-only mode.")
+        run_fastapi_server(host=host, port=port)
         return
 
     configure_windows_app_identity()
 
-    server_thread = threading.Thread(
+    srv_thread = threading.Thread(
         target=run_fastapi_server,
-        kwargs={"host": host, "port": port, "reload": False},
-        daemon=True,
-        name="touch-dashboard-fastapi",
+        kwargs={"host": host, "port": port},
+        daemon=True, name="fastapi",
     )
-    server_thread.start()
-    time.sleep(1.0)
+    srv_thread.start()
+    time.sleep(1.0)   # Give the server a moment to bind
 
-    desktop_app = DesktopTrayApp(port=port)
-    api = Api(desktop_app)
-    window_kwargs = {
-        "title": desktop_app.window_title,
-        "url": f"http://127.0.0.1:{port}",
-        "frameless": True,
-        "width": 1280,
-        "height": 800,
-        "hidden": False,
-        "easy_drag": False,
+    desktop = DesktopTrayApp(port=port)
+    api     = _Api(desktop)
+
+    win_kwargs = {
+        "title":       desktop.window_title,
+        "url":         f"http://127.0.0.1:{port}",
+        "frameless":   True,
+        "width":       1280,
+        "height":      800,
+        "hidden":      False,
+        "easy_drag":   False,
         "transparent": True,
-        "js_api": api,
+        "js_api":      api,
     }
     try:
-        window = webview.create_window(**window_kwargs)
+        win = webview.create_window(**win_kwargs)
     except TypeError:
-        window_kwargs.pop("hidden", None)
-        window = webview.create_window(**window_kwargs)
-    desktop_app.attach_window(window)
-    desktop_app.start_tray()
+        win_kwargs.pop("hidden", None)
+        win = webview.create_window(**win_kwargs)
+
+    desktop.attach_window(win)
+    desktop.start_tray()
+
     if sys.platform.startswith("linux"):
-        webview.start(desktop_app.on_webview_ready, gui="qt")
+        webview.start(desktop.on_webview_ready, gui="qt")
     else:
-        webview.start(desktop_app.on_webview_ready)
+        webview.start(desktop.on_webview_ready)
+
     stop_fastapi_server()
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Touch Dashboard desktop/server launcher")
-    parser.add_argument("--server-only", action="store_true", help="Run FastAPI without opening a PyWebView window")
-    parser.add_argument("--host", default="0.0.0.0", help="FastAPI bind host")
-    parser.add_argument("--port", type=int, default=5000, help="FastAPI bind port")
-    parser.add_argument("--reload", action="store_true", help="Enable uvicorn reload for development server-only runs")
-    return parser.parse_args()
+# ─── Entry point ───────────────────────────────────────────────────────────────
+
+def _parse_args():
+    p = argparse.ArgumentParser(description="Touch Dashboard")
+    p.add_argument("--server-only", action="store_true")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=5000)
+    p.add_argument("--reload", action="store_true")
+    return p.parse_args()
 
 
-if __name__ == '__main__':
-    args = parse_args()
+if __name__ == "__main__":
+    args = _parse_args()
     if args.server_only:
         run_fastapi_server(host=args.host, port=args.port, reload=args.reload)
     else:

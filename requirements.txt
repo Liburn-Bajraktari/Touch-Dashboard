@@ -1,3 +1,4 @@
+# ── Core (all platforms) ────────────────────────────────────────────────────────
 fastapi
 uvicorn[standard]
 requests
@@ -9,6 +10,19 @@ pywebview
 pystray
 Pillow
 pyinstaller
+
+# ── Optional: fast JSON serialization (5–10× faster than stdlib json) ──────────
+orjson
+
+# ── Linux (PipeWire / evdev) ─────────────────────────────────────────────────────
 evdev; sys_platform == "linux"
 PyGObject; sys_platform == "linux"
+
+# ── Windows (Audio / COM / Soundboard / Media Transport) ──────────────────────
+comtypes; sys_platform == "win32"
 pycaw; sys_platform == "win32"
+sounddevice; sys_platform == "win32"
+soundfile; sys_platform == "win32"
+winrt-runtime; sys_platform == "win32"
+winrt-Windows.Media.Control; sys_platform == "win32"
+winrt-Windows.Foundation; sys_platform == "win32"

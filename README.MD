@@ -25,7 +25,8 @@ Current features include:
 - Desktop tray mode with a local IP display for connecting mobile clients.
 - Android wrapper support through Capacitor.
 
-The dashboard is currently Linux-focused. Some Windows branches exist in the code, mostly around Soundpad, but this is not currently designed or tested as a Windows-first app.
+The dashboard natively supports both Linux and Windows. 
+On Windows, it deeply integrates with the OS using native COM, `pycaw` for WASAPI audio manipulation, and WinRT (`Windows.Media.Control`) for capturing Spotify and media players asynchronously with 0% CPU overhead.
 
 ## Recommended Client Setup
 
@@ -75,6 +76,13 @@ Top bar:
 - Tap the activity button to run a speedtest.
 
 ## Requirements
+
+### Windows
+
+1. Run `py -m pip install -r requirements.txt` to install the dependencies.
+2. Run `py server.py` to start the backend.
+
+### Linux
 
 Python dependencies used by the current code:
 
