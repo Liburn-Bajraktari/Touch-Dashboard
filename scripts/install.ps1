@@ -47,7 +47,11 @@ function Find-Python {
 function Install-Update {
     Write-Color "`n=== Installing / Updating Touch Dashboard ===" "Cyan"
     
-    $processes = Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -match "server.py" -and $_.CommandLine -match "Touch-Dashboard" }
+    $processes = Get-WmiObject Win32_Process | Where-Object { 
+        ($_.CommandLine -match "server.py" -and $_.CommandLine -match "Touch-Dashboard") -or 
+        $_.ProcessName -match "TouchDashboard" 
+    }
+    
     if ($processes) {
         Write-Color "  [!] Touch Dashboard is currently running." "Yellow"
         $ans = Read-Host "  Would you like to close it to continue updating? (Y/N)"
@@ -216,7 +220,10 @@ function Uninstall-App {
         
         # Kill running processes
         Write-Color "[*] Stopping backend processes..." "Cyan"
-        Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -match "server.py" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Get-WmiObject Win32_Process | Where-Object { 
+            ($_.CommandLine -match "server.py" -and $_.CommandLine -match "Touch-Dashboard") -or 
+            $_.ProcessName -match "TouchDashboard" 
+        } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
         Write-Color "[*] Removing application files..." "Cyan"
         if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
