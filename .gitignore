@@ -26,3 +26,5 @@ Lib/
 Include/
 Scripts/
 touch-dashboard.spec
+error.log
+trace.log

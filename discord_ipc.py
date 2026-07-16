@@ -184,7 +184,7 @@ class DiscordIPC:
 
     def get_auth_url(self) -> str:
         scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
-        redirect = urllib.parse.quote("http://127.0.0.1:5000/disc_callback")
+        redirect = urllib.parse.quote("http://127.0.0.1:8888/disc_callback")
         return (
             f"https://discord.com/api/oauth2/authorize"
             f"?client_id={self.client_id}"
@@ -202,7 +202,7 @@ class DiscordIPC:
                 "client_secret": self.client_secret,
                 "grant_type":    "authorization_code",
                 "code":          code,
-                "redirect_uri":  "http://127.0.0.1:5000/disc_callback",
+                "redirect_uri":  "http://127.0.0.1:8888/disc_callback",
             }
             r = requests.post(
                 "https://discord.com/api/oauth2/token",

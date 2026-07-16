@@ -158,14 +158,16 @@ _win_media_cache: dict = {}
 _win_media_ts: float   = 0.0
 _win_media_ttl: float  = 2.0   # seconds between Windows SMTCS queries
 
-# Try to import winrt once at module load; store availability flag.
-try:
-    if sys.platform.startswith("win"):
+# Probe the actual winrt import once at module load so _WINRT_AVAILABLE is
+# only True when the packages are genuinely installed and importable.
+_WINRT_AVAILABLE = False
+if sys.platform.startswith("win"):
+    try:
+        import winrt.windows.media.control as _winrt_probe  # type: ignore[import]
+        del _winrt_probe
         _WINRT_AVAILABLE = True
-    else:
+    except Exception:
         _WINRT_AVAILABLE = False
-except Exception:
-    _WINRT_AVAILABLE = False
 
 
 async def _query_winrt_session() -> dict | None:

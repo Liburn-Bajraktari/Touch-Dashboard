@@ -17,6 +17,29 @@ from __future__ import annotations
 import sys
 import os
 
+# ─── Bypass PyInstaller False Positives ─────────────────────────────────────────
+# Compiling PyInstaller with console=False flags aggressive heuristics in Windows 
+# Defender / Smart App Control. We compile with console=True to bypass this, but 
+# forcefully hide the console window immediately upon startup using ctypes.
+if sys.platform.startswith("win"):
+    try:
+        import ctypes
+        kernel32 = ctypes.WinDLL('kernel32')
+        user32 = ctypes.WinDLL('user32')
+        hWnd = kernel32.GetConsoleWindow()
+        if hWnd:
+            user32.ShowWindow(hWnd, 0)  # SW_HIDE = 0
+    except Exception:
+        pass
+
+# ─── Windows COM Apartment Mode Initialization ────────────────────────────────
+# Python threads default to no COM apartment. If a GC cycle runs on an uninitialized
+# thread while collecting a COM object (like an audio endpoint), Windows throws an 
+# Access Violation (0xC0000005) and violently crashes the app.
+if sys.platform.startswith("win"):
+    sys.coinit_flags = 0
+    import comtypes  # MUST import here to lock MTA before PyQt locks STA!
+
 # PyInstaller windowless mode sets sys.stdout and sys.stderr to None.
 # Some third-party libraries like speedtest-cli expect them to have a 'fileno' attribute.
 # We patch them to os.devnull to prevent fatal crashes on startup.
@@ -54,6 +77,12 @@ os.environ.setdefault(
     ),
 )
 
+# Prevent Windows WebView2 from suspending/crashing when hidden in the tray
+os.environ.setdefault(
+    "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+    "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding"
+)
+
 # ─── Fast JSON (orjson → stdlib fallback) ─────────────────────────────────────
 try:
     import orjson as _json_lib  # type: ignore[import]
@@ -77,8 +106,7 @@ RUNTIME_DEPENDENCIES = [
     ("psutil",    "psutil"),
     ("speedtest", "speedtest-cli"),
     ("spotipy",   "spotipy"),
-    ("webview",   "pywebview"),
-    ("pystray",   "pystray"),
+    ("PyQt6",     "PyQt6"),
     ("PIL",       "Pillow"),
     ("pynvml",    "pynvml"),
 ]
@@ -218,15 +246,15 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 try:
-    import webview  # type: ignore[import]
-except ImportError:
-    webview = None
-
-try:
-    import pystray  # type: ignore[import]
     from PIL import Image, ImageDraw  # type: ignore[import]
+    from PyQt6.QtCore import QObject, pyqtSlot as Slot, QUrl, Qt, QTimer, QThread, QFile, QIODevice, QTextStream
+    from PyQt6.QtGui import QIcon, QAction
+    from PyQt6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
+    from PyQt6.QtWebChannel import QWebChannel
 except ImportError:
-    pystray = Image = ImageDraw = None
+    Image = ImageDraw = QApplication = None
 
 try:
     import pynvml  # type: ignore[import]
@@ -267,6 +295,7 @@ DEFAULT_CONFIG: dict = {
     "spot_id": "", "spot_secret": "",
     "disc_id": "", "disc_secret": "",
     "disc_enabled": True,
+    "disc_vc_enabled": True,
     "audio_names": {},
     "soundpad_buttons": [],
     "local_buttons": [],
@@ -318,12 +347,25 @@ config = load_config()
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 
+_log_file = os.path.join(DATA_DIR, "server.log")
 logging.basicConfig(
-    filename=os.path.join(DATA_DIR, "server.log"),
+    filename=_log_file,
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Enable the fault handler so native crashes (SIGSEGV / access violations)
+# write a Python stack dump to server.log instead of silently killing the process.
+# This catches crashes in _ctypes.pyd, COM vtable calls, Qt/Chromium etc.
+import faulthandler as _faulthandler
+try:
+    _fh_file = open(_log_file, "a", buffering=1)  # line-buffered append
+    _faulthandler.enable(file=_fh_file, all_threads=True)
+    logger.info("faulthandler enabled → %s", _log_file)
+except Exception as _fh_err:
+    logger.warning("faulthandler could not be enabled: %s", _fh_err)
+
 
 # ─── Shared state ──────────────────────────────────────────────────────────────
 
@@ -354,9 +396,11 @@ spotify_cache: dict | None = None
 last_spotify_check   = 0.0
 last_audio_devs: list = []
 last_weather_data    = {"temp": "--", "desc": "--", "timestamp": 0}
-weather_update_event = asyncio.Event()
-last_host_url        = "127.0.0.1:5000"
-speedtest_lock       = asyncio.Lock()
+# NOTE: asyncio primitives MUST be created inside a running event loop.
+# We declare them as None here and initialise them inside lifespan().
+weather_update_event: asyncio.Event | None = None
+last_host_url        = "127.0.0.1:8888"
+speedtest_lock: asyncio.Lock | None = None
 
 # Template cache (mtime-based)
 _tmpl_cache = {"mtime": 0.0, "html": ""}
@@ -424,7 +468,7 @@ def get_sp_oauth() -> SpotifyOAuth | None:
         global_sp_oauth = SpotifyOAuth(
             client_id=config["spot_id"],
             client_secret=config["spot_secret"],
-            redirect_uri="http://127.0.0.1:5000/callback",
+            redirect_uri="http://127.0.0.1:8888/callback",
             scope="user-read-playback-state user-modify-playback-state",
             open_browser=False,
             cache_path=SPOTIFY_CACHE_FILE,
@@ -641,7 +685,7 @@ async def hardware_loop():
         }
         if disc_has_creds and not disc_has_token:
             scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
-            redir  = urllib.parse.quote("http://127.0.0.1:5000/disc_callback")
+            redir  = urllib.parse.quote("http://127.0.0.1:8888/disc_callback")
             disc_state["auth_url"] = (
                 f"https://discord.com/api/oauth2/authorize"
                 f"?client_id={config['disc_id']}&redirect_uri={redir}"
@@ -820,6 +864,14 @@ async def lifespan(app: FastAPI):
                 _run(["pactl", "set-default-source", real_src])
         except Exception as e:
             logger.error(f"PipeWire setup: {e}")
+
+    # Initialise asyncio primitives here — the event loop is guaranteed to
+    # exist at this point. Creating them at module scope binds them to a
+    # different (or non-existent) loop and causes:
+    #   RuntimeError: Task got Future <Event> attached to a different loop
+    global weather_update_event, speedtest_lock
+    weather_update_event = asyncio.Event()
+    speedtest_lock       = asyncio.Lock()
 
     restart_discord_ipc()
 
@@ -1030,7 +1082,8 @@ async def websocket_endpoint(ws: WebSocket):
 
                 if (old_wx_api  != config.get("weather_api")
                         or old_wx_city != config.get("weather_city")):
-                    weather_update_event.set()
+                    if weather_update_event is not None:
+                        weather_update_event.set()
 
             # ── actions ────────────────────────────────────────────────────────
             elif mtype == "action":
@@ -1067,6 +1120,8 @@ def _make_config_sync(audio_data: dict) -> dict:
 
 
 async def _run_speedtest():
+    if speedtest_lock is None:
+        return
     if speedtest_lock.locked():
         await ws_manager.broadcast({"type": "speedtest_result",
                                      "data": {"down": "BUSY", "up": "BUSY"}})
@@ -1099,6 +1154,17 @@ async def _handle_action(ws: WebSocket, action: str):
 
     if action == "stop_local_audio":
         await asyncio.to_thread(AudioSystem.stop_local_sound)
+        if sys.platform.startswith("win"):
+            for sp_path in (
+                r"C:\Program Files\Soundpad\Soundpad.exe",
+                r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe",
+            ):
+                if os.path.exists(sp_path):
+                    await asyncio.to_thread(
+                        subprocess.run, [sp_path, "-rc", "DoStopSound()"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    break
         return
 
     # ── Spotify / media ───────────────────────────────────────────────────────
@@ -1480,131 +1546,154 @@ def _get_window_hwnd(window, title: str) -> int | None:
 
 # ─── Tray API (exposed to pywebview JS context) ────────────────────────────────
 
-class _Api:
-    def __init__(self, app):
-        self._app = app
+class _Api(QObject):
+    def __init__(self, app_window):
+        super().__init__()
+        self._app = app_window
+
+    @Slot()
     def minimize(self):
-        if self._app.window: self._app.window.minimize()
+        self._app.showMinimized()
+
+    @Slot()
     def maximize(self):
-        if self._app.window: self._app.window.toggle_fullscreen()
+        if self._app.isFullScreen():
+            self._app.showNormal()
+        else:
+            self._app.showFullScreen()
+
+    @Slot()
     def close(self):
-        if self._app.window:
-            if self._app.minimize_to_tray: self._app.hide_window()
-            else: self._app.quit()
-    def set_minimize_to_tray(self, val): self._app.minimize_to_tray = bool(val)
-    def get_local_ip(self): return self._app.local_ip
+        if self._app.minimize_to_tray:
+            self._app.hide()
+            self._app.window_visible = False
+            self._app.toggle_action.setText("Show Dashboard")
+        else:
+            self._app.quit_app()
+
+    @Slot(bool)
+    def set_minimize_to_tray(self, val: bool):
+        self._app.minimize_to_tray = val
+
+    @Slot(result=str)
+    def get_local_ip(self):
+        return self._app.local_ip
+
+    @Slot()
+    def start_drag(self):
+        if hasattr(self._app.windowHandle(), "startSystemMove"):
+            self._app.windowHandle().startSystemMove()
 
 
-class DesktopTrayApp:
-    def __init__(self, port: int = 5000):
+class DesktopTrayApp(QMainWindow):
+    def __init__(self, port: int = 8888):
+        super().__init__()
         self.port            = port
         self.local_ip        = get_lan_ip()
         self.window_title    = f"Touch Dashboard — {self.local_ip}"
-        self.window          = None
-        self.icon            = None
-        self.window_visible  = False
+        self.window_visible  = True
         self.shutting_down   = False
-        self.tray_available  = False
         self.minimize_to_tray = True
-        self._lock           = threading.RLock()
-
+        
+        self.setWindowTitle(self.window_title)
+        self.resize(1280, 800)
+        
+        # Frameless and translucent
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
+        self.view = QWebEngineView(self)
+        self.view.page().setBackgroundColor(Qt.GlobalColor.transparent)
+        self.setCentralWidget(self.view)
+        
+        # WebChannel setup
+        self.channel = QWebChannel()
+        self.api = _Api(self)
+        self.channel.registerObject("api", self.api)
+        self.view.page().setWebChannel(self.channel)
+        
+        # Load URL
+        self.view.setUrl(QUrl(f"http://127.0.0.1:{self.port}"))
+        
+        self._setup_tray()
+        set_windows_window_icon(self, self.window_title)
+        
     def _make_icon(self):
         if os.path.exists(APP_ICON_PATH):
-            try:
-                img = Image.open(APP_ICON_PATH).convert("RGBA")
-                resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
-                img.thumbnail((64, 64), resample)
-                canvas = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-                canvas.alpha_composite(img, ((64 - img.width) // 2, (64 - img.height) // 2))
-                return canvas
-            except Exception:
-                pass
-        # Fallback: draw a simple geometric icon
-        img  = Image.new("RGBA", (64, 64), (9, 14, 23, 255))
-        draw = ImageDraw.Draw(img)
-        draw.rounded_rectangle((10, 10, 54, 54), radius=12, fill=(14, 165, 233, 255))
-        draw.rounded_rectangle((18, 18, 46, 46), radius=7,  fill=(15, 23, 42, 255))
-        draw.rectangle((24, 24, 40, 30), fill=(248, 250, 252, 255))
-        draw.rectangle((24, 34, 40, 40), fill=(248, 250, 252, 255))
-        return img
+            return QIcon(APP_ICON_PATH)
+        return QIcon()
 
-    def _toggle_label(self, _item):
-        return "Hide Dashboard" if self.window_visible else "Show Dashboard"
+    def _setup_tray(self):
+        self.tray = QSystemTrayIcon(self)
+        self.tray.setIcon(self._make_icon())
+        self.tray.setToolTip("Touch Dashboard")
+        
+        self.menu = QMenu()
+        
+        self.toggle_action = QAction("Hide Dashboard", self)
+        self.toggle_action.triggered.connect(self.toggle_window)
+        self.menu.addAction(self.toggle_action)
+        
+        ip_action = QAction(f"IP: {self.local_ip}", self)
+        ip_action.setEnabled(False)
+        self.menu.addAction(ip_action)
+        
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self.quit_app)
+        self.menu.addAction(quit_action)
+        
+        self.tray.setContextMenu(self.menu)
+        self.tray.show()
 
-    def _build_menu(self):
-        return pystray.Menu(
-            pystray.MenuItem(self._toggle_label, self.toggle_window, default=True),
-            pystray.MenuItem(f"IP: {self.local_ip}", lambda *_: None, enabled=False),
-            pystray.MenuItem("Quit", self.quit),
-        )
+    def toggle_window(self):
+        if self.window_visible:
+            self.hide()
+            self.window_visible = False
+            self.toggle_action.setText("Show Dashboard")
+        else:
+            self.showNormal()
+            self.activateWindow()
+            self.window_visible = True
+            self.toggle_action.setText("Hide Dashboard")
 
-    def start_tray(self):
-        self.icon = pystray.Icon("Touch Dashboard", self._make_icon(),
-                                  "Touch Dashboard", self._build_menu())
-        try:
-            self.icon.run_detached()
-            self.tray_available = True
-        except Exception as e:
-            self.tray_available = False
-            logger.error(f"Tray start failed: {e}")
-
-    def attach_window(self, window):
-        self.window = window
-        try:
-            self.window.events.closing += self._on_close
-        except Exception:
-            pass
-
-    def on_webview_ready(self):
-        set_windows_window_icon(self.window, self.window_title)
-        self.window_visible = True
-
-    def _on_close(self):
+    def closeEvent(self, event):
         if self.shutting_down:
-            return True
-        if self.minimize_to_tray:
-            self.hide_window()
-            return False
-        return True
+            event.accept()
+        elif self.minimize_to_tray:
+            self.hide()
+            self.window_visible = False
+            self.toggle_action.setText("Show Dashboard")
+            event.ignore()
+        else:
+            self.quit_app()
+            event.accept()
 
-    def toggle_window(self, *_):
-        with self._lock:
-            if self.window_visible: self.hide_window()
-            else: self.show_window()
-            if self.icon: self.icon.update_menu()
-
-    def show_window(self):
-        if not self.window: return
-        try: self.window.show(); self.window.restore()
-        except Exception:
-            try: self.window.show()
-            except Exception as e: logger.error(f"show_window: {e}"); return
-        self.window_visible = True
-
-    def hide_window(self):
-        if not self.window: return
-        try: self.window.hide(); self.window_visible = False
-        except Exception as e: logger.error(f"hide_window: {e}")
-
-    def quit(self, *_):
-        with self._lock:
-            self.shutting_down = True
-            stop_fastapi_server()
-            if self.icon:
-                try: self.icon.stop()
-                except Exception: pass
-            if self.window:
-                try: self.window.destroy()
-                except Exception: pass
+    def quit_app(self):
+        self.shutting_down = True
+        stop_fastapi_server()
+        QApplication.quit()
 
 
 # ─── Server lifecycle ──────────────────────────────────────────────────────────
+
+def _wait_for_server(port: int, timeout: float = 10.0) -> bool:
+    """Poll until the uvicorn server accepts TCP connections or timeout elapses."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    logger.warning(f"Server did not become ready on port {port} within {timeout}s")
+    return False
+
 
 def stop_fastapi_server():
     if uvicorn_server: uvicorn_server.should_exit = True
 
 
-def run_fastapi_server(host="0.0.0.0", port=5000, reload=False):
+def run_fastapi_server(host="0.0.0.0", port=8888, reload=False):
     global uvicorn_server
     if reload:
         uvicorn.run("server:_app", host=host, port=port, reload=True,
@@ -1615,9 +1704,9 @@ def run_fastapi_server(host="0.0.0.0", port=5000, reload=False):
         uvicorn_server.run()
 
 
-def launch_desktop(host="0.0.0.0", port=5000):
-    if webview is None or pystray is None or Image is None:
-        logger.warning("pywebview/pystray/Pillow missing — server-only mode.")
+def launch_desktop(host="0.0.0.0", port=8888):
+    if QApplication is None:
+        logger.warning("PyQt6 missing — server-only mode.")
         run_fastapi_server(host=host, port=port)
         return
 
@@ -1629,37 +1718,17 @@ def launch_desktop(host="0.0.0.0", port=5000):
         daemon=True, name="fastapi",
     )
     srv_thread.start()
-    time.sleep(1.0)   # Give the server a moment to bind
+    # Poll instead of sleeping blindly — ready when the port accepts connections.
+    if not _wait_for_server(port):
+        logger.error(f"FastAPI server did not start on port {port}; Qt window may show a blank page.")
 
+    qt_app = QApplication(sys.argv)
+    qt_app.setQuitOnLastWindowClosed(False)
+    
     desktop = DesktopTrayApp(port=port)
-    api     = _Api(desktop)
-
-    win_kwargs = {
-        "title":       desktop.window_title,
-        "url":         f"http://127.0.0.1:{port}",
-        "frameless":   True,
-        "width":       1280,
-        "height":      800,
-        "hidden":      False,
-        "easy_drag":   False,
-        "transparent": True,
-        "js_api":      api,
-    }
-    try:
-        win = webview.create_window(**win_kwargs)
-    except TypeError:
-        win_kwargs.pop("hidden", None)
-        win = webview.create_window(**win_kwargs)
-
-    desktop.attach_window(win)
-    desktop.start_tray()
-
-    if sys.platform.startswith("linux"):
-        webview.start(desktop.on_webview_ready, gui="qt")
-    else:
-        webview.start(desktop.on_webview_ready)
-
-    stop_fastapi_server()
+    desktop.show()
+    
+    sys.exit(qt_app.exec())
 
 
 # ─── Entry point ───────────────────────────────────────────────────────────────
@@ -1668,10 +1737,89 @@ def _parse_args():
     p = argparse.ArgumentParser(description="Touch Dashboard")
     p.add_argument("--server-only", action="store_true")
     p.add_argument("--host", default="0.0.0.0")
-    p.add_argument("--port", type=int, default=5000)
+    p.add_argument("--port", type=int, default=8888)
     p.add_argument("--reload", action="store_true")
     return p.parse_args()
 
+
+def _write_crash_report(exc_type, exc_value, exc_tb, thread_name: str = "main") -> tuple[str, str]:
+    """Write a timestamped crash report to DATA_DIR; return (file_path, error_code)."""
+    import traceback
+    import hashlib
+    raw        = f"{getattr(exc_type, '__name__', str(exc_type))}:{exc_value}"
+    error_code = "TD-" + hashlib.md5(raw.encode(errors="replace")).hexdigest()[:8].upper()
+    ts         = time.strftime("%Y%m%d_%H%M%S")
+    crash_path = os.path.join(DATA_DIR, f"crash_{ts}.txt")
+    try:
+        with open(crash_path, "w", encoding="utf-8") as f:
+            f.write("Touch Dashboard — Crash Report\n")
+            f.write(f"Error Code : {error_code}\n")
+            f.write(f"Timestamp  : {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Thread     : {thread_name}\n")
+            f.write(f"Platform   : {sys.platform} | Python {sys.version}\n")
+            f.write("-" * 60 + "\n\n")
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
+    except Exception:
+        pass
+    return crash_path, error_code
+
+
+def _show_crash_dialog(error_code: str, crash_path: str):
+    """Show a user-visible crash popup with an actionable error code."""
+    msg = (
+        f"Touch Dashboard encountered a fatal error and must close.\n\n"
+        f"Error Code:  {error_code}\n\n"
+        f"Please forward this code to the developer for debugging.\n"
+        f"Full report saved to:\n{crash_path}"
+    )
+    try:
+        _show_popup("Touch Dashboard \u2014 Fatal Error", msg)
+    except Exception:
+        pass
+
+
+def _global_exception_handler(exc_type, exc_value, exc_tb):
+    """Handle uncaught exceptions on the main thread."""
+    if issubclass(exc_type, (SystemExit, KeyboardInterrupt)):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    crash_path, error_code = _write_crash_report(exc_type, exc_value, exc_tb)
+    try:
+        logger.critical(
+            f"Unhandled main-thread exception [{error_code}]: {exc_value}",
+            exc_info=(exc_type, exc_value, exc_tb),
+        )
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+    _show_crash_dialog(error_code, crash_path)
+
+
+def _thread_exception_handler(args):
+    """Handle uncaught exceptions on background threads (Python 3.8+)."""
+    exc_type  = args.exc_type
+    exc_value = args.exc_value
+    exc_tb    = args.exc_tb
+    thread    = getattr(args, "thread", None)
+    if exc_type is None or issubclass(exc_type, (SystemExit, KeyboardInterrupt)):
+        return
+    thread_name = getattr(thread, "name", "background")
+    crash_path, error_code = _write_crash_report(exc_type, exc_value, exc_tb, thread_name)
+    try:
+        logger.critical(
+            f"Unhandled exception in thread '{thread_name}' [{error_code}]: {exc_value}",
+            exc_info=(exc_type, exc_value, exc_tb),
+        )
+    except Exception:
+        pass
+    # Show popup only for non-daemon threads — daemon crashes are usually transient.
+    if not getattr(thread, "daemon", True):
+        _show_crash_dialog(error_code, crash_path)
+
+
+sys.excepthook = _global_exception_handler
+if hasattr(threading, "excepthook"):
+    threading.excepthook = _thread_exception_handler
 
 if __name__ == "__main__":
     args = _parse_args()

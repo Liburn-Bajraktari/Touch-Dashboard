@@ -15,28 +15,74 @@ import sys
 import threading
 import time
 
+# ─── Monkeypatch pycaw to prevent Access Violations ───────────────────────────
+# pycaw's AudioUtilities.CreateDevice calls `value.clear()` on PROPVARIANTs.
+# comtypes's GC also tries to release them. This double-free causes 0xC0000005
+# crashes on Windows randomly during audio polling. We don't need properties!
+if sys.platform.startswith("win"):
+    try:
+        from pycaw.pycaw import AudioUtilities, AudioDeviceState, AudioDevice  # type: ignore[import]
+        from comtypes import COMError  # type: ignore[import]
+        
+        def _safe_create_device(dev):
+            if dev is None: return None
+            properties = {}
+            try:
+                from pycaw.constants import STGM
+                store = dev.OpenPropertyStore(STGM.STGM_READ.value)
+                if store is not None:
+                    for j in range(store.GetCount()):
+                        pk = store.GetAt(j)
+                        key_str = str(pk)
+                        if 'a45c254e-df1c-4efd-8020-67d146a850e0' in key_str.lower():
+                            try:
+                                v = store.GetValue(pk).GetValue()
+                                properties[key_str] = v
+                            except COMError:
+                                pass
+            except Exception:
+                pass
+            return AudioDevice(dev.GetId(), AudioDeviceState(dev.GetState()), properties, dev)
+            
+        AudioUtilities.CreateDevice = _safe_create_device
+    except Exception:
+        pass
+
 logger = logging.getLogger(__name__)
 
 # ─── COM apartment management (Windows only) ──────────────────────────────────
 
 _com_tls = threading.local()
 
+def _com_cleanup(func):
+    """Decorator to force garbage collection of COM objects on the initialized thread."""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        finally:
+            import gc
+            gc.collect(0)
+    return wrapper
 
 def _ensure_com() -> None:
     """
-    Initialize COM in Single-Threaded Apartment mode for the calling thread.
-    Safe to call multiple times — idempotent per thread.
+    Initialize COM in Multi-Threaded Apartment (MTA) mode for the calling thread.
+    MTA is CRITICAL for Python because the Garbage Collector can run on ANY thread.
+    If we use STA, GC'ing a comtypes object on the wrong thread causes 0xC0000005 access violations.
     """
     if not sys.platform.startswith("win"):
         return
     if getattr(_com_tls, "initialized", False):
         return
     try:
+        # 0 = COINIT_MULTITHREADED
+        sys.coinit_flags = 0
         import comtypes  # type: ignore[import]
-        comtypes.CoInitialize()
+        comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
         _com_tls.initialized = True
     except Exception as e:
-        logger.debug(f"COM CoInitialize: {e}")
+        logger.debug(f"COM CoInitializeEx: {e}")
+
 
 
 # ─── IPolicyConfig: undocumented Windows COM for default-device switching ─────
@@ -57,6 +103,10 @@ def _windows_set_default_audio_device(device_id: str) -> bool:
     Set the Windows default audio output device for all three roles
     (eConsole=0, eMultimedia=1, eCommunications=2) via raw COM vtable.
     Returns True on success.
+
+    IMPORTANT: This function initialises and uninitialises COM itself so it
+    is safe to call from ANY thread (threadpool, asyncio.to_thread, etc.).
+    Using CLSCTX_LOCAL_SERVER avoids in-process apartment restrictions.
     """
     if not sys.platform.startswith("win"):
         return False
@@ -64,9 +114,13 @@ def _windows_set_default_audio_device(device_id: str) -> bool:
         import ctypes
         import ctypes.wintypes as wt
 
-        _ensure_com()
+        ole32 = ctypes.windll.ole32
 
-        # Build GUID structs on the fly — no comtypes dependency needed here
+        # ── Initialise COM for this thread (STA) ──────────────────────────────
+        # COINIT_APARTMENTTHREADED = 0x2
+        hr_init = ole32.CoInitializeEx(None, 0x2)
+        com_init_ok = hr_init in (0, 1)  # S_OK or S_FALSE (already initialised)
+
         class _GUID(ctypes.Structure):
             _fields_ = [
                 ("Data1", wt.DWORD),
@@ -88,11 +142,12 @@ def _windows_set_default_audio_device(device_id: str) -> bool:
         clsid = _make_guid("{870AF99C-171D-4F9E-AF0D-E63DF40C2BC9}")
         iid   = _make_guid("{F8679F50-850A-41CF-9C72-430F290290C8}")
 
-        ole32 = ctypes.windll.ole32
         iface_ptr = ctypes.c_void_p()
 
-        # Try in-process server first, then all contexts
-        for clsctx in (1, 0x17):  # CLSCTX_INPROC_SERVER, CLSCTX_ALL
+        # CLSCTX_LOCAL_SERVER (0x4) avoids cross-apartment in-proc issues.
+        # Fall back to CLSCTX_ALL (0x17) if local server fails.
+        result = False
+        for clsctx in (0x4, 0x17, 0x1):  # LOCAL_SERVER, ALL, INPROC_SERVER
             hr = ole32.CoCreateInstance(
                 ctypes.byref(clsid), None, clsctx,
                 ctypes.byref(iid), ctypes.byref(iface_ptr),
@@ -101,29 +156,47 @@ def _windows_set_default_audio_device(device_id: str) -> bool:
                 break
         else:
             logger.debug(f"IPolicyConfig CoCreateInstance hr=0x{hr & 0xFFFFFFFF:08x}")
+            if com_init_ok and hr_init == 0:
+                ole32.CoUninitialize()
             return False
 
-        # Navigate vtable to index 13 = SetDefaultEndpoint
-        vtbl_ptr = ctypes.cast(iface_ptr, ctypes.POINTER(ctypes.c_void_p))
-        vtable   = ctypes.cast(vtbl_ptr[0], ctypes.POINTER(ctypes.c_void_p))
+        try:
+            # Navigate vtable: index 13 = SetDefaultEndpoint
+            vtbl_ptr = ctypes.cast(iface_ptr, ctypes.POINTER(ctypes.c_void_p))
+            if not vtbl_ptr[0]:   # vtable base is NULL — corrupted COM object
+                logger.debug("IPolicyConfig vtable pointer is NULL")
+                return False
 
-        _SetDefaultEndpoint = ctypes.WINFUNCTYPE(
-            ctypes.c_long,    # HRESULT
-            ctypes.c_void_p,  # this
-            ctypes.c_wchar_p, # pwstrDeviceId
-            ctypes.c_uint,    # ERole
-        )(vtable[13])
+            vtable = ctypes.cast(vtbl_ptr[0], ctypes.POINTER(ctypes.c_void_p))
 
-        this = iface_ptr.value
-        for role in range(3):
-            _hr = _SetDefaultEndpoint(this, device_id, role)
-            if _hr not in (0, 1):  # S_OK or S_FALSE
-                logger.debug(f"SetDefaultEndpoint role={role} hr=0x{_hr & 0xFFFFFFFF:08x}")
+            _SetDefaultEndpoint = ctypes.WINFUNCTYPE(
+                ctypes.c_long,    # HRESULT
+                ctypes.c_void_p,  # this
+                ctypes.c_wchar_p, # pwstrDeviceId
+                ctypes.c_uint,    # ERole
+            )(vtable[13])
 
-        # Release the COM object
-        _Release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable[2])
-        _Release(this)
-        return True
+            this = iface_ptr.value
+            for role in range(3):
+                _hr = _SetDefaultEndpoint(this, device_id, role)
+                if _hr not in (0, 1):  # S_OK or S_FALSE
+                    logger.debug(f"SetDefaultEndpoint role={role} hr=0x{_hr & 0xFFFFFFFF:08x}")
+
+            result = True
+        finally:
+            # Always Release the COM object, even on error
+            try:
+                vtbl_ptr2 = ctypes.cast(iface_ptr, ctypes.POINTER(ctypes.c_void_p))
+                vtable2   = ctypes.cast(vtbl_ptr2[0], ctypes.POINTER(ctypes.c_void_p))
+                _Release  = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable2[2])
+                _Release(iface_ptr.value)
+            except Exception as rel_err:
+                logger.debug(f"IPolicyConfig Release: {rel_err}")
+            # Uninitialise COM only if WE initialised it (hr_init == 0)
+            if com_init_ok and hr_init == 0:
+                ole32.CoUninitialize()
+
+        return result
 
     except Exception as e:
         logger.error(f"Windows SetDefaultEndpoint failed: {e}")
@@ -138,6 +211,7 @@ def _pycaw_endpoint(is_mic: bool):
     return AudioUtilities.GetMicrophone() if is_mic else AudioUtilities.GetSpeakers()
 
 
+@_com_cleanup
 def _windows_get_volume(target: str) -> dict:
     """Return {vol: int 0-100, muted: bool} for the given Windows endpoint."""
     try:
@@ -165,6 +239,7 @@ def _windows_get_volume(target: str) -> dict:
         return {"vol": 0, "muted": False}
 
 
+@_com_cleanup
 def _windows_set_volume(target: str, val: int) -> None:
     """Set volume (0–100) for the given Windows endpoint."""
     try:
@@ -190,6 +265,7 @@ def _windows_set_volume(target: str, val: int) -> None:
         logger.debug(f"Windows set_volume {target}={val}: {e}")
 
 
+@_com_cleanup
 def _windows_toggle_mute(target: str, macro_send_keys_fn=None) -> None:
     """Toggle mute for the given Windows endpoint."""
     try:
@@ -215,6 +291,7 @@ def _windows_toggle_mute(target: str, macro_send_keys_fn=None) -> None:
         logger.debug(f"Windows toggle_mute {target}: {e}")
 
 
+@_com_cleanup
 def _windows_enumerate_endpoints(audio_names: dict) -> dict:
     """
     Enumerate Windows render (output) devices using pycaw.
