@@ -47,6 +47,7 @@ if sys.stdout is None: sys.stdout = open(os.devnull, 'w')
 if sys.stderr is None: sys.stderr = open(os.devnull, 'w')
 if sys.stdin is None:  sys.stdin = open(os.devnull, 'r')
 import asyncio
+import urllib.request
 import ipaddress
 import json
 import logging
@@ -1726,8 +1727,8 @@ def launch_desktop(host="0.0.0.0", port=8888):
     if sys.platform.startswith("win"):
         import msvcrt
         lock_path = os.path.join(tempfile.gettempdir(), f"touch_dashboard_{port}.lock")
-        _lock_file = open(lock_path, "w")
         try:
+            _lock_file = open(lock_path, "w")
             msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
         except OSError:
             # File is locked -> Another instance is running or currently booting!
