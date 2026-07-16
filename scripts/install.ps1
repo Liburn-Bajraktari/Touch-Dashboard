@@ -80,7 +80,11 @@ function Install-Update {
     
     $venvExists = Test-Path "$InstallDir\.venv"
     if ($venvExists) {
+        $oldError = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         $out = & "$InstallDir\.venv\Scripts\python.exe" --version 2>&1
+        $ErrorActionPreference = $oldError
+        
         if ($LASTEXITCODE -ne 0 -or "$out" -match "Could not find") {
             Write-Color "  [!] Existing virtual environment is corrupted or outdated. Recreating..." "Yellow"
             Remove-Item -Recurse -Force "$InstallDir\.venv" -ErrorAction SilentlyContinue
@@ -88,6 +92,8 @@ function Install-Update {
         }
     }
 
+    $oldError = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     if (-not $venvExists) {
         python -m venv .venv 2>$null
     }
@@ -95,6 +101,7 @@ function Install-Update {
     Write-Color "[*] Installing Python dependencies..." "Cyan"
     & "$InstallDir\.venv\Scripts\python.exe" -m pip install --upgrade pip -q 2>$null
     & "$InstallDir\.venv\Scripts\python.exe" -m pip install -r requirements.txt -q 2>$null
+    $ErrorActionPreference = $oldError
     
     # Create Silent Launcher (VBS)
     Write-Color "[*] Creating invisible background launcher..." "Cyan"
