@@ -1726,6 +1726,7 @@ def launch_desktop(host="0.0.0.0", port=8888):
 
     # We are the primary instance. Start the local socket server.
     local_server = QLocalServer()
+    local_server.setSocketOptions(QLocalServer.SocketOption.WorldAccessOption)
     QLocalServer.removeServer("TouchDashboard_SingleInstanceLock")
     local_server.listen("TouchDashboard_SingleInstanceLock")
 
