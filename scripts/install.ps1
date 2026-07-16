@@ -18,11 +18,11 @@ function Write-Color {
     Write-Host $text -ForegroundColor $color
 }
 
-function Check-Python {
+function Find-Python {
     Write-Color "[*] Checking for Python..." "Cyan"
     $pythonFound = $false
     if (Get-Command "python" -ErrorAction SilentlyContinue) {
-        $version = (python --version)
+        $version = (python --version 2>&1)
         if ($version -match "Python 3") {
             Write-Color "  [+] Found Python: $version" "Green"
             $pythonFound = $true
@@ -46,7 +46,7 @@ function Check-Python {
 
 function Install-Update {
     Write-Color "`n=== Installing / Updating Touch Dashboard ===" "Cyan"
-    Check-Python
+    Find-Python
 
     Write-Color "[*] Downloading latest source code from Codeberg..." "Cyan"
     $tempZip = "$env:TEMP\TouchDashboard_main.zip"
@@ -89,12 +89,12 @@ function Install-Update {
     }
 
     if (-not $venvExists) {
-        python -m venv .venv
+        python -m venv .venv 2>$null
     }
     
     Write-Color "[*] Installing Python dependencies..." "Cyan"
-    & "$InstallDir\.venv\Scripts\python.exe" -m pip install --upgrade pip -q
-    & "$InstallDir\.venv\Scripts\python.exe" -m pip install -r requirements.txt -q
+    & "$InstallDir\.venv\Scripts\python.exe" -m pip install --upgrade pip -q 2>$null
+    & "$InstallDir\.venv\Scripts\python.exe" -m pip install -r requirements.txt -q 2>$null
     
     # Create Silent Launcher (VBS)
     Write-Color "[*] Creating invisible background launcher..." "Cyan"
@@ -204,7 +204,7 @@ function Uninstall-App {
     Read-Host "Press Enter to return to menu..."
 }
 
-function Download-APK {
+function Get-APK {
     Write-Color "`n=== Download Android APK ===" "Cyan"
     Write-Color "[*] Fetching latest release from Codeberg API..." "Cyan"
     try {
@@ -279,7 +279,7 @@ while ($true) {
         "1" { Install-Update }
         "2" { Repair-Installation }
         "3" { Uninstall-App }
-        "4" { Download-APK }
+        "4" { Get-APK }
         "0" { exit }
         default { Write-Color "   [!] Invalid option selected." "Red"; Start-Sleep -Seconds 1 }
     }
