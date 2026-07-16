@@ -247,14 +247,21 @@ import uvicorn
 
 try:
     from PIL import Image, ImageDraw  # type: ignore[import]
-    from PyQt6.QtCore import QObject, pyqtSlot as Slot, QUrl, Qt, QTimer, QThread, QFile, QIODevice, QTextStream
+    from PyQt6.QtCore import QObject, pyqtSlot as Slot, QUrl, Qt, QTimer, QThread, QFile, QIODevice, QTextStream, pyqtSignal
     from PyQt6.QtGui import QIcon, QAction
     from PyQt6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu
     from PyQt6.QtWebEngineWidgets import QWebEngineView
     from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
     from PyQt6.QtWebChannel import QWebChannel
 except ImportError:
-    Image = ImageDraw = QApplication = None
+    Image = ImageDraw = QApplication = pyqtSignal = QObject = None
+
+if QObject is not None:
+    class SingleInstanceSignals(QObject):
+        wakeup = pyqtSignal()
+    si_signals = SingleInstanceSignals()
+else:
+    si_signals = None
 
 try:
     import pynvml  # type: ignore[import]
@@ -893,6 +900,12 @@ async def lifespan(app: FastAPI):
 
 
 _app = FastAPI(lifespan=lifespan)
+
+@_app.get("/api/wakeup")
+def wakeup_endpoint():
+    if si_signals is not None:
+        si_signals.wakeup.emit()
+    return {"status": "waking up"}
 
 
 @_app.middleware("http")
@@ -1704,7 +1717,30 @@ def run_fastapi_server(host="0.0.0.0", port=8888, reload=False):
         uvicorn_server.run()
 
 
+_lock_file = None
+
 def launch_desktop(host="0.0.0.0", port=8888):
+    global _lock_file
+    import urllib.request, time, tempfile
+
+    if sys.platform.startswith("win"):
+        import msvcrt
+        lock_path = os.path.join(tempfile.gettempdir(), f"touch_dashboard_{port}.lock")
+        _lock_file = open(lock_path, "w")
+        try:
+            msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            # File is locked -> Another instance is running or currently booting!
+            # Send wakeup call. We poll because FastAPI might still be starting.
+            for _ in range(10):
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/api/wakeup", timeout=0.5)
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            logger.info("Another instance is already running. Exiting.")
+            os._exit(0)
+
     if QApplication is None:
         logger.warning("PyQt6 missing — server-only mode.")
         run_fastapi_server(host=host, port=port)
@@ -1713,22 +1749,6 @@ def launch_desktop(host="0.0.0.0", port=8888):
     configure_windows_app_identity()
     qt_app = QApplication(sys.argv)
     qt_app.setQuitOnLastWindowClosed(False)
-
-    from PyQt6.QtNetwork import QLocalSocket, QLocalServer
-    socket = QLocalSocket()
-    socket.connectToServer("TouchDashboard_SingleInstanceLock")
-    if socket.waitForConnected(500):
-        socket.write(b"WAKEUP")
-        socket.flush()
-        socket.waitForBytesWritten(500)
-        logger.info("Another instance is already running. Waking it up and exiting.")
-        sys.exit(0)
-
-    # We are the primary instance. Start the local socket server.
-    local_server = QLocalServer()
-    local_server.setSocketOptions(QLocalServer.SocketOption.WorldAccessOption)
-    QLocalServer.removeServer("TouchDashboard_SingleInstanceLock")
-    local_server.listen("TouchDashboard_SingleInstanceLock")
 
     srv_thread = threading.Thread(
         target=run_fastapi_server,
@@ -1742,17 +1762,13 @@ def launch_desktop(host="0.0.0.0", port=8888):
 
     desktop = DesktopTrayApp(port=port)
 
-    def _handle_new_connection():
-        conn = local_server.nextPendingConnection()
-        if conn.waitForReadyRead(500):
-            if conn.readAll().data() == b"WAKEUP":
-                desktop.showNormal()
-                desktop.activateWindow()
-                desktop.window_visible = True
-                desktop.toggle_action.setText("Hide Dashboard")
-        conn.disconnectFromServer()
-
-    local_server.newConnection.connect(_handle_new_connection)
+    if si_signals is not None:
+        def _handle_wakeup():
+            desktop.showNormal()
+            desktop.activateWindow()
+            desktop.window_visible = True
+            desktop.toggle_action.setText("Hide Dashboard")
+        si_signals.wakeup.connect(_handle_wakeup)
 
     desktop.show()
     
