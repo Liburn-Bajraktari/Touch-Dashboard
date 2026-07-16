@@ -1823,10 +1823,10 @@ def _global_exception_handler(exc_type, exc_value, exc_tb):
 
 
 def _thread_exception_handler(args):
-    """Handle uncaught exceptions on background threads (Python 3.8+)."""
+    """Handle uncaught exceptions on background threads."""
     exc_type  = args.exc_type
     exc_value = args.exc_value
-    exc_tb    = args.exc_tb
+    exc_tb    = args.exc_traceback
     thread    = getattr(args, "thread", None)
     if exc_type is None or issubclass(exc_type, (SystemExit, KeyboardInterrupt)):
         return
