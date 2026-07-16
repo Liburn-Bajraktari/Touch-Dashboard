@@ -57,6 +57,7 @@ function Install-Update {
         $ans = Read-Host "  Would you like to close it to continue updating? (Y/N)"
         if ($ans -match "^[yY]") {
             Write-Color "  [*] Stopping processes..." "Cyan"
+            try { Invoke-RestMethod -Uri "http://127.0.0.1:8888/api/exit" -Method Post -ErrorAction SilentlyContinue | Out-Null } catch {}
             $processes | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
             Start-Sleep -Seconds 1
         } else {
@@ -220,10 +221,13 @@ function Uninstall-App {
         
         # Kill running processes
         Write-Color "[*] Stopping backend processes..." "Cyan"
+        try { Invoke-RestMethod -Uri "http://127.0.0.1:8888/api/exit" -Method Post -ErrorAction SilentlyContinue | Out-Null } catch {}
         Get-WmiObject Win32_Process | Where-Object { 
             ($_.CommandLine -match "server.py" -and $_.CommandLine -match "Touch-Dashboard") -or 
             $_.ProcessName -match "TouchDashboard" 
         } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+        Start-Sleep -Seconds 2
 
         Write-Color "[*] Removing application files..." "Cyan"
         if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
@@ -244,7 +248,7 @@ function Get-APK {
     Write-Color "`n=== Download Android APK ===" "Cyan"
     Write-Color "[*] Fetching latest release from Codeberg API..." "Cyan"
     try {
-        $releases = Invoke-RestMethod -Uri "$ApiUrl/releases"
+        $releases = Invoke-RestMethod -Uri "$ApiUrl/releases" -ErrorAction Stop
         if ($releases.Count -eq 0) {
             Write-Color "  [-] No releases found on Codeberg." "Red"
             Read-Host "Press Enter to return to menu..."
@@ -279,7 +283,11 @@ function Get-APK {
             Write-Color "  [-] Latest release does not contain an APK asset." "Red"
         }
     } catch {
-        Write-Color "  [-] Failed to fetch release from Codeberg: $_" "Red"
+        if ($_.Exception.Response.StatusCode -eq "NotFound") {
+            Write-Color "  [-] No releases have been published to this repository yet." "Yellow"
+        } else {
+            Write-Color "  [-] Failed to fetch release from Codeberg: $($_.Exception.Message)" "Red"
+        }
     }
     Read-Host "Press Enter to return to menu..."
 }
@@ -288,24 +296,18 @@ function Get-APK {
 while ($true) {
     Clear-Host
     Write-Host ""
-    Write-Host "    ████████╗ ██████╗ ██╗   ██╗ ██████╗██╗  ██╗" -ForegroundColor Cyan
-    Write-Host "    ╚══██╔══╝██╔═══██╗██║   ██║██╔════╝██║  ██║" -ForegroundColor Cyan
-    Write-Host "       ██║   ██║   ██║██║   ██║██║     ███████║" -ForegroundColor Cyan
-    Write-Host "       ██║   ██║   ██║██║   ██║██║     ██╔══██║" -ForegroundColor Cyan
-    Write-Host "       ██║   ╚██████╔╝╚██████╔╝╚██████╗██║  ██║" -ForegroundColor Cyan
-    Write-Host "       ╚═╝    ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝" -ForegroundColor Cyan
-    Write-Host "                         D A S H B O A R D     " -ForegroundColor White
+    Write-Host "    TOUCH DASHBOARD" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "   ╔══════════════════════════════════════════════════════════╗" -ForegroundColor DarkGray
-    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
-    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 1 " -ForegroundColor Cyan -NoNewline; Write-Host "   Install / Update Touch Dashboard                 " -ForegroundColor White -NoNewline; Write-Host "║" -ForegroundColor DarkGray
-    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 2 " -ForegroundColor Yellow -NoNewline; Write-Host "   Repair Existing Installation                     " -ForegroundColor Gray -NoNewline; Write-Host "║" -ForegroundColor DarkGray
-    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 3 " -ForegroundColor Red -NoNewline; Write-Host "   Completely Uninstall                             " -ForegroundColor Gray -NoNewline; Write-Host "║" -ForegroundColor DarkGray
-    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 4 " -ForegroundColor Green -NoNewline; Write-Host "   Download Android APK Client                      " -ForegroundColor Gray -NoNewline; Write-Host "║" -ForegroundColor DarkGray
-    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
-    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 0 " -ForegroundColor DarkGray -NoNewline; Write-Host "   Exit Installer                                   " -ForegroundColor DarkGray -NoNewline; Write-Host "║" -ForegroundColor DarkGray
-    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
-    Write-Host "   ╚══════════════════════════════════════════════════════════╝" -ForegroundColor DarkGray
+    Write-Host "   +----------------------------------------------------------+" -ForegroundColor DarkGray
+    Write-Host "   |                                                          |" -ForegroundColor DarkGray
+    Write-Host "   |    1    Install / Update Touch Dashboard                 |" -ForegroundColor White
+    Write-Host "   |    2    Repair Existing Installation                     |" -ForegroundColor White
+    Write-Host "   |    3    Completely Uninstall                             |" -ForegroundColor White
+    Write-Host "   |    4    Download Android APK Client                      |" -ForegroundColor White
+    Write-Host "   |                                                          |" -ForegroundColor DarkGray
+    Write-Host "   |    0    Exit Installer                                   |" -ForegroundColor White
+    Write-Host "   |                                                          |" -ForegroundColor DarkGray
+    Write-Host "   +----------------------------------------------------------+" -ForegroundColor DarkGray
     Write-Host ""
     
     Write-Host "   > " -ForegroundColor Cyan -NoNewline

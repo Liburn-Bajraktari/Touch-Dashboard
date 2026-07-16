@@ -895,6 +895,11 @@ def wakeup_endpoint():
         si_signals.wakeup.emit()
     return {"status": "waking up"}
 
+@_app.post("/api/exit")
+def exit_endpoint():
+    import threading
+    threading.Timer(0.5, lambda: os._exit(0)).start()
+    return {"status": "shutting down"}
 
 @_app.middleware("http")
 async def _security_headers(request: Request, call_next):
