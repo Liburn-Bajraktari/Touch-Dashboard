@@ -262,7 +262,7 @@ while ($true) {
     Write-Host ""
     
     Write-Host "   > " -ForegroundColor Cyan -NoNewline
-    $choice = Read-Host ""
+    $choice = Read-Host " "
     
     switch ($choice) {
         "1" { Install-Update }
