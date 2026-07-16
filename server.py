@@ -1714,21 +1714,26 @@ def launch_desktop(host="0.0.0.0", port=8888):
     if sys.platform.startswith("win"):
         import ctypes
         ERROR_ALREADY_EXISTS = 183
+        ERROR_ACCESS_DENIED = 5
         mutex_name = f"Global\\TouchDashboard_Mutex_{port}"
-        kernel32 = ctypes.windll.kernel32
         
-        # Create a named mutex. If it exists, GetLastError() returns ERROR_ALREADY_EXISTS.
-        _win_mutex = kernel32.CreateMutexW(None, False, mutex_name)
-        if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
-            # Mutex exists -> Another instance is running or currently booting!
-            # Send wakeup call. We poll because FastAPI might still be starting.
-            for _ in range(10):
-                try:
-                    urllib.request.urlopen(f"http://127.0.0.1:{port}/api/wakeup", timeout=0.5)
-                    break
-                except Exception:
-                    time.sleep(0.5)
-            logger.info("Another instance is already running. Exiting.")
+        try:
+            kernel32 = ctypes.windll.kernel32
+            _win_mutex = kernel32.CreateMutexW(None, False, mutex_name)
+            last_error = kernel32.GetLastError()
+            
+            if last_error in (ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED) or not _win_mutex:
+                # Mutex exists -> Another instance is running!
+                for _ in range(10):
+                    try:
+                        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/wakeup", timeout=0.5)
+                        break
+                    except Exception:
+                        time.sleep(0.5)
+                os._exit(0)
+        except Exception as e:
+            # Completely swallow any bizarre OS errors to prevent alarming the user
+            logger.warning(f"Mutex creation failed: {e}. Assuming duplicate instance and exiting.")
             os._exit(0)
 
     if QApplication is None:
