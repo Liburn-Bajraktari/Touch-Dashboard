@@ -1,4 +1,4 @@
-param (
+﻿param (
     [switch]$Unattended
 )
 
@@ -296,18 +296,24 @@ function Get-APK {
 while ($true) {
     Clear-Host
     Write-Host ""
-    Write-Host "    TOUCH DASHBOARD" -ForegroundColor Cyan
+    Write-Host "    ████████╗ ██████╗ ██╗   ██╗ ██████╗██╗  ██╗" -ForegroundColor Cyan
+    Write-Host "    ╚══██╔══╝██╔═══██╗██║   ██║██╔════╝██║  ██║" -ForegroundColor Cyan
+    Write-Host "       ██║   ██║   ██║██║   ██║██║     ███████║" -ForegroundColor Cyan
+    Write-Host "       ██║   ██║   ██║██║   ██║██║     ██╔══██║" -ForegroundColor Cyan
+    Write-Host "       ██║   ╚██████╔╝╚██████╔╝╚██████╗██║  ██║" -ForegroundColor Cyan
+    Write-Host "       ╚═╝    ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝" -ForegroundColor Cyan
+    Write-Host "                         D A S H B O A R D     " -ForegroundColor White
     Write-Host ""
-    Write-Host "   +----------------------------------------------------------+" -ForegroundColor DarkGray
-    Write-Host "   |                                                          |" -ForegroundColor DarkGray
-    Write-Host "   |    1    Install / Update Touch Dashboard                 |" -ForegroundColor White
-    Write-Host "   |    2    Repair Existing Installation                     |" -ForegroundColor White
-    Write-Host "   |    3    Completely Uninstall                             |" -ForegroundColor White
-    Write-Host "   |    4    Download Android APK Client                      |" -ForegroundColor White
-    Write-Host "   |                                                          |" -ForegroundColor DarkGray
-    Write-Host "   |    0    Exit Installer                                   |" -ForegroundColor White
-    Write-Host "   |                                                          |" -ForegroundColor DarkGray
-    Write-Host "   +----------------------------------------------------------+" -ForegroundColor DarkGray
+    Write-Host "   ╔══════════════════════════════════════════════════════════╗" -ForegroundColor DarkGray
+    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 1 " -ForegroundColor Cyan -NoNewline; Write-Host "   Install / Update Touch Dashboard                 " -ForegroundColor White -NoNewline; Write-Host "║" -ForegroundColor DarkGray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 2 " -ForegroundColor Yellow -NoNewline; Write-Host "   Repair Existing Installation                     " -ForegroundColor Gray -NoNewline; Write-Host "║" -ForegroundColor DarkGray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 3 " -ForegroundColor Red -NoNewline; Write-Host "   Completely Uninstall                             " -ForegroundColor Gray -NoNewline; Write-Host "║" -ForegroundColor DarkGray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 4 " -ForegroundColor Green -NoNewline; Write-Host "   Download Android APK Client                      " -ForegroundColor Gray -NoNewline; Write-Host "║" -ForegroundColor DarkGray
+    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 0 " -ForegroundColor DarkGray -NoNewline; Write-Host "   Exit Installer                                   " -ForegroundColor DarkGray -NoNewline; Write-Host "║" -ForegroundColor DarkGray
+    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
+    Write-Host "   ╚══════════════════════════════════════════════════════════╝" -ForegroundColor DarkGray
     Write-Host ""
     
     Write-Host "   > " -ForegroundColor Cyan -NoNewline
