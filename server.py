@@ -1708,17 +1708,19 @@ def run_fastapi_server(host="0.0.0.0", port=8888, reload=False):
 _lock_file = None
 
 def launch_desktop(host="0.0.0.0", port=8888):
-    global _lock_file
-    import urllib.request, time, tempfile
+    global _win_mutex
+    import urllib.request, time
 
     if sys.platform.startswith("win"):
-        import msvcrt
-        lock_path = os.path.join(tempfile.gettempdir(), f"touch_dashboard_{port}.lock")
-        try:
-            _lock_file = open(lock_path, "w")
-            msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError:
-            # File is locked -> Another instance is running or currently booting!
+        import ctypes
+        ERROR_ALREADY_EXISTS = 183
+        mutex_name = f"Global\\TouchDashboard_Mutex_{port}"
+        kernel32 = ctypes.windll.kernel32
+        
+        # Create a named mutex. If it exists, GetLastError() returns ERROR_ALREADY_EXISTS.
+        _win_mutex = kernel32.CreateMutexW(None, False, mutex_name)
+        if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+            # Mutex exists -> Another instance is running or currently booting!
             # Send wakeup call. We poll because FastAPI might still be starting.
             for _ in range(10):
                 try:
