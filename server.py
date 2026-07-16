@@ -17,20 +17,7 @@ from __future__ import annotations
 import sys
 import os
 
-# ─── Bypass PyInstaller False Positives ─────────────────────────────────────────
-# Compiling PyInstaller with console=False flags aggressive heuristics in Windows 
-# Defender / Smart App Control. We compile with console=True to bypass this, but 
-# forcefully hide the console window immediately upon startup using ctypes.
-if sys.platform.startswith("win"):
-    try:
-        import ctypes
-        kernel32 = ctypes.WinDLL('kernel32')
-        user32 = ctypes.WinDLL('user32')
-        hWnd = kernel32.GetConsoleWindow()
-        if hWnd:
-            user32.ShowWindow(hWnd, 0)  # SW_HIDE = 0
-    except Exception:
-        pass
+
 
 # ─── Windows COM Apartment Mode Initialization ────────────────────────────────
 # Python threads default to no COM apartment. If a GC cycle runs on an uninitialized
@@ -40,7 +27,7 @@ if sys.platform.startswith("win"):
     sys.coinit_flags = 0
     import comtypes  # MUST import here to lock MTA before PyQt locks STA!
 
-# PyInstaller windowless mode sets sys.stdout and sys.stderr to None.
+# Pythonw.exe sets sys.stdout and sys.stderr to None.
 # Some third-party libraries like speedtest-cli expect them to have a 'fileno' attribute.
 # We patch them to os.devnull to prevent fatal crashes on startup.
 if sys.stdout is None: sys.stdout = open(os.devnull, 'w')
