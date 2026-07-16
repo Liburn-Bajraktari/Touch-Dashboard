@@ -77,7 +77,18 @@ function Install-Update {
     # Setup Python venv
     Write-Color "[*] Setting up Python virtual environment..." "Cyan"
     Set-Location $InstallDir
-    if (-not (Test-Path "$InstallDir\.venv")) {
+    
+    $venvExists = Test-Path "$InstallDir\.venv"
+    if ($venvExists) {
+        $out = & "$InstallDir\.venv\Scripts\python.exe" --version 2>&1
+        if ($LASTEXITCODE -ne 0 -or "$out" -match "Could not find") {
+            Write-Color "  [!] Existing virtual environment is corrupted or outdated. Recreating..." "Yellow"
+            Remove-Item -Recurse -Force "$InstallDir\.venv" -ErrorAction SilentlyContinue
+            $venvExists = $false
+        }
+    }
+
+    if (-not $venvExists) {
         python -m venv .venv
     }
     
