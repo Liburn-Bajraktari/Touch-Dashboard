@@ -1711,6 +1711,23 @@ def launch_desktop(host="0.0.0.0", port=8888):
         return
 
     configure_windows_app_identity()
+    qt_app = QApplication(sys.argv)
+    qt_app.setQuitOnLastWindowClosed(False)
+
+    from PyQt6.QtNetwork import QLocalSocket, QLocalServer
+    socket = QLocalSocket()
+    socket.connectToServer("TouchDashboard_SingleInstanceLock")
+    if socket.waitForConnected(500):
+        socket.write(b"WAKEUP")
+        socket.flush()
+        socket.waitForBytesWritten(500)
+        logger.info("Another instance is already running. Waking it up and exiting.")
+        sys.exit(0)
+
+    # We are the primary instance. Start the local socket server.
+    local_server = QLocalServer()
+    QLocalServer.removeServer("TouchDashboard_SingleInstanceLock")
+    local_server.listen("TouchDashboard_SingleInstanceLock")
 
     srv_thread = threading.Thread(
         target=run_fastapi_server,
@@ -1722,10 +1739,20 @@ def launch_desktop(host="0.0.0.0", port=8888):
     if not _wait_for_server(port):
         logger.error(f"FastAPI server did not start on port {port}; Qt window may show a blank page.")
 
-    qt_app = QApplication(sys.argv)
-    qt_app.setQuitOnLastWindowClosed(False)
-    
     desktop = DesktopTrayApp(port=port)
+
+    def _handle_new_connection():
+        conn = local_server.nextPendingConnection()
+        if conn.waitForReadyRead(500):
+            if conn.readAll().data() == b"WAKEUP":
+                desktop.showNormal()
+                desktop.activateWindow()
+                desktop.window_visible = True
+                desktop.toggle_action.setText("Hide Dashboard")
+        conn.disconnectFromServer()
+
+    local_server.newConnection.connect(_handle_new_connection)
+
     desktop.show()
     
     sys.exit(qt_app.exec())
