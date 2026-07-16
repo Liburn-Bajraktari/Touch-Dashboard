@@ -46,6 +46,22 @@ function Find-Python {
 
 function Install-Update {
     Write-Color "`n=== Installing / Updating Touch Dashboard ===" "Cyan"
+    
+    $processes = Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -match "server.py" -and $_.CommandLine -match "Touch-Dashboard" }
+    if ($processes) {
+        Write-Color "  [!] Touch Dashboard is currently running." "Yellow"
+        $ans = Read-Host "  Would you like to close it to continue updating? (Y/N)"
+        if ($ans -match "^[yY]") {
+            Write-Color "  [*] Stopping processes..." "Cyan"
+            $processes | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Seconds 1
+        } else {
+            Write-Color "  [-] Cannot update while the application is running." "Red"
+            Read-Host "Press Enter to return to menu..."
+            return
+        }
+    }
+
     Find-Python
 
     Write-Color "[*] Downloading latest source code from Codeberg..." "Cyan"
@@ -149,8 +165,14 @@ objShell.Run """$InstallDir\.venv\Scripts\pythonw.exe"" ""$InstallDir\server.py"
     Remove-Item $tempZip -Force
     Remove-Item -Recurse -Force $extractDir
 
-    Write-Color "`n[+] Installation Complete! You can launch the app from your desktop shortcut." "Green"
-    Read-Host "Press Enter to return to menu..."
+    Write-Color "`n[+] Installation Complete!" "Green"
+    
+    $launch = Read-Host "[?] Would you like to launch Touch Dashboard now? (Y/N)"
+    if ($launch -match "^[yY]") {
+        Start-Process "wscript.exe" -ArgumentList """$VbsLauncher""" -WindowStyle Hidden
+    }
+    
+    Read-Host "`nPress Enter to return to menu..."
 }
 
 function Repair-Installation {
