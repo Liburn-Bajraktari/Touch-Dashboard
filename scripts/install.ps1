@@ -240,18 +240,29 @@ function Download-APK {
 # ── Main Menu Loop ────────────────────────────────────────────────────────
 while ($true) {
     Clear-Host
-    Write-Host "==========================================" -ForegroundColor Cyan
-    Write-Host "  Touch Dashboard - PowerShell Installer" -ForegroundColor White
-    Write-Host "==========================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  1." -ForegroundColor Cyan -NoNewline; Write-Host " Install / Update" -ForegroundColor Green
-    Write-Host "  2." -ForegroundColor Cyan -NoNewline; Write-Host " Repair Installation" -ForegroundColor Yellow
-    Write-Host "  3." -ForegroundColor Cyan -NoNewline; Write-Host " Uninstall" -ForegroundColor Red
-    Write-Host "  4." -ForegroundColor Cyan -NoNewline; Write-Host " Download Android APK" -ForegroundColor Blue
-    Write-Host "  0." -ForegroundColor Cyan -NoNewline; Write-Host " Exit" -ForegroundColor Gray
+    Write-Host "    ████████╗ ██████╗ ██╗   ██╗ ██████╗██╗  ██╗" -ForegroundColor Cyan
+    Write-Host "    ╚══██╔══╝██╔═══██╗██║   ██║██╔════╝██║  ██║" -ForegroundColor Cyan
+    Write-Host "       ██║   ██║   ██║██║   ██║██║     ███████║" -ForegroundColor Cyan
+    Write-Host "       ██║   ██║   ██║██║   ██║██║     ██╔══██║" -ForegroundColor Cyan
+    Write-Host "       ██║   ╚██████╔╝╚██████╔╝╚██████╗██║  ██║" -ForegroundColor Cyan
+    Write-Host "       ╚═╝    ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝" -ForegroundColor Cyan
+    Write-Host "                         D A S H B O A R D     " -ForegroundColor White
+    Write-Host ""
+    Write-Host "   ╔══════════════════════════════════════════════════════════╗" -ForegroundColor DarkGray
+    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 1 " -ForegroundColor Cyan -NoNewline; Write-Host "   Install / Update Touch Dashboard               ║" -ForegroundColor White
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 2 " -ForegroundColor Yellow -NoNewline; Write-Host "   Repair Existing Installation                   ║" -ForegroundColor Gray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 3 " -ForegroundColor Red -NoNewline; Write-Host "   Completely Uninstall                           ║" -ForegroundColor Gray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 4 " -ForegroundColor Green -NoNewline; Write-Host "   Download Android APK Client                    ║" -ForegroundColor Gray
+    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
+    Write-Host "   ║   " -ForegroundColor DarkGray -NoNewline; Write-Host " 0 " -ForegroundColor DarkGray -NoNewline; Write-Host "   Exit Installer                                 ║" -ForegroundColor DarkGray
+    Write-Host "   ║                                                          ║" -ForegroundColor DarkGray
+    Write-Host "   ╚══════════════════════════════════════════════════════════╝" -ForegroundColor DarkGray
     Write-Host ""
     
-    $choice = Read-Host "Select an option [0-4]"
+    Write-Host "   > " -ForegroundColor Cyan -NoNewline
+    $choice = Read-Host ""
     
     switch ($choice) {
         "1" { Install-Update }
@@ -259,6 +270,6 @@ while ($true) {
         "3" { Uninstall-App }
         "4" { Download-APK }
         "0" { exit }
-        default { Write-Color "Invalid option." "Red"; Start-Sleep -Seconds 1 }
+        default { Write-Color "   [!] Invalid option selected." "Red"; Start-Sleep -Seconds 1 }
     }
 }
