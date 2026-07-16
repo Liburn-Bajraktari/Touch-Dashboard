@@ -1621,6 +1621,7 @@ class DesktopTrayApp(QMainWindow):
         # Load URL
         self.view.setUrl(QUrl(f"http://127.0.0.1:{self.port}"))
         
+        self.setWindowIcon(self._make_icon())
         self._setup_tray()
         set_windows_window_icon(self, self.window_title)
         

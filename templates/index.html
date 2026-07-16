@@ -1557,7 +1557,7 @@
 
                 elMainView.style.pointerEvents = 'none';
 
-                const fakeBg = elMainView.cloneNode(true);
+                const fakeBg = document.createElement('div');
                 fakeBg.id = 'fake-bg-blur';
                 fakeBg.style.position = 'absolute';
                 fakeBg.style.top = '0';
@@ -1566,21 +1566,10 @@
                 fakeBg.style.height = '100%';
                 fakeBg.style.zIndex = '2';
                 fakeBg.style.pointerEvents = 'none';
-                fakeBg.style.filter = 'blur(15px) brightness(0.6)';
+                fakeBg.style.backdropFilter = 'blur(15px) brightness(0.6)';
+                fakeBg.style.WebkitBackdropFilter = 'blur(15px) brightness(0.6)';
                 fakeBg.style.opacity = '0';
-                
-                fakeBg.querySelectorAll('*').forEach(el => {
-                    el.id = '';
-                    el.style.willChange = 'auto';
-                });
 
-                const fakeBgBase = fakeBg.cloneNode(true);
-                fakeBgBase.id = 'fake-bg-base';
-                fakeBgBase.style.filter = 'none';
-                fakeBgBase.style.opacity = '1';
-                fakeBgBase.style.zIndex = '1';
-
-                elViewWrapper.appendChild(fakeBgBase);
                 elViewWrapper.appendChild(fakeBg);
                 
                 elCols.forEach(c => c.style.display = 'none');
@@ -1644,7 +1633,6 @@
                 elMainView.style.pointerEvents = 'auto';
                 
                 const canvasBlur = document.getElementById('fake-bg-blur');
-                const canvasBase = document.getElementById('fake-bg-base');
 
                 if (canvasBlur) gsap.to(canvasBlur, { opacity: 0, duration: 0.3, ease: "power2.inOut" });
 
@@ -1658,7 +1646,6 @@
                         
                         elCols.forEach(c => c.style.display = '');
                         if (canvasBlur) canvasBlur.remove();
-                        if (canvasBase) canvasBase.remove();
 
                         if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
                     }
