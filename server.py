@@ -1277,7 +1277,7 @@ async def _handle_action(ws: WebSocket, action: str):
                 disc_ipc_instance.send(1, {
                     "cmd": "AUTHORIZE",
                     "args": {"client_id": disc_ipc_instance.client_id,
-                              "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]},
+                              "scopes": ["rpc", "rpc.guilds.read"]},
                     "nonce": str(uuid.uuid4()),
                 })
         elif auth_url:
