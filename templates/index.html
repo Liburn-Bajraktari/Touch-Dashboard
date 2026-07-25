@@ -1018,6 +1018,7 @@
         let lastAudioState = { spk: { vol: 0, muted: false }, mic: { vol: 0, muted: false } };
         let preDeafenMute = false;
         let osTarget = 'windows';
+        let isDiscordConnected = false;
         let currentDiscordAuthUrl = "";
         let discordPanelVisible = false;
         let discordPanelAnimating = false;
@@ -1394,6 +1395,7 @@
                         setDiscordPanelVisible(false);
                     } else {
                         currentDiscordAuthUrl = d.discord.auth_url || "";
+                        isDiscordConnected = !!d.discord.connected;
                         
                         if (d.discord.connected && !d.discord.auth_pending) {
                             discordDisconnectCount = 0;
@@ -2396,12 +2398,9 @@
             document.getElementById('modal').classList.add('active');
         });
 
-        // --- Actions ---
         function act(a) { 
             if (a === 'disc_auth') {
-                const isConnected = dom.discGroup && dom.discGroup.querySelector('div') && 
-                                    dom.discGroup.querySelector('div').getAttribute('data-conn-state') === 'online';
-                if (isConnected) {
+                if (isDiscordConnected) {
                     // Let the server handle it via IPC AUTHORIZE command
                 } else if (currentDiscordAuthUrl) {
                     // In the desktop app, open the OAuth URL in the system browser so the
