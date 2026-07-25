@@ -2399,7 +2399,9 @@
         // --- Actions ---
         function act(a) { 
             if (a === 'disc_auth') {
-                if (d && d.discord && d.discord.connected) {
+                const isConnected = dom.discGroup && dom.discGroup.querySelector('div') && 
+                                    dom.discGroup.querySelector('div').getAttribute('data-conn-state') === 'online';
+                if (isConnected) {
                     // Let the server handle it via IPC AUTHORIZE command
                 } else if (currentDiscordAuthUrl) {
                     // In the desktop app, open the OAuth URL in the system browser so the
