@@ -248,7 +248,8 @@ class DiscordIPC:
         while self.running:
             if self.needs_reauth and self.connected:
                 self.needs_reauth = False
-                self._authenticate()
+                if not self.is_vesktop:
+                    self._authenticate()
 
             if not self.connected:
                 if not self.connect():

@@ -517,10 +517,9 @@
                     <div class="form-group"><label>Discord Client Secret</label><input type="password" id="cfg-disc-secret"></div>
                     <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem;">For full integration, create a Discord Developer Application and enter credentials here.</p>
                     <div id="disc-warning-container" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); padding: 1rem; border-radius: 0.5rem; margin-top: 0.5rem;">
-                        <p style="color: var(--text-main); font-size: 0.85rem; margin: 0; font-weight: bold;">Warning: Voice Control Disabled</p>
-                        <p style="color: var(--text-muted); font-size: 0.8rem; margin: 0.5rem 0 0 0;">This can happen if you are using Vesktop/arRPC, or if your authorization has expired. The dashboard is using an automated keyboard macro (Ctrl+Shift+M / Ctrl+Shift+D) as a fallback.</p>
-                        <p style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">If using Vesktop, you MUST map 'Ctrl+Shift+M' and 'Ctrl+Shift+D' as Global Keybinds for this to work.</p>
-                        <p style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">If using standard Discord, try clicking CLEAR AUTH and Authorizing again.</p>
+                        <p style="color: var(--text-main); font-size: 0.85rem; margin: 0; font-weight: bold;">Warning: Voice Control Unavailable</p>
+                        <p id="disc-warning-detail" style="color: var(--text-muted); font-size: 0.8rem; margin: 0.5rem 0 0 0;">Voice control requires RPC voice API access which is not available in this mode.</p>
+                        <p id="disc-warning-hint" style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">The dashboard is using automated keyboard macros (Ctrl+Shift+M / Ctrl+Shift+D) as a fallback.</p>
                     </div>
                     
                     <div style="display: flex; gap: 1rem; margin-top: 0.5rem; height: 3.5rem;">
@@ -1000,7 +999,14 @@
 
         function goToServerPath(path) {
             const target = isCapacitorRuntime() ? `http://${dashboardServerHost}${path}` : path;
-            window.location.href = target;
+            // In the desktop app (QWebEngineView), opening the URL in the embedded view
+            // would navigate away from the dashboard. Use the system browser instead.
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.open_url) {
+                const absTarget = isCapacitorRuntime() ? target : `http://127.0.0.1:${location.port || 8888}${path}`;
+                window.pywebview.api.open_url(absTarget);
+            } else {
+                window.location.href = target;
+            }
         }
 
         let isAnimating = false;
@@ -1427,7 +1433,20 @@
 
                     if (dom.discWarning) {
                         const showWarning = (d.discord.connected && !d.discord.auth_pending && !d.discord.voice_supported) ? 'block' : 'none';
-                        if (dom.discWarning.style.display !== showWarning) dom.discWarning.style.display = showWarning;
+                        if (dom.discWarning.style.display !== showWarning) {
+                            dom.discWarning.style.display = showWarning;
+                        }
+                        if (showWarning === 'block') {
+                            const detailEl = document.getElementById('disc-warning-detail');
+                            const hintEl   = document.getElementById('disc-warning-hint');
+                            if (d.discord.is_vesktop) {
+                                if (detailEl) detailEl.textContent = 'Vesktop (arRPC) does not support the RPC voice API. The dashboard uses keyboard macros as a fallback.';
+                                if (hintEl)   hintEl.textContent   = "Map 'Ctrl+Shift+M' and 'Ctrl+Shift+D' as Global Keybinds in Vesktop settings for mute/deafen to work.";
+                            } else {
+                                if (detailEl) detailEl.textContent = 'Voice control requires authorization. Your token may have expired.';
+                                if (hintEl)   hintEl.textContent   = "Click CLEAR AUTH below and click AUTHORIZE DISCORD to re-authenticate with standard Discord.";
+                            }
+                        }
                     }
                     
                     if (d.discord.voice_channel && (!globalCfg || globalCfg.disc_vc_enabled !== false)) {
@@ -2380,7 +2399,13 @@
         // --- Actions ---
         function act(a) { 
             if (a === 'disc_auth' && currentDiscordAuthUrl) {
-                window.location.href = currentDiscordAuthUrl;
+                // In the desktop app, open the OAuth URL in the system browser so the
+                // embedded QWebEngineView is not navigated away from the dashboard.
+                if (window.pywebview && window.pywebview.api && window.pywebview.api.open_url) {
+                    window.pywebview.api.open_url(currentDiscordAuthUrl);
+                } else {
+                    window.location.href = currentDiscordAuthUrl;
+                }
                 return;
             }
 

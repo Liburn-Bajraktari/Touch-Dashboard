@@ -50,6 +50,7 @@ import argparse
 import importlib.util
 import site
 import subprocess
+import webbrowser
 
 # ─── ChromiumFlags (before any Qt/CE import) ──────────────────────────────────
 os.environ.setdefault(
@@ -677,6 +678,7 @@ async def hardware_loop():
             "connected": False,
             "voice_supported": False,
             "authorized": disc_has_token,
+            "is_vesktop": False,
         }
         if disc_has_creds and not disc_has_token:
             scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
@@ -691,7 +693,13 @@ async def hardware_loop():
                 "connected":       disc_ipc_instance.connected,
                 "voice_supported": disc_ipc_instance.voice_supported,
                 "auth_pending":    disc_ipc_instance.auth_pending,
+                "is_vesktop":      disc_ipc_instance.is_vesktop,
             })
+            # Vesktop (arRPC) is always "authorized" — no OAuth token needed.
+            if disc_ipc_instance.is_vesktop and disc_ipc_instance.connected:
+                disc_state["authorized"] = True
+                disc_state["auth_required"] = False
+                disc_state["auth_url"] = ""
             if disc_ipc_instance.connected:
                 disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
                 disc_state["deaf"] = disc_ipc_instance.voice_state.get("deaf", False)
@@ -1257,13 +1265,25 @@ async def _handle_action(ws: WebSocket, action: str):
         return
 
     if action == "disc_auth":
+        auth_url = disc_ipc_instance.get_auth_url() if disc_ipc_instance else ""
         if disc_ipc_instance and disc_ipc_instance.connected:
-            disc_ipc_instance.send(1, {
-                "cmd": "AUTHORIZE",
-                "args": {"client_id": disc_ipc_instance.client_id,
-                          "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]},
-                "nonce": str(uuid.uuid4()),
-            })
+            if disc_ipc_instance.is_vesktop:
+                # arRPC (Vesktop) does not implement the IPC AUTHORIZE command.
+                # Always use the web OAuth flow via the system browser.
+                if auth_url:
+                    webbrowser.open(auth_url)
+            else:
+                # Standard Discord: trigger native in-app consent popup via IPC.
+                disc_ipc_instance.send(1, {
+                    "cmd": "AUTHORIZE",
+                    "args": {"client_id": disc_ipc_instance.client_id,
+                              "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]},
+                    "nonce": str(uuid.uuid4()),
+                })
+        elif auth_url:
+            # Not yet connected — open the auth URL directly so the user can
+            # grant permission; the server-side callback will handle the code.
+            webbrowser.open(auth_url)
         return
 
     if action == "disc_mute":
@@ -1584,6 +1604,14 @@ class _Api(QObject):
     @Slot(result=str)
     def get_local_ip(self):
         return self._app.local_ip
+
+    @Slot(str)
+    def open_url(self, url: str):
+        """Open a URL in the system's default external browser."""
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            logger.warning(f"open_url failed for '{url}': {e}")
 
     @Slot()
     def start_drag(self):
