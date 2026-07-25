@@ -695,11 +695,6 @@ async def hardware_loop():
                 "auth_pending":    disc_ipc_instance.auth_pending,
                 "is_vesktop":      disc_ipc_instance.is_vesktop,
             })
-            # Vesktop (arRPC) is always "authorized" — no OAuth token needed.
-            if disc_ipc_instance.is_vesktop and disc_ipc_instance.connected:
-                disc_state["authorized"] = True
-                disc_state["auth_required"] = False
-                disc_state["auth_url"] = ""
             if disc_ipc_instance.connected:
                 disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
                 disc_state["deaf"] = disc_ipc_instance.voice_state.get("deaf", False)
@@ -1011,13 +1006,13 @@ async def websocket_endpoint(ws: WebSocket):
 
         # Initial state push — Discord state included here (replaces DOM surgery)
         disc_has_token = bool(config.get("disc_token", ""))
+        _ipc = disc_ipc_instance
         initial_disc = {
-            "connected": bool(disc_ipc_instance and disc_ipc_instance.connected),
+            "connected": bool(_ipc and _ipc.connected),
             "authorized": disc_has_token,
-            "mute": (disc_ipc_instance.voice_state.get("mute", False)
-                     if disc_ipc_instance else False),
-            "deaf": (disc_ipc_instance.voice_state.get("deaf", False)
-                     if disc_ipc_instance else False),
+            "is_vesktop": bool(_ipc and _ipc.is_vesktop),
+            "mute": (_ipc.voice_state.get("mute", False) if _ipc else False),
+            "deaf": (_ipc.voice_state.get("deaf", False) if _ipc else False),
         }
         await ws.send_text(_dumps({
             "type": "config_sync",
@@ -1267,19 +1262,13 @@ async def _handle_action(ws: WebSocket, action: str):
     if action == "disc_auth":
         auth_url = disc_ipc_instance.get_auth_url() if disc_ipc_instance else ""
         if disc_ipc_instance and disc_ipc_instance.connected:
-            if disc_ipc_instance.is_vesktop:
-                # arRPC (Vesktop) does not implement the IPC AUTHORIZE command.
-                # Always use the web OAuth flow via the system browser.
-                if auth_url:
-                    webbrowser.open(auth_url)
-            else:
-                # Standard Discord: trigger native in-app consent popup via IPC.
-                disc_ipc_instance.send(1, {
-                    "cmd": "AUTHORIZE",
-                    "args": {"client_id": disc_ipc_instance.client_id,
-                              "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]},
-                    "nonce": str(uuid.uuid4()),
-                })
+            # Standard Discord: trigger native in-app consent popup via IPC.
+            disc_ipc_instance.send(1, {
+                "cmd": "AUTHORIZE",
+                "args": {"client_id": disc_ipc_instance.client_id,
+                          "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]},
+                "nonce": str(uuid.uuid4()),
+            })
         elif auth_url:
             # Not yet connected — open the auth URL directly so the user can
             # grant permission; the server-side callback will handle the code.
@@ -1296,8 +1285,6 @@ async def _handle_action(ws: WebSocket, action: str):
             else:
                 disc_ipc_instance.set_voice(mute=not is_mute)
                 disc_ipc_instance.pre_deafen_mute = not is_mute
-        else:
-            await asyncio.to_thread(MacroSystem.send_keys, "KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_M")
         return
 
     if action == "disc_deaf":
@@ -1310,8 +1297,6 @@ async def _handle_action(ws: WebSocket, action: str):
             else:
                 restore = getattr(disc_ipc_instance, "pre_deafen_mute", False)
                 disc_ipc_instance.set_voice(deaf=False, mute=restore)
-        else:
-            await asyncio.to_thread(MacroSystem.send_keys, "KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_D")
         return
 
     if action == "disc_disconnect":

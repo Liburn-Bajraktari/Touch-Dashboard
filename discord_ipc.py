@@ -148,10 +148,6 @@ class DiscordIPC:
                 self.is_vesktop = (
                     res.get("data", {}).get("user", {}).get("username") == "arrpc"
                 )
-                if self.is_vesktop:
-                    self.auth_pending = False
-                    self.connected = True
-                    return True
 
                 if not self.access_token:
                     self.auth_pending = True
@@ -248,8 +244,7 @@ class DiscordIPC:
         while self.running:
             if self.needs_reauth and self.connected:
                 self.needs_reauth = False
-                if not self.is_vesktop:
-                    self._authenticate()
+                self._authenticate()
 
             if not self.connected:
                 if not self.connect():

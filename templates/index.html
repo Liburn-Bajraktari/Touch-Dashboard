@@ -518,8 +518,8 @@
                     <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem;">For full integration, create a Discord Developer Application and enter credentials here.</p>
                     <div id="disc-warning-container" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); padding: 1rem; border-radius: 0.5rem; margin-top: 0.5rem;">
                         <p style="color: var(--text-main); font-size: 0.85rem; margin: 0; font-weight: bold;">Warning: Voice Control Unavailable</p>
-                        <p id="disc-warning-detail" style="color: var(--text-muted); font-size: 0.8rem; margin: 0.5rem 0 0 0;">Voice control requires RPC voice API access which is not available in this mode.</p>
-                        <p id="disc-warning-hint" style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">The dashboard is using automated keyboard macros (Ctrl+Shift+M / Ctrl+Shift+D) as a fallback.</p>
+                        <p id="disc-warning-detail" style="color: var(--text-muted); font-size: 0.8rem; margin: 0.5rem 0 0 0;">Voice control requires authorization. Your token may have expired.</p>
+                        <p id="disc-warning-hint" style="color: var(--accent); font-size: 0.8rem; margin: 0.5rem 0 0 0; font-weight: bold;">Click CLEAR AUTH below and click AUTHORIZE DISCORD to re-authenticate with standard Discord.</p>
                     </div>
                     
                     <div style="display: flex; gap: 1rem; margin-top: 0.5rem; height: 3.5rem;">
@@ -1439,13 +1439,8 @@
                         if (showWarning === 'block') {
                             const detailEl = document.getElementById('disc-warning-detail');
                             const hintEl   = document.getElementById('disc-warning-hint');
-                            if (d.discord.is_vesktop) {
-                                if (detailEl) detailEl.textContent = 'Vesktop (arRPC) does not support the RPC voice API. The dashboard uses keyboard macros as a fallback.';
-                                if (hintEl)   hintEl.textContent   = "Map 'Ctrl+Shift+M' and 'Ctrl+Shift+D' as Global Keybinds in Vesktop settings for mute/deafen to work.";
-                            } else {
-                                if (detailEl) detailEl.textContent = 'Voice control requires authorization. Your token may have expired.';
-                                if (hintEl)   hintEl.textContent   = "Click CLEAR AUTH below and click AUTHORIZE DISCORD to re-authenticate with standard Discord.";
-                            }
+                            if (detailEl) detailEl.textContent = 'Voice control requires authorization. Your token may have expired.';
+                            if (hintEl)   hintEl.textContent   = "Click CLEAR AUTH below and click AUTHORIZE DISCORD to re-authenticate with standard Discord.";
                         }
                     }
                     
