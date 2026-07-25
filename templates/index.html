@@ -2393,15 +2393,19 @@
 
         // --- Actions ---
         function act(a) { 
-            if (a === 'disc_auth' && currentDiscordAuthUrl) {
-                // In the desktop app, open the OAuth URL in the system browser so the
-                // embedded QWebEngineView is not navigated away from the dashboard.
-                if (window.pywebview && window.pywebview.api && window.pywebview.api.open_url) {
-                    window.pywebview.api.open_url(currentDiscordAuthUrl);
-                } else {
-                    window.location.href = currentDiscordAuthUrl;
+            if (a === 'disc_auth') {
+                if (d && d.discord && d.discord.connected) {
+                    // Let the server handle it via IPC AUTHORIZE command
+                } else if (currentDiscordAuthUrl) {
+                    // In the desktop app, open the OAuth URL in the system browser so the
+                    // embedded QWebEngineView is not navigated away from the dashboard.
+                    if (window.pywebview && window.pywebview.api && window.pywebview.api.open_url) {
+                        window.pywebview.api.open_url(currentDiscordAuthUrl);
+                    } else {
+                        window.location.href = currentDiscordAuthUrl;
+                    }
+                    return;
                 }
-                return;
             }
 
             if (a === 'spot_play') {
