@@ -27,6 +27,7 @@ optdepends=(
   'python-nvidia-ml-py: NVIDIA GPU telemetry'
   'speedtest-cli: dashboard speed test action'
   'pulseaudio: pactl compatibility command'
+  'appmenu-gtk-module: suppress pywebview GTK menu warning'
 )
 source=("https://codeberg.org/liburnb/Touch-Dashboard/archive/v${pkgver}.tar.gz")
 sha256sums=('8383225fc0cd9b36e531899b8ff8062d0d592bd5186d8ae12f2a8d01f76cf857')

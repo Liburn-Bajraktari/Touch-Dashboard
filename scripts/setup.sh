@@ -41,11 +41,11 @@ install_deps() {
     
     if [ "$distro" = "arch" ] || [ "$distro" = "manjaro" ] || [ "$distro" = "endeavouros" ] || grep -q "arch" /etc/os-release 2>/dev/null; then
         write_color "  [*] Installing via pacman (requires sudo)..." "$CYAN"
-        sudo pacman -S --needed --noconfirm python python-pip playerctl pipewire wireplumber webkit2gtk-4.1
+        sudo pacman -S --needed --noconfirm python python-pip playerctl pipewire wireplumber webkit2gtk-4.1 appmenu-gtk-module
     elif [ "$distro" = "ubuntu" ] || [ "$distro" = "debian" ] || [ "$distro" = "pop" ] || [ "$distro" = "linuxmint" ]; then
         write_color "  [*] Installing via apt (requires sudo)..." "$CYAN"
         sudo apt-get update
-        sudo apt-get install -y python3 python3-venv python3-pip playerctl pipewire wireplumber libwebkit2gtk-4.1-dev
+        sudo apt-get install -y python3 python3-venv python3-pip playerctl pipewire wireplumber libwebkit2gtk-4.1-dev appmenu-gtk3-module
     elif [ "$distro" = "fedora" ]; then
         write_color "  [*] Installing via dnf (requires sudo)..." "$CYAN"
         sudo dnf install -y python3 playerctl pipewire wireplumber webkit2gtk4.1

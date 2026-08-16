@@ -383,15 +383,18 @@
             document.getElementById('disc-settings-wrap').style.display = enabled ? 'flex' : 'none';
         }
     </script>
-    <div class="desktop-titlebar" id="desktop-titlebar">
-        <div style="display: flex; align-items: center; gap: 1rem;">
+    <div class="desktop-titlebar" id="desktop-titlebar" style="position: relative;">
+        <!-- Absolute full-width drag region to prevent Linux GTK drag warping (must start at 0,0) -->
+        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: grab; z-index: 1;"></div>
+        
+        <div style="display: flex; align-items: center; gap: 1rem; position: relative; z-index: 2; pointer-events: auto;">
             <button class="win-btn" onclick="document.getElementById('win-menu').style.display = document.getElementById('win-menu').style.display === 'none' ? 'flex' : 'none'"><i data-lucide="menu"></i></button>
             <span id="win-ip-label" style="font-size: 1rem; color: var(--text-muted); font-weight: bold; letter-spacing: 1px;">IP: --</span>
         </div>
         
-        <div class="pywebview-drag-region" style="flex: 1; height: 100%; cursor: grab;"></div>
+        <div style="flex: 1;"></div>
         
-        <div style="display: flex; gap: 0.2rem; align-items: center;">
+        <div style="display: flex; gap: 0.2rem; align-items: center; position: relative; z-index: 2; pointer-events: auto;">
             <button class="win-btn" onclick="pywebview.api.minimize()"><i data-lucide="minus"></i></button>
             <button class="win-btn" onclick="pywebview.api.maximize()"><i data-lucide="square"></i></button>
             <button class="win-btn win-close" onclick="pywebview.api.close()"><i data-lucide="x"></i></button>
@@ -1421,9 +1424,9 @@
                             const detailEl = document.getElementById('disc-warning-detail');
                             const hintEl   = document.getElementById('disc-warning-hint');
                             if (d.discord.vesktop_ipc_warning) {
-                                if (titleEl)  titleEl.textContent  = 'Warning: Vesktop IPC Disabled';
-                                if (detailEl) detailEl.textContent = 'Vesktop requires IPC to be explicitly enabled in its settings.';
-                                if (hintEl)   hintEl.innerHTML     = 'Go to <b>Vesktop Settings &gt; Vencord &gt; Open Settings Folder</b>, edit <code>settings.json</code> and set <code>"discordIpc": true</code> and <code>"arRPC": true</code>.';
+                                if (titleEl)  titleEl.textContent  = 'Warning: Vesktop Detected';
+                                if (detailEl) detailEl.textContent = 'Vesktop (arRPC) does not support Discord Voice Control.';
+                                if (hintEl)   hintEl.innerHTML     = 'Please use the official Discord app or Vencord instead.';
                             } else {
                                 if (titleEl)  titleEl.textContent  = 'Warning: Voice Control Unavailable';
                                 if (detailEl) detailEl.textContent = 'Voice control requires authorization. Your token may have expired.';

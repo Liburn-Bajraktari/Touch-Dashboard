@@ -81,7 +81,7 @@ RUNTIME_DEPENDENCIES = [
     ("speedtest", "speedtest-cli"),
     ("spotipy",   "spotipy"),
     ("PIL",       "Pillow"),
-    ("pynvml",    "pynvml"),
+    ("pynvml",    "nvidia-ml-py"),
     # pywebview and pystray are Arch system packages (python-pywebview, python-pystray);
     # pip-install fallback works on other distros/Windows.
     ("webview",   "pywebview"),
@@ -413,6 +413,9 @@ def get_local_sounds() -> list[dict]:
         return []
 
 
+os_disc_mute = False
+os_disc_deaf = False
+
 def restart_discord_ipc():
     global disc_ipc_instance
     if disc_ipc_instance:
@@ -438,7 +441,17 @@ def restart_discord_ipc():
             if main_event_loop and sys_data_trigger:
                 main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
 
+        def _on_auth_error(auth_url: str):
+            if main_event_loop:
+                asyncio.run_coroutine_threadsafe(
+                    asyncio.to_thread(webbrowser.open, auth_url),
+                    main_event_loop
+                )
+            else:
+                webbrowser.open(auth_url)
+
         disc_ipc_instance.on_state_change = _on_disc_change
+        disc_ipc_instance.on_auth_error = _on_auth_error
         threading.Thread(target=disc_ipc_instance.loop, daemon=True,
                          name="discord-ipc").start()
 
@@ -593,13 +606,14 @@ async def hardware_loop():
             "authorized": disc_has_token,
         }
         if disc_has_creds and not disc_has_token:
-            scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
-            redir  = urllib.parse.quote("http://127.0.0.1:8888/disc_callback")
-            disc_state["auth_url"] = (
-                f"https://discord.com/api/oauth2/authorize"
-                f"?client_id={config['disc_id']}&redirect_uri={redir}"
-                f"&response_type=code&scope={scopes}"
-            )
+            scopes = "rpc rpc.notifications.read rpc.voice.read rpc.video.read rpc.screenshare.read rpc.activities.write rpc.screenshare.write rpc.video.write rpc.voice.write"
+            params = urllib.parse.urlencode({
+                "client_id": config['disc_id'],
+                "response_type": "code",
+                "redirect_uri": "http://127.0.0.1:8888/disc_callback",
+                "scope": scopes
+            })
+            disc_state["auth_url"] = f"https://discord.com/oauth2/authorize?{params}"
         if disc_ipc_instance:
             disc_state.update({
                 "connected":       disc_ipc_instance.connected,
@@ -608,8 +622,8 @@ async def hardware_loop():
                 "vesktop_ipc_warning": disc_ipc_instance.vesktop_ipc_warning,
             })
             if disc_ipc_instance.connected:
-                disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
-                disc_state["deaf"] = disc_ipc_instance.voice_state.get("deaf", False)
+                disc_state["mute"] = getattr(disc_ipc_instance, 'voice_state', {}).get('mute', False)
+                disc_state["deaf"] = getattr(disc_ipc_instance, 'voice_state', {}).get('deaf', False)
                 disc_state["voice_channel"] = disc_ipc_instance.voice_channel
             if not disc_has_token and disc_ipc_instance.auth_pending:
                 disc_state["auth_url"] = disc_ipc_instance.get_auth_url()
@@ -1187,9 +1201,19 @@ async def _handle_action(ws: WebSocket, action: str):
             disc_ipc_instance.send(1, {
                 "cmd": "AUTHORIZE",
                 "args": {"client_id": disc_ipc_instance.client_id,
-                          "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]},
-                "nonce": str(uuid.uuid4()),
+                          "scopes": ["rpc", "rpc.notifications.read", "rpc.voice.read", "rpc.video.read", "rpc.screenshare.read", "rpc.activities.write", "rpc.screenshare.write", "rpc.video.write", "rpc.voice.write"]},
+                "nonce": "AUTHORIZE_REQ",
             })
+            
+            # Standard Discord silently drops the AUTHORIZE frame if scopes are not
+            # whitelisted (like rpc.voice.read). Start a timer to open the browser if so.
+            if auth_url:
+                async def _fallback_timer():
+                    await asyncio.sleep(1.5)
+                    if disc_ipc_instance and getattr(disc_ipc_instance, 'auth_pending', False):
+                        logger.warning("Discord IPC AUTHORIZE timed out (silently dropped?). Opening browser.")
+                        await asyncio.to_thread(webbrowser.open, auth_url)
+                asyncio.create_task(_fallback_timer())
         elif auth_url:
             # Not yet connected — open the auth URL directly so the user can
             # grant permission; the server-side callback will handle the code.
@@ -1197,31 +1221,15 @@ async def _handle_action(ws: WebSocket, action: str):
         return
 
     if action == "disc_mute":
-        if disc_ipc_instance and disc_ipc_instance.connected and disc_ipc_instance.voice_supported:
-            is_deaf = disc_ipc_instance.voice_state.get("deaf", False)
-            is_mute = disc_ipc_instance.voice_state.get("mute", False)
-            if is_deaf:
-                disc_ipc_instance.set_voice(deaf=False, mute=True)
-                disc_ipc_instance.pre_deafen_mute = True
-            else:
-                disc_ipc_instance.set_voice(mute=not is_mute)
-                disc_ipc_instance.pre_deafen_mute = not is_mute
-        else:
-            await asyncio.to_thread(MacroSystem.send_keys, "KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_M")
+        if disc_ipc_instance and disc_ipc_instance.connected:
+            current_mute = getattr(disc_ipc_instance, 'voice_state', {}).get('mute', False)
+            disc_ipc_instance.send(1, {"cmd": "SET_VOICE_SETTINGS", "args": {"mute": not current_mute}, "nonce": "MUTE"})
         return
 
     if action == "disc_deaf":
-        if disc_ipc_instance and disc_ipc_instance.connected and disc_ipc_instance.voice_supported:
-            is_deaf = disc_ipc_instance.voice_state.get("deaf", False)
-            is_mute = disc_ipc_instance.voice_state.get("mute", False)
-            if not is_deaf:
-                disc_ipc_instance.pre_deafen_mute = is_mute
-                disc_ipc_instance.set_voice(deaf=True, mute=True)
-            else:
-                restore = getattr(disc_ipc_instance, "pre_deafen_mute", False)
-                disc_ipc_instance.set_voice(deaf=False, mute=restore)
-        else:
-            await asyncio.to_thread(MacroSystem.send_keys, "KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_D")
+        if disc_ipc_instance and disc_ipc_instance.connected:
+            current_deaf = getattr(disc_ipc_instance, 'voice_state', {}).get('deaf', False)
+            disc_ipc_instance.send(1, {"cmd": "SET_VOICE_SETTINGS", "args": {"deaf": not current_deaf}, "nonce": "DEAF"})
         return
 
     if action == "disc_disconnect":

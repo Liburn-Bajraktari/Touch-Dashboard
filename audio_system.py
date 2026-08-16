@@ -498,20 +498,16 @@ class AudioSystem:
     def _parse_linux_wpctl_status(audio_names: dict) -> dict:
         sinks: list[dict] = []
         active_sink_name = "NONE"
-        spk_vol, spk_muted = 0, False
-        mic_vol, mic_muted = 0, False
         try:
             out = AudioSystem.run(["wpctl", "status"])
             section: str | None = None
             for line in out.splitlines():
                 if "Sinks:" in line:
                     section = "sinks"; continue
-                elif "Sources:" in line:
-                    section = "sources"; continue
-                elif any(x in line for x in ("Filters:", "Streams:", "Video:", "Devices:")):
+                elif any(x in line for x in ("Sources:", "Filters:", "Streams:", "Video:", "Devices:")):
                     section = None; continue
 
-                if section in ("sinks", "sources"):
+                if section == "sinks":
                     clean = line.translate(str.maketrans("", "", "│├└─")).strip()
                     if not clean:
                         continue
@@ -523,35 +519,29 @@ class AudioSystem:
                     is_active = bool(m.group(1))
                     dev_id    = m.group(2)
                     raw_name  = m.group(3).strip()
-                    vol       = int(float(m.group(4)) * 100)
-                    is_muted  = "MUTED" in m.group(5)
 
+                    if "Dashboard-Soundboard" in raw_name:
+                        continue
+                    custom_name  = audio_names.get(raw_name, "")
+                    display_name = custom_name[:10] if custom_name else raw_name[:8].upper()
+                    sinks.append({
+                        "id": dev_id, "name": display_name,
+                        "raw_name": raw_name, "custom_name": custom_name,
+                        "is_active": is_active,
+                    })
                     if is_active:
-                        if section == "sinks":
-                            spk_vol, spk_muted = vol, is_muted
-                        else:
-                            mic_vol, mic_muted = vol, is_muted
-
-                    if section == "sinks":
-                        if "Dashboard-Soundboard" in raw_name:
-                            continue
-                        custom_name  = audio_names.get(raw_name, "")
-                        display_name = custom_name[:10] if custom_name else raw_name[:8].upper()
-                        sinks.append({
-                            "id": dev_id, "name": display_name,
-                            "raw_name": raw_name, "custom_name": custom_name,
-                            "is_active": is_active,
-                        })
-                        if is_active:
-                            active_sink_name = display_name
+                        active_sink_name = display_name
         except Exception as e:
             logger.error(f"Audio poll_all: {e}")
+
+        spk = AudioSystem.get_state("@DEFAULT_AUDIO_SINK@")
+        mic = AudioSystem.get_state("@DEFAULT_AUDIO_SOURCE@")
 
         return {
             "sinks": sinks,
             "active_sink_name": active_sink_name if sinks else "NONE",
-            "spk": {"vol": spk_vol, "muted": spk_muted},
-            "mic": {"vol": mic_vol, "muted": mic_muted},
+            "spk": spk,
+            "mic": mic,
         }
 
     # ── poll_all ───────────────────────────────────────────────────────────────
@@ -613,6 +603,80 @@ class AudioSystem:
             _windows_toggle_mute(target, macro_send_keys_fn)
         else:
             AudioSystem.run(["wpctl", "set-mute", target, "toggle"])
+
+
+    # ── application mute (discord) ─────────────────────────────────────────────
+
+    @staticmethod
+    def set_app_mute(app_names: tuple[str, ...], mute: bool, is_input: bool) -> None:
+        """
+        Mutes/unmutes the audio stream of a specific application.
+        app_names: tuple of lower-case process names e.g. ("vesktop", "discord")
+        mute: True to mute, False to unmute, None to toggle
+        is_input: True for microphone (Discord Mute), False for speaker (Discord Deafen)
+        """
+        if sys.platform.startswith("win"):
+            try:
+                from pycaw.pycaw import AudioUtilities
+                # Note: pycaw's GetAllSessions primarily returns playback sessions.
+                # For input sessions, standard pycaw requires AudioSessionManager2 with eCapture.
+                # For now, we handle playback natively and log input limits.
+                sessions = AudioUtilities.GetAllSessions()
+                for session in sessions:
+                    process = session.Process
+                    if process and process.name().lower().replace(".exe", "") in app_names:
+                        volume = session.SimpleAudioVolume
+                        current = volume.GetMute()
+                        new_state = (not current) if mute is None else mute
+                        volume.SetMute(1 if new_state else 0, None)
+            except Exception as e:
+                logger.error(f"_windows_set_app_mute error: {e}")
+        else:
+            try:
+                out = AudioSystem.run(["wpctl", "status"])
+                section = None
+                current_app_id = None
+                target_nodes = []
+
+                for line in out.splitlines():
+                    if "Video" in line or "Settings" in line:
+                        section = None
+                        continue
+                    if "Streams:" in line:
+                        section = "streams"
+                        continue
+                    
+                    if section == "streams":
+                        clean = line.translate(str.maketrans("", "", "│├└─")).rstrip()
+                        if not clean:
+                            continue
+                        
+                        m_node = re.match(r"^\s*(\d+)\.\s+(.+)$", clean)
+                        if not m_node:
+                            continue
+                            
+                        node_id = m_node.group(1)
+                        content = m_node.group(2).strip()
+                        
+                        if "<" not in content and ">" not in content and "monitor" not in content and "input" not in content and "output" not in content:
+                            if content.lower() in app_names:
+                                current_app_id = node_id
+                            else:
+                                current_app_id = None
+                        else:
+                            if current_app_id:
+                                if is_input and "<" in content:
+                                    target_nodes.append(current_app_id)
+                                elif not is_input and ">" in content:
+                                    target_nodes.append(current_app_id)
+
+                for node in set(target_nodes):
+                    if mute is None:
+                        AudioSystem.run(["wpctl", "set-mute", node, "toggle"])
+                    else:
+                        AudioSystem.run(["wpctl", "set-mute", node, "1" if mute else "0"])
+            except Exception as e:
+                logger.error(f"_linux_set_app_mute error: {e}")
 
     # ── cycle output device ────────────────────────────────────────────────────
 

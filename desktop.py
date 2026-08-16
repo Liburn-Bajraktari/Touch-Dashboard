@@ -93,9 +93,10 @@ class DesktopApi:
     def start_drag(self) -> None:
         """
         No-op stub kept for HTML API compatibility.
-        pywebview handles window dragging natively via easy_drag=True and the
-        .pywebview-drag-region CSS class.
+        pywebview handles window dragging natively via easy_drag=True, which we 
+        monkey-patch in launch_desktop to restrict to the titlebar.
         """
+        pass
 
 
 # ─── System tray ──────────────────────────────────────────────────────────────
@@ -282,6 +283,9 @@ def launch_desktop(
         # Force X11 backend for GTK on Linux to prevent WebKit2GTK Wayland crashes (Error 71)
         # when using frameless/transparent windows with easy_drag
         os.environ["GDK_BACKEND"] = "x11"
+        # Fix NVIDIA + XWayland GBM buffer allocation crash ("Failed to create GBM buffer")
+        os.environ["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
+        os.environ["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
         if not _acquire_linux_lock(data_dir, port):
             _wake_existing_instance(port)
             os._exit(0)
@@ -347,6 +351,24 @@ def launch_desktop(
     # Force GTK backend on Linux — pywebview auto-selects Qt on KDE which would
     # bring back Chromium via QWebEngineView, defeating the whole point.
     gui: str | None = "gtk" if sys.platform.startswith("linux") else None
+    
+    # Monkey-patch GTK's easy_drag to ONLY trigger on the titlebar (top 60px)
+    # This keeps native drag perfectly smooth but prevents the whole window from being draggable.
+    if sys.platform.startswith("linux"):
+        try:
+            import webview.platforms.gtk as gtk_module
+            original_on_mouse_press = gtk_module.BrowserView.on_mouse_press
+            
+            def patched_on_mouse_press(self, widget, event):
+                # event.y is relative to the widget
+                if event.y > 60:
+                    return False
+                return original_on_mouse_press(self, widget, event)
+                
+            gtk_module.BrowserView.on_mouse_press = patched_on_mouse_press
+        except Exception as exc:
+            logger.warning("Could not monkey-patch GTK easy_drag: %s", exc)
+
     webview.start(gui=gui, private_mode=False, storage_path=data_dir, icon=icon_path)
 
     # ── Cleanup after GTK loop exits ───────────────────────────────────────────

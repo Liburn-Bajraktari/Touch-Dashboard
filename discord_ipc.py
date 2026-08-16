@@ -48,6 +48,7 @@ class DiscordIPC:
 
         # Hooks set by the server to trigger a data push after state changes
         self.on_state_change = None   # asyncio-safe callable
+        self.on_auth_error = None     # callable(auth_url: str) → None
 
     # ── pipe discovery ─────────────────────────────────────────────────────────
 
@@ -130,32 +131,17 @@ class DiscordIPC:
     # ── connection ─────────────────────────────────────────────────────────────
 
     def check_vesktop_ipc(self) -> None:
-        """Check if Vesktop is installed but IPC is disabled. Sets a warning if so."""
-        if sys.platform.startswith("win"):
-            paths = [
-                os.path.expandvars(r"%APPDATA%\vesktop\settings.json"),
-                os.path.expandvars(r"%APPDATA%\vesktop\settings\settings.json")
-            ]
-        else:
-            paths = [
-                os.path.expanduser("~/.config/vesktop/settings.json"),
-                os.path.expanduser("~/.config/vesktop/settings/settings.json"),
-                os.path.expanduser("~/.var/app/dev.vencord.Vesktop/config/vesktop/settings.json"),
-                os.path.expanduser("~/.var/app/dev.vencord.Vesktop/config/vesktop/settings/settings.json")
-            ]
-        
-        for path in paths:
-            if os.path.exists(path):
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    if not data.get("discordIpc", False) or not data.get("arRPC", False):
-                        if not self.vesktop_ipc_warning:
-                            logger.warning(f"Vesktop detected at {path}, but IPC is disabled! See docs/vesktop_ipc.md")
-                        self.vesktop_ipc_warning = True
-                        return
-                except Exception:
-                    pass
+        """Check if Vesktop is currently running."""
+        try:
+            import psutil
+            for p in psutil.process_iter(['name']):
+                if p.info['name'] and 'vesktop' in p.info['name'].lower():
+                    if not self.vesktop_ipc_warning:
+                        logger.warning("Vesktop detected! Note that Vesktop (arRPC) does not support Voice Control via RPC.")
+                    self.vesktop_ipc_warning = True
+                    return
+        except Exception:
+            pass
         self.vesktop_ipc_warning = False
 
     def connect(self) -> bool:
@@ -207,15 +193,14 @@ class DiscordIPC:
     # ── authentication ─────────────────────────────────────────────────────────
 
     def get_auth_url(self) -> str:
-        scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
-        redirect = urllib.parse.quote("http://127.0.0.1:8888/disc_callback")
-        return (
-            f"https://discord.com/api/oauth2/authorize"
-            f"?client_id={self.client_id}"
-            f"&redirect_uri={redirect}"
-            f"&response_type=code"
-            f"&scope={scopes}"
-        )
+        scopes = "rpc rpc.notifications.read rpc.voice.read rpc.video.read rpc.screenshare.read rpc.activities.write rpc.screenshare.write rpc.video.write rpc.voice.write"
+        params = urllib.parse.urlencode({
+            "client_id": self.client_id,
+            "response_type": "code",
+            "redirect_uri": "http://127.0.0.1:8888/disc_callback",
+            "scope": scopes
+        })
+        return f"https://discord.com/oauth2/authorize?{params}"
 
     def exchange_code(self, code: str) -> bool:
         """Exchange an OAuth2 code for an access token (HTTP, blocking)."""
@@ -314,6 +299,10 @@ class DiscordIPC:
                     self._config_save("")
                 self.auth_pending = True
                 self._trigger()
+            elif nonce == "AUTHORIZE_REQ":
+                logger.error(f"Discord IPC AUTHORIZE failed (restricted scopes?): {res}. Falling back to browser.")
+                if self.on_auth_error:
+                    self.on_auth_error(self.get_auth_url())
             else:
                 logger.error(f"Discord IPC error: {res}")
             return
