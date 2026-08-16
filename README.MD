@@ -65,19 +65,27 @@ Once the backend is running on your PC, open a web browser on that same PC and n
 
 ## Running from Source (Linux & Developers)
 
-If you are on Linux or prefer not to use the automated installers, you can run the raw Python source code directly.
+### Linux (Automated Installation)
 
-### Prerequisites
+Just like Windows, you can install the Linux backend and its dependencies using a one-liner:
+
+```bash
+bash -c "$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)" < /dev/tty
+```
+
+This interactive script will automatically detect your distribution (Arch, Debian/Ubuntu, or Fedora), install the required dependencies (`python3`, `pipewire`, `playerctl`, etc.), and create a background Desktop shortcut!
+
+### Manual Installation (Developers)
 
 1. Clone the repository: `git clone https://codeberg.org/liburnb/Touch-Dashboard.git`
 2. Enter the directory: `cd Touch-Dashboard`
 3. Create a virtual environment and install dependencies:
    ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # (On Windows use .venv\Scripts\activate)
+   python3 -m venv .venv
+   source .venv/bin/activate
    pip install -r requirements.txt
    ```
-4. **Linux specific:** Ensure you have the required PipeWire/WirePlumber tools installed on your system (`wpctl`, `pactl`, `pw-play`, `pw-link`, `playerctl`).
+4. **Linux specific:** Ensure you have the required PipeWire/WirePlumber tools installed on your system (`wpctl`, `pactl`, `pw-play`, `pw-link`, `playerctl`) as well as `webkit2gtk-4.1`.
    *Arch Linux Users:* You can optionally build and install a local pacman package automatically:
    ```bash
    chmod +x scripts/build-arch-package.sh
