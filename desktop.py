@@ -279,6 +279,9 @@ def launch_desktop(
 
     # ── Linux: single-instance via lockfile ────────────────────────────────────
     elif sys.platform.startswith("linux"):
+        # Force X11 backend for GTK on Linux to prevent WebKit2GTK Wayland crashes (Error 71)
+        # when using frameless/transparent windows with easy_drag
+        os.environ["GDK_BACKEND"] = "x11"
         if not _acquire_linux_lock(data_dir, port):
             _wake_existing_instance(port)
             os._exit(0)

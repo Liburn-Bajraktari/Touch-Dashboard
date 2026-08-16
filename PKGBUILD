@@ -24,7 +24,7 @@ depends=(
   'wireplumber'
 )
 optdepends=(
-  'python-pynvml: NVIDIA GPU telemetry'
+  'python-nvidia-ml-py: NVIDIA GPU telemetry'
   'speedtest-cli: dashboard speed test action'
   'pulseaudio: pactl compatibility command'
 )

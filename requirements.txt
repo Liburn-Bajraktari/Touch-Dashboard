@@ -5,7 +5,7 @@ requests
 psutil
 speedtest-cli
 spotipy
-pynvml
+nvidia-ml-py
 Pillow
 pyinstaller
 
