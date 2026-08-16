@@ -40,8 +40,8 @@ class DiscordIPC:
         self.running        = False
         self.auth_pending   = False
         self.needs_reauth   = False
-        self.is_vesktop     = False
         self.voice_supported = False
+        self.vesktop_ipc_warning = False
         self.voice_state    = {"mute": False, "deaf": False}
         self.voice_channel: dict | None = None
         self.pre_deafen_mute = False
@@ -71,6 +71,8 @@ class DiscordIPC:
                 for candidate in (
                     os.path.join(base, f"discord-ipc-{i}"),
                     os.path.join(base, "app/com.discordapp.Discord", f"discord-ipc-{i}"),
+                    os.path.join(base, "app/dev.vencord.Vesktop", f"discord-ipc-{i}"),
+                    os.path.join(base, "snap/discord/current", f"discord-ipc-{i}"),
                 ):
                     if os.path.exists(candidate) and candidate not in found:
                         found.append(candidate)
@@ -127,6 +129,35 @@ class DiscordIPC:
 
     # ── connection ─────────────────────────────────────────────────────────────
 
+    def check_vesktop_ipc(self) -> None:
+        """Check if Vesktop is installed but IPC is disabled. Sets a warning if so."""
+        if sys.platform.startswith("win"):
+            paths = [
+                os.path.expandvars(r"%APPDATA%\vesktop\settings.json"),
+                os.path.expandvars(r"%APPDATA%\vesktop\settings\settings.json")
+            ]
+        else:
+            paths = [
+                os.path.expanduser("~/.config/vesktop/settings.json"),
+                os.path.expanduser("~/.config/vesktop/settings/settings.json"),
+                os.path.expanduser("~/.var/app/dev.vencord.Vesktop/config/vesktop/settings.json"),
+                os.path.expanduser("~/.var/app/dev.vencord.Vesktop/config/vesktop/settings/settings.json")
+            ]
+        
+        for path in paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if not data.get("discordIpc", False) or not data.get("arRPC", False):
+                        if not self.vesktop_ipc_warning:
+                            logger.warning(f"Vesktop detected at {path}, but IPC is disabled! See docs/vesktop_ipc.md")
+                        self.vesktop_ipc_warning = True
+                        return
+                except Exception:
+                    pass
+        self.vesktop_ipc_warning = False
+
     def connect(self) -> bool:
         for path in self._get_pipe_paths():
             try:
@@ -145,14 +176,6 @@ class DiscordIPC:
                 if not res:
                     self._close_transport(); continue
 
-                self.is_vesktop = (
-                    res.get("data", {}).get("user", {}).get("username") == "arrpc"
-                )
-                if self.is_vesktop:
-                    self.auth_pending = False
-                    self.connected = True
-                    return True
-
                 if not self.access_token:
                     self.auth_pending = True
                     self.connected = True
@@ -166,6 +189,7 @@ class DiscordIPC:
                 logger.debug(f"Discord connect error on '{path}': {e}")
                 self._close_transport()
 
+        self.check_vesktop_ipc()
         return False
 
     def _close_transport(self) -> None:
@@ -248,8 +272,7 @@ class DiscordIPC:
         while self.running:
             if self.needs_reauth and self.connected:
                 self.needs_reauth = False
-                if not self.is_vesktop:
-                    self._authenticate()
+                self._authenticate()
 
             if not self.connected:
                 if not self.connect():

@@ -375,28 +375,6 @@
         .setting-row label.title { color: var(--text-main); font-size: 1.1rem; font-weight: 600; margin: 0 0 0.25rem 0; display: block; }
         .setting-row label.desc { color: var(--text-muted); font-size: 0.85rem; margin: 0; line-height: 1.3; }
     </style>
-    <script src="/static/qwebchannel.js"></script>
-    <script>
-        // PySide6 / QWebChannel polyfill for pywebview API
-        document.addEventListener("DOMContentLoaded", function() {
-            if (typeof QWebChannel !== "undefined") {
-                new QWebChannel(qt.webChannelTransport, function(channel) {
-                    window.pywebview = { api: channel.objects.api };
-                    window.dispatchEvent(new Event('pywebviewready'));
-                });
-            }
-            
-            // Native window drag polyfill for Qt
-            const dragRegion = document.querySelector('.pywebview-drag-region');
-            if (dragRegion) {
-                dragRegion.addEventListener('mousedown', function(e) {
-                    if (e.buttons === 1 && window.pywebview && window.pywebview.api && window.pywebview.api.start_drag) {
-                        window.pywebview.api.start_drag();
-                    }
-                });
-            }
-        });
-    </script>
 </head>
 <body id="body">
     <script>
@@ -1434,17 +1412,20 @@
                     }
 
                     if (dom.discWarning) {
-                        const showWarning = (d.discord.connected && !d.discord.auth_pending && !d.discord.voice_supported) ? 'block' : 'none';
+                        const showWarning = (d.discord.vesktop_ipc_warning || (d.discord.connected && !d.discord.auth_pending && !d.discord.voice_supported)) ? 'block' : 'none';
                         if (dom.discWarning.style.display !== showWarning) {
                             dom.discWarning.style.display = showWarning;
                         }
                         if (showWarning === 'block') {
+                            const titleEl  = dom.discWarning.querySelector('p');
                             const detailEl = document.getElementById('disc-warning-detail');
                             const hintEl   = document.getElementById('disc-warning-hint');
-                            if (d.discord.is_vesktop) {
-                                if (detailEl) detailEl.textContent = 'Vesktop (arRPC) does not support the RPC voice API. The dashboard uses keyboard macros as a fallback.';
-                                if (hintEl)   hintEl.textContent   = "Map 'Ctrl+Shift+M' and 'Ctrl+Shift+D' as Global Keybinds in Vesktop settings for mute/deafen to work.";
+                            if (d.discord.vesktop_ipc_warning) {
+                                if (titleEl)  titleEl.textContent  = 'Warning: Vesktop IPC Disabled';
+                                if (detailEl) detailEl.textContent = 'Vesktop requires IPC to be explicitly enabled in its settings.';
+                                if (hintEl)   hintEl.innerHTML     = 'Go to <b>Vesktop Settings &gt; Vencord &gt; Open Settings Folder</b>, edit <code>settings.json</code> and set <code>"discordIpc": true</code> and <code>"arRPC": true</code>.';
                             } else {
+                                if (titleEl)  titleEl.textContent  = 'Warning: Voice Control Unavailable';
                                 if (detailEl) detailEl.textContent = 'Voice control requires authorization. Your token may have expired.';
                                 if (hintEl)   hintEl.textContent   = "Click CLEAR AUTH below and click AUTHORIZE DISCORD to re-authenticate with standard Discord.";
                             }

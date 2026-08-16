@@ -494,39 +494,8 @@ class AudioSystem:
     def is_muted(target: str) -> bool:
         return bool(AudioSystem.get_state(target).get("muted", False))
 
-    # ── poll_all ───────────────────────────────────────────────────────────────
-
     @staticmethod
-    def poll_all(audio_names: dict | None = None) -> dict:
-        """
-        Return a snapshot of all audio endpoints, volumes, and mute states.
-        Shape: {sinks, active_sink_name, spk: {vol, muted}, mic: {vol, muted}}
-        """
-        if audio_names is None:
-            audio_names = {}
-
-        if sys.platform.startswith("win"):
-            now = time.monotonic()
-            # Full device scan every 5 s; between scans only refresh vol/mute.
-            if (now - AudioSystem._win_sinks_ts) >= 5.0 or not AudioSystem._win_sinks_cache:
-                result = _windows_enumerate_endpoints(audio_names)
-                AudioSystem._win_sinks_cache = result.get("sinks", [])
-                AudioSystem._win_sinks_ts = now
-                return result
-
-            spk = _windows_get_volume("@DEFAULT_AUDIO_SINK@")
-            mic = _windows_get_volume("@DEFAULT_AUDIO_SOURCE@")
-            active_name = next(
-                (s["name"] for s in AudioSystem._win_sinks_cache if s["is_active"]), "NONE"
-            )
-            return {
-                "sinks": AudioSystem._win_sinks_cache,
-                "active_sink_name": active_name,
-                "spk": spk,
-                "mic": mic,
-            }
-
-        # ── Linux ──────────────────────────────────────────────────────────────
+    def _parse_linux_wpctl_status(audio_names: dict) -> dict:
         sinks: list[dict] = []
         active_sink_name = "NONE"
         spk_vol, spk_muted = 0, False
@@ -567,7 +536,7 @@ class AudioSystem:
                         if "Dashboard-Soundboard" in raw_name:
                             continue
                         custom_name  = audio_names.get(raw_name, "")
-                        display_name = custom_name[:10] if custom_name else raw_name[:5].upper()
+                        display_name = custom_name[:10] if custom_name else raw_name[:8].upper()
                         sinks.append({
                             "id": dev_id, "name": display_name,
                             "raw_name": raw_name, "custom_name": custom_name,
@@ -584,6 +553,41 @@ class AudioSystem:
             "spk": {"vol": spk_vol, "muted": spk_muted},
             "mic": {"vol": mic_vol, "muted": mic_muted},
         }
+
+    # ── poll_all ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def poll_all(audio_names: dict | None = None) -> dict:
+        """
+        Return a snapshot of all audio endpoints, volumes, and mute states.
+        Shape: {sinks, active_sink_name, spk: {vol, muted}, mic: {vol, muted}}
+        """
+        if audio_names is None:
+            audio_names = {}
+
+        if sys.platform.startswith("win"):
+            now = time.monotonic()
+            # Full device scan every 5 s; between scans only refresh vol/mute.
+            if (now - AudioSystem._win_sinks_ts) >= 5.0 or not AudioSystem._win_sinks_cache:
+                result = _windows_enumerate_endpoints(audio_names)
+                AudioSystem._win_sinks_cache = result.get("sinks", [])
+                AudioSystem._win_sinks_ts = now
+                return result
+
+            spk = _windows_get_volume("@DEFAULT_AUDIO_SINK@")
+            mic = _windows_get_volume("@DEFAULT_AUDIO_SOURCE@")
+            active_name = next(
+                (s["name"] for s in AudioSystem._win_sinks_cache if s["is_active"]), "NONE"
+            )
+            return {
+                "sinks": AudioSystem._win_sinks_cache,
+                "active_sink_name": active_name,
+                "spk": spk,
+                "mic": mic,
+            }
+
+        # ── Linux ──────────────────────────────────────────────────────────────
+        return AudioSystem._parse_linux_wpctl_status(audio_names)
 
     @staticmethod
     def get_hardware_sinks(audio_names: dict | None = None) -> list[dict]:

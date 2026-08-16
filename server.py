@@ -3,11 +3,12 @@ server.py — Touch Dashboard backend.
 
 Architecture:
   FastAPI + uvicorn handle HTTP and WebSocket transport.
-  pywebview (Linux/Windows) or server-only mode provides the desktop window.
-  pystray provides the system-tray icon on all platforms.
+  desktop.py (pywebview + pystray) provides the desktop window and tray icon.
+  server-only mode skips the desktop entirely (headless).
 
 Platform logic lives in the companion modules:
   audio_system.py  — cross-platform audio
+  desktop.py       — pywebview window + pystray tray
   discord_ipc.py   — Discord IPC client
   macro_system.py  — keyboard macros + app enumeration
   media.py         — Spotify / MPRIS / Windows Media Transport
@@ -52,25 +53,9 @@ import site
 import subprocess
 import webbrowser
 
-# ─── ChromiumFlags (before any Qt/CE import) ──────────────────────────────────
-os.environ.setdefault(
-    "QTWEBENGINE_CHROMIUM_FLAGS",
-    (
-        "--disable-site-isolation-trials "
-        "--disable-features=RendererCodeIntegrity "
-        "--js-flags=--max-old-space-size=128 "
-        "--disable-gpu-memory-buffer-video-frames "
-        "--disable-reading-from-canvas "
-        "--disable-dev-shm-usage "
-        "--disable-logging"
-    ),
-)
-
-# Prevent Windows WebView2 from suspending/crashing when hidden in the tray
-os.environ.setdefault(
-    "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-    "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding"
-)
+# ─── pywebview storage path (before any webview import) ──────────────────────
+# Disable pywebview's private mode so the WebSocket auth token persists
+# across page loads. Actual storage is placed in DATA_DIR (set after imports).
 
 # ─── Fast JSON (orjson → stdlib fallback) ─────────────────────────────────────
 try:
@@ -95,9 +80,12 @@ RUNTIME_DEPENDENCIES = [
     ("psutil",    "psutil"),
     ("speedtest", "speedtest-cli"),
     ("spotipy",   "spotipy"),
-    ("PyQt6",     "PyQt6"),
     ("PIL",       "Pillow"),
     ("pynvml",    "pynvml"),
+    # pywebview and pystray are Arch system packages (python-pywebview, python-pystray);
+    # pip-install fallback works on other distros/Windows.
+    ("webview",   "pywebview"),
+    ("pystray",   "pystray"),
 ]
 if sys.platform.startswith("linux"):
     RUNTIME_DEPENDENCIES += [("evdev", "evdev"), ("gi", "PyGObject")]
@@ -112,9 +100,6 @@ def _is_linux_cli():
         return True
     return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
-
-def _format_dep_msg(pkgs, lead):
-    return lead + "\n\nMissing dependencies:\n\n" + "\n".join(f"  - {p}" for p in pkgs)
 
 
 def _show_popup(title, msg):
@@ -142,81 +127,18 @@ def _show_popup(title, msg):
     return False
 
 
-def _ask_popup(title, msg) -> bool | None:
-    try:
-        import tkinter as tk
-        from tkinter import messagebox
-        r = tk.Tk(); r.withdraw(); r.attributes("-topmost", True)
-        ans = messagebox.askyesno(title, msg, parent=r); r.destroy()
-        return ans
-    except Exception:
-        pass
-    if sys.platform.startswith("win"):
-        try:
-            import ctypes
-            res = ctypes.windll.user32.MessageBoxW(None, msg, title, 0x24)
-            return res == 6
-        except Exception:
-            pass
-    if sys.platform.startswith("linux") and not _is_linux_cli():
-        for tool in (["zenity", "--question", "--title", title, "--text", msg],
-                     ["kdialog", "--title", title, "--yesno", msg]):
-            if shutil.which(tool[0]):
-                try:
-                    r = subprocess.run(tool, check=False)
-                    return r.returncode == 0
-                except Exception:
-                    pass
-    return None
-
-
 def ensure_runtime_dependencies():
     missing = [pkg for mod, pkg in RUNTIME_DEPENDENCIES
                if importlib.util.find_spec(mod) is None]
     if not missing:
         return
 
-    if getattr(sys, "frozen", False):
-        _show_popup("Touch Dashboard", _format_dep_msg(
-            missing, "Packaged build is missing dependencies. Please reinstall."))
-        raise SystemExit(f"Missing deps: {missing}")
-
-    if os.environ.get("TOUCH_DASHBOARD_SKIP_AUTO_INSTALL") == "1":
-        _show_popup("Touch Dashboard", _format_dep_msg(
-            missing, "Auto-install disabled. Install deps manually."))
-        raise SystemExit(f"Missing deps: {missing}")
-
-    msg = _format_dep_msg(
-        missing, "Touch Dashboard needs to install missing Python dependencies."
-    ) + "\n\nInstall them now?"
+    msg = (f"Touch Dashboard is missing required dependencies:\n\n"
+           f"{chr(10).join(f'  - {p}' for p in missing)}\n\n"
+           f"Please install them using your system package manager or `pip install -r requirements.txt`.")
     print(msg, flush=True)
-
-    approved = _ask_popup("Touch Dashboard Dependencies", msg)
-    if approved is None:
-        try:
-            approved = input("Install? [y/N]: ").strip().lower() in ("y", "yes")
-        except EOFError:
-            approved = False
-    if not approved:
-        raise SystemExit("Dependency install declined.")
-
-    in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
-    cmd = [sys.executable, "-m", "pip", "install"]
-    if not in_venv:
-        cmd.append("--user")
-        try:
-            import sysconfig
-            stdlib = sysconfig.get_path("stdlib", sysconfig.get_default_scheme())
-            if stdlib and os.path.exists(os.path.join(stdlib, "EXTERNALLY-MANAGED")):
-                cmd.append("--break-system-packages")
-        except Exception:
-            pass
-    cmd.extend(missing)
-    if subprocess.run(cmd).returncode != 0:
-        raise RuntimeError("Failed to install deps. Run `pip install -r requirements.txt` manually.")
-    try: site.main()
-    except Exception: pass
-    importlib.invalidate_caches()
+    _show_popup("Touch Dashboard - Missing Dependencies", msg)
+    raise SystemExit(f"Missing deps: {missing}")
 
 
 ensure_runtime_dependencies()
@@ -236,21 +158,12 @@ import uvicorn
 
 try:
     from PIL import Image, ImageDraw  # type: ignore[import]
-    from PyQt6.QtCore import QObject, pyqtSlot as Slot, QUrl, Qt, QTimer, QThread, QFile, QIODevice, QTextStream, pyqtSignal
-    from PyQt6.QtGui import QIcon, QAction
-    from PyQt6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
-    from PyQt6.QtWebChannel import QWebChannel
 except ImportError:
-    Image = ImageDraw = QApplication = pyqtSignal = QObject = None
+    Image = ImageDraw = None
 
-if QObject is not None:
-    class SingleInstanceSignals(QObject):
-        wakeup = pyqtSignal()
-    si_signals = SingleInstanceSignals()
-else:
-    si_signals = None
+# Desktop window / tray (imported lazily in launch_desktop to avoid
+# initialising the GTK/WebKit2 subsystem in server-only mode).
+import desktop as _desktop_module
 
 try:
     import pynvml  # type: ignore[import]
@@ -678,7 +591,6 @@ async def hardware_loop():
             "connected": False,
             "voice_supported": False,
             "authorized": disc_has_token,
-            "is_vesktop": False,
         }
         if disc_has_creds and not disc_has_token:
             scopes = "rpc rpc.voice.read rpc.voice.write rpc.guilds.read"
@@ -693,13 +605,8 @@ async def hardware_loop():
                 "connected":       disc_ipc_instance.connected,
                 "voice_supported": disc_ipc_instance.voice_supported,
                 "auth_pending":    disc_ipc_instance.auth_pending,
-                "is_vesktop":      disc_ipc_instance.is_vesktop,
+                "vesktop_ipc_warning": disc_ipc_instance.vesktop_ipc_warning,
             })
-            # Vesktop (arRPC) is always "authorized" — no OAuth token needed.
-            if disc_ipc_instance.is_vesktop and disc_ipc_instance.connected:
-                disc_state["authorized"] = True
-                disc_state["auth_required"] = False
-                disc_state["auth_url"] = ""
             if disc_ipc_instance.connected:
                 disc_state["mute"] = disc_ipc_instance.voice_state.get("mute", False)
                 disc_state["deaf"] = disc_ipc_instance.voice_state.get("deaf", False)
@@ -761,8 +668,10 @@ async def fetch_weather():
                     "desc":      data["weather"][0]["description"].title(),
                     "timestamp": time.time(),
                 }
-                with open(WEATHER_CACHE_FILE, "w") as f:
-                    json.dump(last_weather_data, f)
+                def _write_weather(data):
+                    with open(WEATHER_CACHE_FILE, "w") as f:
+                        json.dump(data, f)
+                await asyncio.to_thread(_write_weather, last_weather_data)
                 await ws_manager.broadcast({"type": "weather_data", "data": last_weather_data})
         except Exception as e:
             logger.debug(f"Weather fetch: {e}")
@@ -770,8 +679,13 @@ async def fetch_weather():
 
     if os.path.exists(WEATHER_CACHE_FILE):
         try:
-            with open(WEATHER_CACHE_FILE) as f:
-                last_weather_data = json.load(f)
+            def _read_weather():
+                with open(WEATHER_CACHE_FILE) as f:
+                    return json.load(f)
+            # This runs once on startup, but we still make it async-friendly
+            # (or we could leave it sync since it's before the loop really starts, 
+            # but for consistency we use to_thread). Wait, fetch_weather is an async task.
+            last_weather_data = await asyncio.to_thread(_read_weather)
         except Exception:
             pass
 
@@ -835,36 +749,36 @@ async def lifespan(app: FastAPI):
 
     # Linux: create Dashboard-Soundboard virtual sink
     if get_os_target() == "linux":
-        def _run(cmd, timeout=3):
-            return subprocess.run(cmd, stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL, timeout=timeout)
-        def _out(cmd, timeout=3):
-            return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=timeout)
+        async def _run(cmd, timeout=3):
+            return await asyncio.to_thread(subprocess.run, cmd, stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL, timeout=timeout)
+        async def _out(cmd, timeout=3):
+            return await asyncio.to_thread(subprocess.check_output, cmd, stderr=subprocess.DEVNULL, timeout=timeout)
 
         try:
             try:
-                real_sink = _out(["pactl", "get-default-sink"]).decode().strip()
-                real_src  = _out(["pactl", "get-default-source"]).decode().strip()
+                real_sink = (await _out(["pactl", "get-default-sink"])).decode().strip()
+                real_src  = (await _out(["pactl", "get-default-source"])).decode().strip()
             except Exception:
                 real_sink = real_src = ""
 
-            sinks_out = _out(["pactl", "list", "short", "sinks"]).decode()
+            sinks_out = (await _out(["pactl", "list", "short", "sinks"])).decode()
             if "Dashboard-Soundboard" not in sinks_out:
-                _run(["pactl", "load-module", "module-null-sink",
+                await _run(["pactl", "load-module", "module-null-sink",
                       "sink_name=Dashboard-Soundboard",
                       'sink_properties=device.description="Dashboard-Soundboard"'])
-            _run(["pactl", "set-sink-volume", "Dashboard-Soundboard", "100%"])
-            _run(["pactl", "set-sink-mute",   "Dashboard-Soundboard", "0"])
+            await _run(["pactl", "set-sink-volume", "Dashboard-Soundboard", "100%"])
+            await _run(["pactl", "set-sink-mute",   "Dashboard-Soundboard", "0"])
 
-            mods_out = _out(["pactl", "list", "short", "modules"]).decode()
+            mods_out = (await _out(["pactl", "list", "short", "modules"])).decode()
             if "source=Dashboard-Soundboard.monitor" not in mods_out:
-                _run(["pactl", "load-module", "module-loopback",
+                await _run(["pactl", "load-module", "module-loopback",
                       "source=Dashboard-Soundboard.monitor"])
 
             if real_sink and "Dashboard" not in real_sink:
-                _run(["pactl", "set-default-sink",   real_sink])
+                await _run(["pactl", "set-default-sink",   real_sink])
             if real_src  and "Dashboard" not in real_src:
-                _run(["pactl", "set-default-source", real_src])
+                await _run(["pactl", "set-default-source", real_src])
         except Exception as e:
             logger.error(f"PipeWire setup: {e}")
 
@@ -899,8 +813,8 @@ _app = FastAPI(lifespan=lifespan)
 
 @_app.get("/api/wakeup")
 def wakeup_endpoint():
-    if si_signals is not None:
-        si_signals.wakeup.emit()
+    # Bring an existing desktop window to front (second-instance signal).
+    _desktop_module.wakeup()
     return {"status": "waking up"}
 
 @_app.post("/api/exit")
@@ -1189,9 +1103,11 @@ async def _handle_action(ws: WebSocket, action: str):
             with CONFIG_LOCK:
                 config["spot_token"] = ""
                 save_config()
-            if os.path.exists(SPOTIFY_CACHE_FILE):
-                try: os.remove(SPOTIFY_CACHE_FILE)
-                except Exception: pass
+            def _rm_spot_cache():
+                if os.path.exists(SPOTIFY_CACHE_FILE):
+                    try: os.remove(SPOTIFY_CACHE_FILE)
+                    except Exception: pass
+            await asyncio.to_thread(_rm_spot_cache)
             return
 
         sp_oauth = get_sp_oauth()
@@ -1267,23 +1183,17 @@ async def _handle_action(ws: WebSocket, action: str):
     if action == "disc_auth":
         auth_url = disc_ipc_instance.get_auth_url() if disc_ipc_instance else ""
         if disc_ipc_instance and disc_ipc_instance.connected:
-            if disc_ipc_instance.is_vesktop:
-                # arRPC (Vesktop) does not implement the IPC AUTHORIZE command.
-                # Always use the web OAuth flow via the system browser.
-                if auth_url:
-                    webbrowser.open(auth_url)
-            else:
-                # Standard Discord: trigger native in-app consent popup via IPC.
-                disc_ipc_instance.send(1, {
-                    "cmd": "AUTHORIZE",
-                    "args": {"client_id": disc_ipc_instance.client_id,
-                              "scopes": ["rpc", "rpc.guilds.read"]},
-                    "nonce": str(uuid.uuid4()),
-                })
+            # Standard Discord (and Vesktop): trigger native in-app consent popup via IPC.
+            disc_ipc_instance.send(1, {
+                "cmd": "AUTHORIZE",
+                "args": {"client_id": disc_ipc_instance.client_id,
+                          "scopes": ["rpc", "rpc.voice.read", "rpc.voice.write", "rpc.guilds.read"]},
+                "nonce": str(uuid.uuid4()),
+            })
         elif auth_url:
             # Not yet connected — open the auth URL directly so the user can
             # grant permission; the server-side callback will handle the code.
-            webbrowser.open(auth_url)
+            await asyncio.to_thread(webbrowser.open, auth_url)
         return
 
     if action == "disc_mute":
@@ -1465,248 +1375,12 @@ def _launch_task_manager():
                 return _popen([term, "-e", cli])
 
 
-# ─── Windows desktop helpers ───────────────────────────────────────────────────
-
-_WINDOW_ICON_HANDLES: list = []
-
-
-def configure_windows_app_identity():
-    if not sys.platform.startswith("win"):
-        return
-    try:
-        import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_USER_MODEL_ID)
-    except Exception as e:
-        logger.debug(f"AppUserModelID: {e}")
+# (Windows desktop helpers — configure_windows_app_identity, set_windows_window_icon,
+#  _int_handle, _get_window_hwnd — are now in desktop.py)
 
 
-def _int_handle(v):
-    if v is None: return None
-    for attr in ("ToInt64", "ToInt32"):
-        if hasattr(v, attr): v = getattr(v, attr)()
-    if hasattr(v, "value"): v = v.value
-    try: return int(v) or None
-    except Exception: return None
 
-
-def set_windows_window_icon(window, title="Touch Dashboard"):
-    if not sys.platform.startswith("win") or not os.path.exists(APP_ICON_PATH):
-        return
-    try:
-        import ctypes
-        import ctypes.wintypes as wt
-        user32   = ctypes.windll.user32
-        IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
-        WM_SETICON = 0x0080
-        ICON_SMALL, ICON_BIG, ICON_SMALL2 = 0, 1, 2
-
-        user32.LoadImageW.argtypes = [wt.HINSTANCE, wt.LPCWSTR, wt.UINT,
-                                       ctypes.c_int, ctypes.c_int, wt.UINT]
-        user32.LoadImageW.restype  = wt.HANDLE
-
-        large = _int_handle(user32.LoadImageW(None, APP_ICON_PATH, IMAGE_ICON,
-                                               user32.GetSystemMetrics(11),
-                                               user32.GetSystemMetrics(12), LR_LOADFROMFILE))
-        small = _int_handle(user32.LoadImageW(None, APP_ICON_PATH, IMAGE_ICON,
-                                               user32.GetSystemMetrics(49),
-                                               user32.GetSystemMetrics(50), LR_LOADFROMFILE))
-        if not large and not small:
-            return
-
-        hwnd = _get_window_hwnd(window, title)
-        if not hwnd:
-            return
-
-        user32.SendMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
-        user32.SendMessageW.restype  = wt.LPARAM
-        if large: user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG,    large)
-        if small:
-            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL,  small)
-            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL2, small)
-
-        _WINDOW_ICON_HANDLES.extend(h for h in (large, small) if h)
-    except Exception as e:
-        logger.debug(f"Window icon: {e}")
-
-
-def _get_window_hwnd(window, title: str) -> int | None:
-    # Try pywebview attributes first
-    for obj in (window, getattr(window, "native", None), getattr(window, "gui", None)):
-        if obj is None:
-            continue
-        h = _int_handle(obj)
-        if h: return h
-        for attr in ("hwnd", "handle", "Handle"):
-            h = _int_handle(getattr(obj, attr, None))
-            if h: return h
-
-    # Fallback: enumerate process windows
-    try:
-        import ctypes
-        import ctypes.wintypes as wt
-        user32 = ctypes.windll.user32
-        pid    = os.getpid()
-        found: list[int] = []
-
-        @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
-        def _proc(hwnd, _):
-            p = wt.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
-            if p.value != pid:
-                return True
-            if title:
-                n   = user32.GetWindowTextLengthW(hwnd)
-                buf = ctypes.create_unicode_buffer(n + 1)
-                user32.GetWindowTextW(hwnd, buf, n + 1)
-                if buf.value != title:
-                    return True
-            h = _int_handle(hwnd)
-            if h: found.append(h)
-            return True
-
-        user32.EnumWindows(_proc, 0)
-        return found[0] if found else None
-    except Exception:
-        return None
-
-
-# ─── Tray API (exposed to pywebview JS context) ────────────────────────────────
-
-class _Api(QObject):
-    def __init__(self, app_window):
-        super().__init__()
-        self._app = app_window
-
-    @Slot()
-    def minimize(self):
-        self._app.showMinimized()
-
-    @Slot()
-    def maximize(self):
-        if self._app.isFullScreen():
-            self._app.showNormal()
-        else:
-            self._app.showFullScreen()
-
-    @Slot()
-    def close(self):
-        if self._app.minimize_to_tray:
-            self._app.hide()
-            self._app.window_visible = False
-            self._app.toggle_action.setText("Show Dashboard")
-        else:
-            self._app.quit_app()
-
-    @Slot(bool)
-    def set_minimize_to_tray(self, val: bool):
-        self._app.minimize_to_tray = val
-
-    @Slot(result=str)
-    def get_local_ip(self):
-        return self._app.local_ip
-
-    @Slot(str)
-    def open_url(self, url: str):
-        """Open a URL in the system's default external browser."""
-        try:
-            webbrowser.open(url)
-        except Exception as e:
-            logger.warning(f"open_url failed for '{url}': {e}")
-
-    @Slot()
-    def start_drag(self):
-        if hasattr(self._app.windowHandle(), "startSystemMove"):
-            self._app.windowHandle().startSystemMove()
-
-
-class DesktopTrayApp(QMainWindow):
-    def __init__(self, port: int = 8888):
-        super().__init__()
-        self.port            = port
-        self.local_ip        = get_lan_ip()
-        self.window_title    = f"Touch Dashboard — {self.local_ip}"
-        self.window_visible  = True
-        self.shutting_down   = False
-        self.minimize_to_tray = True
-        
-        self.setWindowTitle(self.window_title)
-        self.resize(1280, 800)
-        
-        # Frameless and translucent
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
-        self.view = QWebEngineView(self)
-        self.view.page().setBackgroundColor(Qt.GlobalColor.transparent)
-        self.setCentralWidget(self.view)
-        
-        # WebChannel setup
-        self.channel = QWebChannel()
-        self.api = _Api(self)
-        self.channel.registerObject("api", self.api)
-        self.view.page().setWebChannel(self.channel)
-        
-        # Load URL
-        self.view.setUrl(QUrl(f"http://127.0.0.1:{self.port}"))
-        
-        self.setWindowIcon(self._make_icon())
-        self._setup_tray()
-        set_windows_window_icon(self, self.window_title)
-        
-    def _make_icon(self):
-        if os.path.exists(APP_ICON_PATH):
-            return QIcon(APP_ICON_PATH)
-        return QIcon()
-
-    def _setup_tray(self):
-        self.tray = QSystemTrayIcon(self)
-        self.tray.setIcon(self._make_icon())
-        self.tray.setToolTip("Touch Dashboard")
-        
-        self.menu = QMenu()
-        
-        self.toggle_action = QAction("Hide Dashboard", self)
-        self.toggle_action.triggered.connect(self.toggle_window)
-        self.menu.addAction(self.toggle_action)
-        
-        ip_action = QAction(f"IP: {self.local_ip}", self)
-        ip_action.setEnabled(False)
-        self.menu.addAction(ip_action)
-        
-        quit_action = QAction("Quit", self)
-        quit_action.triggered.connect(self.quit_app)
-        self.menu.addAction(quit_action)
-        
-        self.tray.setContextMenu(self.menu)
-        self.tray.show()
-
-    def toggle_window(self):
-        if self.window_visible:
-            self.hide()
-            self.window_visible = False
-            self.toggle_action.setText("Show Dashboard")
-        else:
-            self.showNormal()
-            self.activateWindow()
-            self.window_visible = True
-            self.toggle_action.setText("Hide Dashboard")
-
-    def closeEvent(self, event):
-        if self.shutting_down:
-            event.accept()
-        elif self.minimize_to_tray:
-            self.hide()
-            self.window_visible = False
-            self.toggle_action.setText("Show Dashboard")
-            event.ignore()
-        else:
-            self.quit_app()
-            event.accept()
-
-    def quit_app(self):
-        self.shutting_down = True
-        stop_fastapi_server()
-        QApplication.quit()
+# (DesktopTrayApp removed — window and tray are now in desktop.py via pywebview + pystray)
 
 
 # ─── Server lifecycle ──────────────────────────────────────────────────────────
@@ -1739,69 +1413,19 @@ def run_fastapi_server(host="0.0.0.0", port=8888, reload=False):
         uvicorn_server.run()
 
 
-_lock_file = None
-
-def launch_desktop(host="0.0.0.0", port=8888):
-    global _win_mutex
-    import urllib.request, time
-
-    if sys.platform.startswith("win"):
-        import ctypes
-        ERROR_ALREADY_EXISTS = 183
-        ERROR_ACCESS_DENIED = 5
-        mutex_name = f"Global\\TouchDashboard_Mutex_{port}"
-        
-        try:
-            kernel32 = ctypes.windll.kernel32
-            _win_mutex = kernel32.CreateMutexW(None, False, mutex_name)
-            last_error = kernel32.GetLastError()
-            
-            if last_error in (ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED) or not _win_mutex:
-                # Mutex exists -> Another instance is running!
-                for _ in range(10):
-                    try:
-                        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/wakeup", timeout=0.5)
-                        break
-                    except Exception:
-                        time.sleep(0.5)
-                os._exit(0)
-        except Exception as e:
-            # Completely swallow any bizarre OS errors to prevent alarming the user
-            logger.warning(f"Mutex creation failed: {e}. Assuming duplicate instance and exiting.")
-            os._exit(0)
-
-    if QApplication is None:
-        logger.warning("PyQt6 missing — server-only mode.")
-        run_fastapi_server(host=host, port=port)
-        return
-
-    configure_windows_app_identity()
-    qt_app = QApplication(sys.argv)
-    qt_app.setQuitOnLastWindowClosed(False)
-
-    srv_thread = threading.Thread(
-        target=run_fastapi_server,
-        kwargs={"host": host, "port": port},
-        daemon=True, name="fastapi",
+def launch_desktop(host: str = "0.0.0.0", port: int = 8888) -> None:
+    """Start the pywebview desktop window with pystray system tray."""
+    _desktop_module.launch_desktop(
+        host=host,
+        port=port,
+        icon_path=APP_ICON_PATH,
+        data_dir=DATA_DIR,
+        run_server_fn=run_fastapi_server,
+        stop_server_fn=stop_fastapi_server,
+        wait_server_fn=_wait_for_server,
+        get_ip_fn=get_lan_ip,
+        app_user_model_id=WINDOWS_APP_USER_MODEL_ID,
     )
-    srv_thread.start()
-    # Poll instead of sleeping blindly — ready when the port accepts connections.
-    if not _wait_for_server(port):
-        logger.error(f"FastAPI server did not start on port {port}; Qt window may show a blank page.")
-
-    desktop = DesktopTrayApp(port=port)
-
-    if si_signals is not None:
-        def _handle_wakeup():
-            desktop.showNormal()
-            desktop.activateWindow()
-            desktop.window_visible = True
-            desktop.toggle_action.setText("Hide Dashboard")
-        si_signals.wakeup.connect(_handle_wakeup)
-
-    desktop.show()
-    
-    sys.exit(qt_app.exec())
 
 
 # ─── Entry point ───────────────────────────────────────────────────────────────

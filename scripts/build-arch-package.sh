@@ -20,7 +20,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$TMP_DIR/touch-dashboard"
-cp "$ROOT_DIR/server.py" "$TMP_DIR/touch-dashboard/"
+cp "$ROOT_DIR/"*.py "$TMP_DIR/touch-dashboard/"
 cp "$ROOT_DIR/touch-dashboard.desktop" "$TMP_DIR/touch-dashboard/"
 cp -r "$ROOT_DIR/templates" "$TMP_DIR/touch-dashboard/"
 cp -r "$ROOT_DIR/static" "$TMP_DIR/touch-dashboard/"

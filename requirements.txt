@@ -6,10 +6,15 @@ psutil
 speedtest-cli
 spotipy
 pynvml
-PyQt6
-PyQt6-WebEngine
 Pillow
 pyinstaller
+
+# ── Desktop window + tray ──────────────────────────────────────────────────────
+# On Arch Linux install via pacman (preferred):
+#   sudo pacman -S python-pywebview python-pystray
+# On other distros / Windows, pip-install works:
+pywebview
+pystray
 
 # ── Optional: fast JSON serialization (5–10× faster than stdlib json) ──────────
 orjson

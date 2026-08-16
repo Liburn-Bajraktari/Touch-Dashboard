@@ -35,8 +35,8 @@ package() {
   cd "$srcdir/touch-dashboard"
 
   install -dm755 "$pkgdir/opt/touch-dashboard"
-  install -Dm755 server.py "$pkgdir/opt/touch-dashboard/server.py"
-  cp -r templates static "$pkgdir/opt/touch-dashboard/"
+  install -Dm755 *.py "$pkgdir/opt/touch-dashboard/"
+  cp -r templates static docs "$pkgdir/opt/touch-dashboard/"
 
   install -dm755 "$pkgdir/usr/bin"
   cat > "$pkgdir/usr/bin/touch-dashboard" <<'EOF'
