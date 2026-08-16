@@ -90,7 +90,14 @@ install_update() {
 
     # Extract
     tar -xzf "$TEMP_TAR" -C "$TEMP_DIR"
-    EXTRACTED_DIR=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "Touch-Dashboard*" | head -n 1)
+    EXTRACTED_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+    
+    if [ -z "$EXTRACTED_DIR" ]; then
+        write_color "  [-] Failed to find extracted repository directory." "$RED"
+        read -p "Press Enter to return to menu..." || true
+        return
+    fi
+    
     cp -r "$EXTRACTED_DIR/"* "$INSTALL_DIR/"
 
     # Restore user data
