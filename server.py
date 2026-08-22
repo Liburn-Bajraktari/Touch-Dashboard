@@ -1254,6 +1254,9 @@ def _make_config_sync(audio_data: dict) -> dict:
             "os_target": get_os_target(),
             "host_ip":   get_lan_ip(),
             "server_version": VERSION,
+            "update_available": update_available,
+            "latest_version": latest_version,
+            "update_apk_url": update_apk_url,
         },
     }
 
