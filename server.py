@@ -156,6 +156,16 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
 
+VERSION = "0.2.0"
+REQUIRED_APK_VERSION = "0.2.0"
+
+# Update state
+update_available = False
+latest_version = ""
+update_apk_url = ""
+
+
+
 try:
     from PIL import Image, ImageDraw  # type: ignore[import]
 except ImportError:
@@ -775,6 +785,33 @@ async def pipewire_auto_router():
 async def lifespan(app: FastAPI):
     os.makedirs(SOUNDS_DIR, exist_ok=True)
 
+    # Check for updates on Codeberg
+    async def check_for_updates():
+        global update_available, latest_version, update_apk_url
+        try:
+            def fetch_releases():
+                url = "https://codeberg.org/api/v1/repos/liburnb/Touch-Dashboard/releases"
+                req = urllib.request.Request(url, headers={"User-Agent": f"TouchDashboard/{VERSION}"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    return _loads(resp.read())
+            
+            releases = await asyncio.to_thread(fetch_releases)
+            if releases and isinstance(releases, list):
+                # Simple check: if the first release tag isn't our version and isn't pre-release, or we parse it
+                latest = releases[0]
+                tag = latest.get("tag_name", "")
+                if tag and tag != "pre-release" and tag != f"v{VERSION}" and tag != VERSION:
+                    update_available = True
+                    latest_version = tag
+                    for asset in latest.get("assets", []):
+                        if asset.get("name", "").endswith(".apk"):
+                            update_apk_url = asset.get("browser_download_url", "")
+                            break
+        except Exception as e:
+            logger.error(f"Update check failed: {e}")
+
+    asyncio.create_task(check_for_updates())
+
     # Linux: create Dashboard-Soundboard virtual sink
     if get_os_target() == "linux":
         async def _run(cmd, timeout=3):
@@ -956,6 +993,34 @@ async def discord_callback(code: str | None = None):
         disc_ipc_instance.needs_reauth = True
     return RedirectResponse("/")
 
+@_app.post("/api/update")
+async def api_update():
+    """Trigger the auto-update process."""
+    if get_os_target() == "linux":
+        cmd = "bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\" < /dev/tty"
+    else:
+        cmd = "powershell -ExecutionPolicy Bypass -Command \"irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
+    
+    # Run in background and exit
+    async def run_update():
+        await asyncio.sleep(1) # wait for response to send
+        logger.info(f"Triggering update: {cmd}")
+        if get_os_target() == "linux":
+            subprocess.Popen(
+                ["/bin/bash", "-c", cmd],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        else:
+            subprocess.Popen(
+                ["powershell", "-ExecutionPolicy", "Bypass", "-Command", "Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -Command \"irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\"'"],
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008 # 0x00000008 is DETACHED_PROCESS
+            )
+        os._exit(0)
+        
+    asyncio.create_task(run_update())
+    return {"status": "updating"}
 
 # ─── WebSocket ─────────────────────────────────────────────────────────────────
 
@@ -986,6 +1051,11 @@ async def websocket_endpoint(ws: WebSocket):
                 "os_target": get_os_target(),
                 "host_ip":   get_lan_ip(),
                 "disc_init": initial_disc,
+                "update_available": update_available,
+                "latest_version": latest_version,
+                "update_apk_url": update_apk_url,
+                "server_version": VERSION,
+                "req_apk_version": REQUIRED_APK_VERSION,
             },
         }))
 

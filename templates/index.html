@@ -483,6 +483,18 @@
         </div>
     </div>
 
+    <!-- --- Update Modal --- -->
+    <div id="update-modal" class="modal-overlay">
+        <div class="modal-card" style="height: auto; width: min(35rem, calc(100vw - 2rem));">
+            <h3 id="update-title" style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 2rem;">Update Available</h3>
+            <p id="update-message" style="margin: 0; color: var(--text-muted); font-size: 1.25rem; line-height: 1.4;"></p>
+            <div id="update-actions" style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                <button class="btn" id="update-download-btn" style="flex: 1; background: rgba(14, 165, 233, 0.1); border: 1px solid #7dd3fc; color: var(--accent); font-weight: bold; padding: 1rem;">Download Now</button>
+                <button class="btn" id="update-dismiss-btn" style="flex: 1; background: var(--panel-bg); font-weight: bold; padding: 1rem;" onclick="document.getElementById('update-modal').classList.remove('active')">Dismiss</button>
+            </div>
+        </div>
+    </div>
+
     <!-- --- Settings Modal --- -->
     <div id="modal" class="modal-overlay">
         <div class="modal-card" id="modal-card">
@@ -909,7 +921,9 @@
         let dashboardServerHost = '';
         let socket = null;
         let socketConnectTimer = null;
+        let activeTab = 'spotify';
         let socketAttemptId = 0;
+        let isUpdating = false;
         let hasDisconnected = false;
         let reconnectTimer = null;
 
@@ -971,13 +985,18 @@
                         attempts++;
                         fetch(window.location.href, { cache: 'no-cache' })
                             .then(res => { if (res.ok) window.location.reload(); })
-                            .catch(() => { if (attempts >= 15) window.location.reload(); });
+                            .catch(() => { if (attempts >= 15 && !isUpdating) window.location.reload(); });
                     }, 1000);
                 }
                 return;
             }
             closePendingSocket();
-            showIpModal(message, failedIp);
+            if (isUpdating) {
+                showIpModal('Updating... The dashboard will restart shortly.', failedIp);
+                document.getElementById('ip-actions').style.display = 'none';
+            } else {
+                showIpModal(message, failedIp);
+            }
         }
 
         function connectDashboardSocket(serverIp = '') {
@@ -1168,6 +1187,41 @@
                 globalCfg = d.cfg; 
                 currentHwDevices = d.hw;
                 osTarget = d.os_target || 'windows';
+                
+                // Update checks
+                const urlParams = new URLSearchParams(window.location.search);
+                const apkVersion = urlParams.get('apk_version');
+                
+                function isVersionOutdated(clientVer, requiredVer) {
+                    if (!clientVer) return false;
+                    const c = clientVer.split('.').map(Number);
+                    const r = requiredVer.split('.').map(Number);
+                    for (let i = 0; i < 3; i++) {
+                        if ((c[i] || 0) < (r[i] || 0)) return true;
+                        if ((c[i] || 0) > (r[i] || 0)) return false;
+                    }
+                    return false;
+                }
+                
+                if (d.req_apk_version && apkVersion && isVersionOutdated(apkVersion, d.req_apk_version)) {
+                    document.getElementById('update-title').innerText = "APK Update Required";
+                    document.getElementById('update-message').innerText = `Current desktop version requires APK version ${d.req_apk_version} or above. You are on ${apkVersion}.`;
+                    document.getElementById('update-dismiss-btn').style.display = 'none'; // Force update
+                    document.getElementById('update-download-btn').onclick = () => window.location.href = d.update_apk_url || "https://codeberg.org/liburnb/Touch-Dashboard/releases";
+                    document.getElementById('update-modal').classList.add('active');
+                } else if (d.update_available && !document.getElementById('update-modal').classList.contains('active')) {
+                    document.getElementById('update-title').innerText = "Desktop Update Available";
+                    document.getElementById('update-message').innerText = `Version ${d.latest_version} is available. Update now?`;
+                    document.getElementById('update-dismiss-btn').style.display = 'block';
+                    document.getElementById('update-download-btn').onclick = () => {
+                        isUpdating = true;
+                        fetch('/api/update', {method: 'POST'});
+                        document.getElementById('update-message').innerText = "Updating... The server will restart shortly.";
+                        document.getElementById('update-download-btn').style.display = 'none';
+                        document.getElementById('update-dismiss-btn').style.display = 'none';
+                    };
+                    document.getElementById('update-modal').classList.add('active');
+                }
                 
                 populateAudioTab(d.hw, globalCfg.audio_names);
                 
