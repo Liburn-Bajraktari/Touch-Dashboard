@@ -90,6 +90,60 @@
         .top-bar { display: grid; grid-template-columns: 1.2fr 1.3fr 1.2fr; gap: var(--gap); align-items: center; padding: 1rem 1.4rem; flex: 0 0 4.8rem; }
         .section { display: flex; align-items: center; gap: var(--gap); }
         .batt { color: var(--accent); font-weight: 700; font-size: 1.6rem; display: flex; align-items: center; gap: 0.5rem;}
+
+        /* --- Horizontal Battery Widget --- */
+        .batt-widget {
+            display: flex; align-items: center; gap: 0;
+            height: 1.6rem; cursor: default;
+        }
+        .batt-body {
+            position: relative;
+            width: 3.6rem; height: 100%;
+            background: rgba(255,255,255,0.07);
+            border: 1.5px solid rgba(255,255,255,0.18);
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .batt-fill {
+            position: absolute; left: 0; top: 0; bottom: 0;
+            width: 0%;
+            background: var(--batt-color, var(--accent));
+            transition: width 1s ease, background 0.5s ease;
+            border-radius: 2px 0 0 2px;
+        }
+        /* Charging: step-animate fill through 0→25→50→75→100% every 2s */
+        .batt-widget.charging .batt-fill {
+            animation: batt-charge-step 2s steps(4, end) infinite;
+            width: 100% !important; /* animation overrides */
+        }
+        @keyframes batt-charge-step {
+            0%   { clip-path: inset(0 100% 0 0); }
+            25%  { clip-path: inset(0 75%  0 0); }
+            50%  { clip-path: inset(0 50%  0 0); }
+            75%  { clip-path: inset(0 25%  0 0); }
+            100% { clip-path: inset(0 0%   0 0); }
+        }
+        .batt-pct {
+            position: relative; z-index: 2;
+            font-size: 0.7rem; font-weight: 800;
+            color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+            letter-spacing: 0.5px; pointer-events: none;
+            white-space: nowrap;
+        }
+        .batt-zap {
+            position: absolute; right: 1px; top: 50%; transform: translateY(-50%);
+            width: 0.75rem; height: 0.75rem;
+            color: #fff; opacity: 0.9;
+            filter: drop-shadow(0 0 3px rgba(255,220,0,0.8));
+            z-index: 3; pointer-events: none;
+        }
+        .batt-cap {
+            width: 3px; height: 50%;
+            background: rgba(255,255,255,0.25);
+            border-radius: 0 2px 2px 0;
+            flex-shrink: 0;
+        }
         .top-bar .lucide { width: 2.4rem; height: 2.4rem; }
         .speed-data { text-align: right; font-size: 1.45rem; color: var(--text-muted); line-height: 1.15; font-weight: 600;}
         .speed-data span { color: var(--text-main); font-weight: 800; }
@@ -607,7 +661,17 @@
         <div class="section batt" style="position: relative;">
             <button class="btn btn-top" id="btn-back" onclick="toggleSoundpad(false)" style="position: absolute; left: 0; opacity: 0; pointer-events: none; border-radius: 1rem; transform: translateZ(0);"><i data-lucide="arrow-left"></i></button>
             <div id="batt-slide" style="display: flex; align-items: center; gap: 0.5rem; transform: translateZ(0);">
-                <i data-lucide="mouse"></i> <span id="mouse-batt">--%</span>
+                <i data-lucide="mouse" style="flex-shrink:0;"></i>
+                <div class="batt-widget" id="batt-widget" title="Mouse Battery">
+                    <div class="batt-body">
+                        <div class="batt-fill" id="batt-fill"></div>
+                        <span class="batt-pct" id="batt-pct">--</span>
+                        <i data-lucide="zap" class="batt-zap" id="batt-zap" style="display:none;"></i>
+                    </div>
+                    <div class="batt-cap"></div>
+                </div>
+                <!-- Hidden span kept for DOM references -->
+                <span id="mouse-batt" style="display:none;">--</span>
             </div>
         </div>
         <div class="section" id="top-title" style="justify-content: center; letter-spacing: 4px; font-weight: 500; font-size: 1.6rem; color: var(--text-muted); transition: color 0.3s ease, transform 0.15s ease; text-align: center;">COMMAND CENTER</div>
@@ -1016,6 +1080,10 @@
             sysCpu: document.getElementById('sys-cpu'),
             sysRam: document.getElementById('sys-ram'),
             mouseBatt: document.getElementById('mouse-batt'),
+            battWidget: document.getElementById('batt-widget'),
+            battFill: document.getElementById('batt-fill'),
+            battPct: document.getElementById('batt-pct'),
+            battZap: document.getElementById('batt-zap'),
             gpuRow: document.getElementById('sys-gpu-row'),
             sysGpu: document.getElementById('sys-gpu'),
             spotInfo: document.getElementById('spot-info'),
@@ -1236,13 +1304,84 @@
 
 
 
+        // --- Battery Widget ---
+        // Accepts the new dict {pct, state, model, vendor} or legacy string "73%" / "73" / "--".
+        function updateBattWidget(batt) {
+            if (!dom.battWidget || !dom.battFill || !dom.battPct || !dom.battZap) return;
+
+            let pct = null;
+            let state = 'unknown';
+
+            if (batt && typeof batt === 'object') {
+                pct   = (batt.pct !== undefined && batt.pct !== null) ? Number(batt.pct) : null;
+                state = batt.state || 'unknown';
+            } else if (typeof batt === 'string') {
+                // Legacy string fallback (e.g. "73%", "73", "--")
+                const raw = batt.replace('%', '').trim();
+                pct = (raw && raw !== '--') ? parseFloat(raw) : null;
+            }
+
+            const isCharging  = (state === 'charging');
+            const isUnknown   = (pct === null || isNaN(pct));
+
+            // Color thresholds
+            let color;
+            if (isUnknown) {
+                color = 'rgba(255,255,255,0.2)';
+            } else if (pct < 20) {
+                color = '#ef4444';  // red
+            } else if (pct <= 60) {
+                color = '#f59e0b';  // amber / yellow
+            } else {
+                color = '#22c55e';  // green (high battery)
+            }
+
+            // Apply fill width (0-100%). Charging animation is handled by CSS.
+            const fillPct = isUnknown ? 0 : Math.min(100, Math.max(0, pct));
+
+            dom.battFill.style.setProperty('--batt-color', color);
+            dom.battFill.style.background = color;
+
+            if (!isCharging) {
+                dom.battFill.style.width = fillPct + '%';
+            }
+
+            // Toggle charging CSS class (drives @keyframes batt-charge-step)
+            dom.battWidget.classList.toggle('charging', isCharging);
+
+            // Percentage text
+            let label;
+            if (isUnknown) {
+                label = '--';
+            } else if (isCharging) {
+                label = Math.round(pct) + '%';
+            } else {
+                label = Math.round(pct) + '%';
+            }
+            if (dom.battPct.textContent !== label) dom.battPct.textContent = label;
+
+            // Lightning bolt icon visibility (charging indicator)
+            const zapDisplay = isCharging ? '' : 'none';
+            if (dom.battZap.style.display !== zapDisplay) {
+                dom.battZap.style.display = zapDisplay;
+                if (zapDisplay === '' && window.lucide) {
+                    window.lucide.createIcons({ root: dom.battZap.parentElement });
+                }
+            }
+
+            // Keep hidden span updated for backward-compat references
+            if (dom.mouseBatt) dom.mouseBatt.innerText = label;
+        }
+
         // --- System Data Rendering ---
         function updateSysDataDOM(d) {
             if (!_pageVisible) { pendingSysData = d; return; }
             requestAnimationFrame(() => {
                 setText(dom.sysCpu, d.cpu + '%');
                 setText(dom.sysRam, d.ram + '%');
-                setText(dom.mouseBatt, d.mouse_batt + '%');
+
+                // Battery widget (handles both new dict and legacy string)
+                updateBattWidget(d.mouse_batt);
 
                 const gpuRow = dom.gpuRow;
                 if (d.gpu !== null && d.gpu !== "") {

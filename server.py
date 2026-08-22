@@ -177,6 +177,9 @@ from discord_ipc import DiscordIPC
 from macro_system import MacroSystem, AppEnumerator
 import media as media_module
 
+if sys.platform.startswith("linux"):
+    import mouse_battery as _mouse_battery_mod
+
 # ─── Paths & config ────────────────────────────────────────────────────────────
 
 BASE_DIR     = os.path.dirname(sys.executable if getattr(sys, "frozen", False)
@@ -282,7 +285,7 @@ REQ_SESSION = requests.Session()
 
 global_sp_oauth: SpotifyOAuth | None = None
 disc_ipc_instance: DiscordIPC | None = None
-uvicorn_server = None
+uvicorn_server: uvicorn.Server | None = None
 
 # NVML
 has_nvml = False
@@ -305,6 +308,7 @@ spotify_cache: dict | None = None
 last_spotify_check   = 0.0
 last_audio_devs: list = []
 last_weather_data    = {"temp": "--", "desc": "--", "timestamp": 0}
+upower_monitor       = None   # UPowerMouseMonitor instance (Linux only)
 # NOTE: asyncio primitives MUST be created inside a running event loop.
 # We declare them as None here and initialise them inside lifespan().
 weather_update_event: asyncio.Event | None = None
@@ -513,23 +517,26 @@ async def hardware_loop():
         "mic": {"vol": 0, "muted": False},
         "active_dev": "NONE",
     }
-    batt_cache = "--"
+    # mouse_batt is now a structured dict; None pct means no device found.
+    batt_cache: dict = {"pct": None, "state": "unknown", "model": "", "vendor": ""}
     last_sys_data_payload = {}
 
-    def _read_batt() -> str:
-        # Mouse battery — reads a file written by an external script.
-        # Path is /tmp/g502_battery.txt on Linux; on Windows looks in %TEMP%.
+    def _read_batt_windows() -> dict:
+        """Windows fallback: read the legacy g502_battery.txt file."""
         candidates = [
-            "/tmp/g502_battery.txt",
             os.path.join(os.environ.get("TEMP", ""), "g502_battery.txt"),
         ]
         for p in candidates:
             try:
                 with open(p) as f:
-                    return f.read().strip()
+                    raw = f.read().strip()
+                # File may contain just a number like "73" or "73%"
+                pct_str = raw.replace("%", "").strip()
+                return {"pct": float(pct_str), "state": "unknown",
+                        "model": "", "vendor": ""}
             except Exception:
                 pass
-        return "--"
+        return {"pct": None, "state": "unknown", "model": "", "vendor": ""}
 
     while True:
         if not ws_manager.has_clients():
@@ -551,7 +558,12 @@ async def hardware_loop():
                 "mic": audio_data["mic"],
                 "active_dev": audio_data["active_sink_name"],
             }
-            batt_cache      = await asyncio.to_thread(_read_batt)
+            # Battery: on Linux, read from UPower monitor (event-driven, no file I/O).
+            # On Windows, fall back to the legacy g502_battery.txt file.
+            if sys.platform.startswith("linux") and upower_monitor is not None:
+                batt_cache = upower_monitor.get_state()
+            elif sys.platform.startswith("win"):
+                batt_cache = await asyncio.to_thread(_read_batt_windows)
             last_audio_check = curr
 
         # Spotify (3 Hz max, or on demand)
@@ -587,7 +599,7 @@ async def hardware_loop():
             if has_nvml and nvml_handle:
                 try:
                     util      = await asyncio.to_thread(
-                        pynvml.nvmlDeviceGetUtilizationRates, nvml_handle
+                        pynvml.nvmlDeviceGetUtilizationRates, nvml_handle  # type: ignore[attr-defined]
                     )
                     gpu_cache = str(util.gpu)
                 except Exception:
@@ -632,6 +644,7 @@ async def hardware_loop():
             "cpu":        psutil.cpu_percent(interval=None),
             "ram":        psutil.virtual_memory().percent,
             "gpu":        gpu_cache or None,
+            # mouse_batt is a dict: {pct: float|null, state: str, model: str, vendor: str}
             "mouse_batt": batt_cache,
             "spotify":    media,
             "discord":    disc_state,
@@ -665,7 +678,7 @@ async def fetch_weather():
     async def _do_fetch():
         global last_weather_data
         if not (config.get("weather_api") and config.get("weather_city")):
-            last_weather_data["timestamp"] = time.time()
+            last_weather_data["timestamp"] = int(time.time())
             return
         try:
             res = await asyncio.to_thread(
@@ -680,7 +693,7 @@ async def fetch_weather():
                 last_weather_data = {
                     "temp":      round(data["main"]["temp"]),
                     "desc":      data["weather"][0]["description"].title(),
-                    "timestamp": time.time(),
+                    "timestamp": int(time.time()),
                 }
                 def _write_weather(data):
                     with open(WEATHER_CACHE_FILE, "w") as f:
@@ -689,7 +702,7 @@ async def fetch_weather():
                 await ws_manager.broadcast({"type": "weather_data", "data": last_weather_data})
         except Exception as e:
             logger.debug(f"Weather fetch: {e}")
-        last_weather_data["timestamp"] = time.time()
+        last_weather_data["timestamp"] = int(time.time())
 
     if os.path.exists(WEATHER_CACHE_FILE):
         try:
@@ -703,9 +716,10 @@ async def fetch_weather():
         except Exception:
             pass
 
-    if time.time() - last_weather_data.get("timestamp", 0) > 1800:
+    if time.time() - int(last_weather_data.get("timestamp", 0)) > 1800:
         await _do_fetch()
 
+    assert weather_update_event is not None  # set in lifespan()
     while True:
         try:
             await asyncio.wait_for(weather_update_event.wait(), timeout=1800)
@@ -771,12 +785,12 @@ async def lifespan(app: FastAPI):
 
         try:
             try:
-                real_sink = (await _out(["pactl", "get-default-sink"])).decode().strip()
-                real_src  = (await _out(["pactl", "get-default-source"])).decode().strip()
+                real_sink = (await _out(["pactl", "get-default-sink"])).decode().strip()  # type: ignore[union-attr]
+                real_src  = (await _out(["pactl", "get-default-source"])).decode().strip()  # type: ignore[union-attr]
             except Exception:
                 real_sink = real_src = ""
 
-            sinks_out = (await _out(["pactl", "list", "short", "sinks"])).decode()
+            sinks_out = (await _out(["pactl", "list", "short", "sinks"])).decode()  # type: ignore[union-attr]
             if "Dashboard-Soundboard" not in sinks_out:
                 await _run(["pactl", "load-module", "module-null-sink",
                       "sink_name=Dashboard-Soundboard",
@@ -784,7 +798,7 @@ async def lifespan(app: FastAPI):
             await _run(["pactl", "set-sink-volume", "Dashboard-Soundboard", "100%"])
             await _run(["pactl", "set-sink-mute",   "Dashboard-Soundboard", "0"])
 
-            mods_out = (await _out(["pactl", "list", "short", "modules"])).decode()
+            mods_out = (await _out(["pactl", "list", "short", "modules"])).decode()  # type: ignore[union-attr]
             if "source=Dashboard-Soundboard.monitor" not in mods_out:
                 await _run(["pactl", "load-module", "module-loopback",
                       "source=Dashboard-Soundboard.monitor"])
@@ -800,9 +814,24 @@ async def lifespan(app: FastAPI):
     # exist at this point. Creating them at module scope binds them to a
     # different (or non-existent) loop and causes:
     #   RuntimeError: Task got Future <Event> attached to a different loop
-    global weather_update_event, speedtest_lock
+    global weather_update_event, speedtest_lock, upower_monitor
     weather_update_event = asyncio.Event()
     speedtest_lock       = asyncio.Lock()
+
+    # Linux: start the event-driven UPower mouse battery monitor.
+    # The callback fires call_soon_threadsafe(sys_data_trigger.set) so that
+    # hardware_loop wakes immediately on a battery property change.
+    if get_os_target() == "linux":
+        _loop_ref = asyncio.get_running_loop()
+        upower_monitor = _mouse_battery_mod.UPowerMouseMonitor()
+
+        def _on_batt_change(pct, state_int):
+            # Runs on the upower-monitor GLib thread — wake the asyncio loop.
+            if _loop_ref and sys_data_trigger:
+                _loop_ref.call_soon_threadsafe(sys_data_trigger.set)
+
+        upower_monitor.on_battery_change = _on_batt_change
+        upower_monitor.start()
 
     restart_discord_ipc()
 
@@ -821,6 +850,8 @@ async def lifespan(app: FastAPI):
     await asyncio.gather(*tasks, return_exceptions=True)
     if disc_ipc_instance:
         disc_ipc_instance.close()
+    if upower_monitor is not None:
+        upower_monitor.stop()
 
 
 _app = FastAPI(lifespan=lifespan)
@@ -905,7 +936,7 @@ async def spotify_login():
 
 
 @_app.get("/callback")
-async def spotify_callback(code: str = None):
+async def spotify_callback(code: str | None = None):
     sp = get_sp_oauth()
     if not sp or not code:
         return RedirectResponse("/")
@@ -917,7 +948,7 @@ async def spotify_callback(code: str = None):
 
 
 @_app.get("/disc_callback")
-async def discord_callback(code: str = None):
+async def discord_callback(code: str | None = None):
     if not code or not disc_ipc_instance:
         return RedirectResponse("/")
     ok = await asyncio.to_thread(disc_ipc_instance.exchange_code, code)
@@ -1295,7 +1326,7 @@ def _popen(cmd, **kwargs):
     defaults = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
     if sys.platform != "win32":
         defaults["start_new_session"] = True
-    subprocess.Popen(cmd, **{**defaults, **kwargs})
+    subprocess.Popen(cmd, **{**defaults, **kwargs})  # type: ignore[call-overload]
 
 
 def _launch_terminal():

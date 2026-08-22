@@ -22,6 +22,7 @@ depends=(
   'playerctl'
   'pipewire'
   'wireplumber'
+  'upower'
 )
 optdepends=(
   'python-nvidia-ml-py: NVIDIA GPU telemetry'
@@ -30,7 +31,7 @@ optdepends=(
   'appmenu-gtk-module: suppress pywebview GTK menu warning'
 )
 source=("https://codeberg.org/liburnb/Touch-Dashboard/archive/v${pkgver}.tar.gz")
-sha256sums=('8383225fc0cd9b36e531899b8ff8062d0d592bd5186d8ae12f2a8d01f76cf857')
+sha256sums=('3687056be13f67a441834aa067c747a3a27c8bd7d3abdb07e6eab440a8bcc933')
 
 package() {
   cd "$srcdir/touch-dashboard"

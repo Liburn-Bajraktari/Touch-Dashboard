@@ -1,0 +1,4 @@
+# Pyrefly configuration for Touch-Dashboard
+# Points the type checker at the project venv so third-party packages resolve correctly.
+[python]
+interpreter = ".venv/bin/python"
