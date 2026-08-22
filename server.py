@@ -1253,6 +1253,7 @@ def _make_config_sync(audio_data: dict) -> dict:
             "hw":        audio_data.get("sinks", []),
             "os_target": get_os_target(),
             "host_ip":   get_lan_ip(),
+            "server_version": VERSION,
         },
     }
 

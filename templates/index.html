@@ -1241,6 +1241,7 @@
 
         <div id="win-menu"
             style="display: none; position: absolute; top: 3.5rem; left: 0.5rem; background: linear-gradient(180deg, rgba(18, 27, 43, 0.98), rgba(9, 14, 24, 0.98)); border: 1px solid var(--border); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--shadow); flex-direction: column; gap: 1.5rem; z-index: 99999;">
+            <div id="win-menu-version" style="font-size: 0.9rem; color: var(--text-muted); text-align: center; margin-bottom: -0.5rem; margin-top: -0.5rem; letter-spacing: 0.5px;">Version: unknown</div>
             <button class="btn"
                 style="background: rgba(14, 165, 233, 0.1); border: 1px solid #7dd3fc; color: var(--accent); font-weight: bold; width: 100%; height: 3.5rem; min-height: 0; font-size: 1.1rem;"
                 onclick="document.getElementById('win-menu').style.display='none'; document.getElementById('modal').classList.add('active');"><i
@@ -2220,6 +2221,11 @@
                     globalCfg = d.cfg;
                     currentHwDevices = d.hw;
                     osTarget = d.os_target || 'windows';
+                    
+                    if (d.server_version) {
+                        const verEl = document.getElementById('win-menu-version');
+                        if (verEl) verEl.innerText = "Version: " + d.server_version;
+                    }
 
                     // Update checks
                     const urlParams = new URLSearchParams(window.location.search);
