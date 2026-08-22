@@ -59,7 +59,7 @@ install_update() {
     echo -e "\n${CYAN}=== Installing / Updating Touch Dashboard ===${NC}"
     
     # Check if running
-    if pgrep -f "server.py.*Touch-Dashboard" > /dev/null; then
+    if pgrep -f "server.py" > /dev/null; then
         write_color "  [!] Touch Dashboard is currently running." "$YELLOW"
         if [ "$AUTO_UPDATE" = "1" ]; then
             ans="y"
@@ -70,16 +70,20 @@ install_update() {
         if [[ "$ans" =~ ^[Yy]$ ]]; then
             write_color "  [*] Stopping processes..." "$CYAN"
             curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
-            pkill -f "server.py.*Touch-Dashboard" || true
+            pkill -f "server.py" || true
             sleep 1
         else
             write_color "  [-] Cannot update while the application is running." "$RED"
-            read -p "Press Enter to return to menu..."
+            if [ "$AUTO_UPDATE" != "1" ]; then
+                read -p "Press Enter to return to menu..."
+            fi
             return
         fi
     fi
 
-    install_deps
+    if [ "$AUTO_UPDATE" != "1" ]; then
+        install_deps
+    fi
 
     write_color "[*] Downloading latest source code from Codeberg..." "$CYAN"
     TEMP_DIR=$(mktemp -d)
@@ -147,7 +151,7 @@ EOF
 
     if [[ "$launch" =~ ^[Yy]$ ]]; then
         if [ "$AUTO_UPDATE" = "1" ]; then
-            (cd "$INSTALL_DIR" && "$INSTALL_DIR/.venv/bin/python" server.py &)
+            (cd "$INSTALL_DIR" && nohup "$INSTALL_DIR/.venv/bin/python" server.py > /dev/null 2>&1 &)
         else
             gtk-launch touch-dashboard.desktop || (cd "$INSTALL_DIR" && "$INSTALL_DIR/.venv/bin/python" server.py &)
         fi

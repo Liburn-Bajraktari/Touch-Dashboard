@@ -85,24 +85,65 @@ else
     exit 1
 fi
 
-if [ -n "$2" ]; then
-    if [ -f "$2" ]; then
-        APK_FILE="$2"
-        echo -e "${CYAN}Uploading $APK_FILE to release...${NC}"
-        
-        UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets" \
-            -H "Authorization: token $TOKEN" \
-            -F "attachment=@$APK_FILE")
-        
-        U_HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
-        if [ "$U_HTTP_CODE" == "201" ]; then
-            echo -e "${GREEN}Successfully uploaded $APK_FILE!${NC}"
-        else
-            echo -e "${RED}Failed to upload APK (HTTP $U_HTTP_CODE)${NC}"
-            echo "$UPLOAD_RESPONSE"
-        fi
+if [ "$2" == "--apk" ]; then
+    echo -e "${CYAN}Finding existing APK to rebuild...${NC}"
+    OLD_APK=$(ls TouchDashboard-*.apk 2>/dev/null | head -n 1)
+    if [ -z "$OLD_APK" ]; then
+        echo -e "${RED}Error: No existing TouchDashboard-*.apk found in the repository to rebuild!${NC}"
+        exit 1
+    fi
+    
+    NEW_APK="TouchDashboard-${VERSION}.apk"
+    echo -e "${CYAN}Rebuilding $OLD_APK into $NEW_APK with updated internal version...${NC}"
+    
+    # Setup temp dir for patching
+    TMP_APK_DIR=$(mktemp -d)
+    cp "$OLD_APK" "$TMP_APK_DIR/$NEW_APK"
+    
+    # Extract, patch, and re-inject index.html
+    echo -e "${CYAN}  Patching internal APK version to $VERSION...${NC}"
+    unzip -q "$TMP_APK_DIR/$NEW_APK" assets/public/index.html assets/www/index.html -d "$TMP_APK_DIR"
+    sed -i "s/const APK_VERSION = \".*\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/public/index.html"
+    sed -i "s/const APK_VERSION = \".*\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/www/index.html"
+    (cd "$TMP_APK_DIR" && zip -q -u "$NEW_APK" assets/public/index.html assets/www/index.html)
+    
+    # Resign APK
+    echo -e "${CYAN}  Removing old signature and resigning...${NC}"
+    zip -q -d "$TMP_APK_DIR/$NEW_APK" "META-INF/*" || true
+    
+    KEYSTORE="/tmp/debug.keystore"
+    if [ ! -f "$KEYSTORE" ]; then
+        keytool -genkey -v -keystore "$KEYSTORE" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
+    fi
+    jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KEYSTORE" -storepass android "$TMP_APK_DIR/$NEW_APK" androiddebugkey > /dev/null 2>&1
+    
+    # Bring the new APK back to the repo root and clean up
+    mv "$TMP_APK_DIR/$NEW_APK" "./$NEW_APK"
+    rm -rf "$TMP_APK_DIR"
+    if [ "$OLD_APK" != "$NEW_APK" ]; then
+        rm -f "$OLD_APK"
+    fi
+    
+    APK_FILE="$NEW_APK"
+elif [ -n "$2" ] && [ -f "$2" ]; then
+    APK_FILE="$2"
+else
+    APK_FILE=""
+fi
+
+if [ -n "$APK_FILE" ]; then
+    echo -e "${CYAN}Uploading $APK_FILE to release...${NC}"
+    
+    UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets" \
+        -H "Authorization: token $TOKEN" \
+        -F "attachment=@$APK_FILE")
+    
+    U_HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
+    if [ "$U_HTTP_CODE" == "201" ]; then
+        echo -e "${GREEN}Successfully uploaded $APK_FILE!${NC}"
     else
-        echo -e "${RED}Warning: Provided APK file '$2' does not exist! Skipping upload.${NC}"
+        echo -e "${RED}Failed to upload APK (HTTP $U_HTTP_CODE)${NC}"
+        echo "$UPLOAD_RESPONSE"
     fi
 fi
 
