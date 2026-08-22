@@ -30,7 +30,6 @@ error.log
 trace.log
 AGENTS.md
 stderr.log
-scripts/release.sh
 *.apk
 *.idsig
 *.tar.gz
