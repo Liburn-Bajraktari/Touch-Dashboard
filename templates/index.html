@@ -1369,18 +1369,35 @@
 
             let pct = null;
             let state = 'unknown';
+            let connType = 'unknown';
 
             if (batt && typeof batt === 'object') {
                 pct   = (batt.pct !== undefined && batt.pct !== null) ? Number(batt.pct) : null;
                 state = batt.state || 'unknown';
+                connType = batt.connection_type || 'unknown';
             } else if (typeof batt === 'string') {
                 // Legacy string fallback (e.g. "73%", "73", "--")
                 const raw = batt.replace('%', '').trim();
                 pct = (raw && raw !== '--') ? parseFloat(raw) : null;
             }
 
+            const isWired     = (connType === 'usb' || state === 'wired');
             const isCharging  = (state === 'charging');
             const isUnknown   = (pct === null || isNaN(pct));
+
+            if (isWired) {
+                dom.battFill.style.setProperty('--batt-color', '#22c55e');
+                dom.battFill.style.background = '#22c55e';
+                dom.battFill.style.width = '100%';
+                dom.battWidget.classList.remove('charging');
+                dom.battZap.style.display = 'none';
+                
+                dom.battPct.innerHTML = '<i data-lucide="usb" style="width: 14px; height: 14px; vertical-align: middle; margin-bottom: 2px;"></i>';
+                if (window.lucide) window.lucide.createIcons({ root: dom.battPct });
+                
+                if (dom.mouseBatt) dom.mouseBatt.innerText = "USB";
+                return;
+            }
 
             // Color thresholds
             let color;
@@ -1413,6 +1430,7 @@
                 label = '--';
             } else if (isCharging) {
                 label = Math.round(pct) + '%';
+
             } else {
                 label = Math.round(pct) + '%';
             }

@@ -31,6 +31,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from typing import Callable
 
@@ -123,7 +124,6 @@ class UPowerMouseMonitor:
         self._lock          = threading.Lock()
         # Per-device state: {dbus_path: {pct, state, model, vendor, connection_type}}
         self._device_states: dict[str, dict] = {}
-        self._last_pct: float | None         = None
         self._loop          = None           # GLib.MainLoop
         self._thread        = None           # daemon thread
         self._bus           = None           # dbus.SystemBus
@@ -159,8 +159,8 @@ class UPowerMouseMonitor:
                 wired_model = _check_wired_fallback()
                 if wired_model:
                     return {
-                        "pct": self._last_pct,
-                        "state": "charging",
+                        "pct": None,
+                        "state": "wired",
                         "model": wired_model,
                         "vendor": "Logitech",
                         "connection_type": "usb",
@@ -168,8 +168,6 @@ class UPowerMouseMonitor:
             return _make_empty_state()
 
         winner = dict(max(self._device_states.values(), key=_device_score))
-        if winner.get("pct") is not None:
-            self._last_pct = winner["pct"]
         return winner
 
     def _run(self) -> None:
