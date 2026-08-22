@@ -157,7 +157,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 VERSION = "0.2.1"
-REQUIRED_APK_VERSION = "0.2.1"
+REQUIRED_APK_VERSION = "0.3.0"
 
 # Update state
 update_available = False
