@@ -41,14 +41,14 @@ install_deps() {
     
     if [ "$distro" = "arch" ] || [ "$distro" = "manjaro" ] || [ "$distro" = "endeavouros" ] || grep -q "arch" /etc/os-release 2>/dev/null; then
         write_color "  [*] Installing via pacman (requires sudo)..." "$CYAN"
-        sudo pacman -S --needed --noconfirm python python-pip playerctl pipewire wireplumber webkit2gtk-4.1 appmenu-gtk-module
+        sudo pacman -S --needed --noconfirm python python-pip playerctl pipewire wireplumber webkit2gtk-4.1 appmenu-gtk-module python-dbus python-gobject upower
     elif [ "$distro" = "ubuntu" ] || [ "$distro" = "debian" ] || [ "$distro" = "pop" ] || [ "$distro" = "linuxmint" ]; then
         write_color "  [*] Installing via apt (requires sudo)..." "$CYAN"
         sudo apt-get update
-        sudo apt-get install -y python3 python3-venv python3-pip playerctl pipewire wireplumber libwebkit2gtk-4.1-dev appmenu-gtk3-module
+        sudo apt-get install -y python3 python3-venv python3-pip playerctl pipewire wireplumber libwebkit2gtk-4.1-dev appmenu-gtk3-module python3-dbus python3-gi upower
     elif [ "$distro" = "fedora" ]; then
         write_color "  [*] Installing via dnf (requires sudo)..." "$CYAN"
-        sudo dnf install -y python3 playerctl pipewire wireplumber webkit2gtk4.1
+        sudo dnf install -y python3 playerctl pipewire wireplumber webkit2gtk4.1 python3-dbus python3-gobject upower
     else
         write_color "  [!] Unsupported distribution. Please ensure Python 3, playerctl, pipewire, and webkit2gtk-4.1 are installed manually." "$YELLOW"
         read -p "  Press Enter to continue once you have installed them..."
@@ -108,7 +108,7 @@ install_update() {
     cd "$INSTALL_DIR"
     
     if [ ! -d "$INSTALL_DIR/.venv" ] || [ ! -f "$INSTALL_DIR/.venv/bin/python" ]; then
-        python3 -m venv .venv
+        python3 -m venv --system-site-packages .venv
     fi
 
     write_color "[*] Installing Python dependencies..." "$CYAN"
