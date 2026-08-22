@@ -156,10 +156,20 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
 
-VERSION = "0.2.1"
-REQUIRED_APK_VERSION = "0.3.0"
+# Version Management
+VERSION = "v0.4.0" # Fallbacks
+REQUIRED_APK_VERSION = "v0.3.0"
 
-# Update state
+version_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.json")
+try:
+    if os.path.exists(version_file):
+        with open(version_file, "r") as f:
+            v_data = json.load(f)
+            VERSION = v_data.get("desktop_version", VERSION)
+            REQUIRED_APK_VERSION = v_data.get("required_apk_version", REQUIRED_APK_VERSION)
+except Exception as e:
+    logger.error(f"Failed to load version.json: {e}")
+
 update_available = False
 latest_version = ""
 update_apk_url = ""
@@ -1020,10 +1030,12 @@ async def discord_callback(code: str | None = None):
 @_app.post("/api/update")
 async def api_update():
     """Trigger the auto-update process."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
     if get_os_target() == "linux":
-        cmd = "export AUTO_UPDATE=1; bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\""
+        cmd = f"export AUTO_UPDATE=1 TARGET_DIR='{current_dir}'; bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\""
     else:
-        cmd = "powershell -ExecutionPolicy Bypass -Command \"$env:AUTO_UPDATE=1; irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
+        cmd = f"powershell -ExecutionPolicy Bypass -Command \"$env:AUTO_UPDATE=1; $env:TARGET_DIR='{current_dir}'; irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
     
     # Run in background and exit
     async def run_update():

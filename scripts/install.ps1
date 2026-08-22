@@ -5,7 +5,11 @@ param (
 $ErrorActionPreference = "Stop"
 $RepoOwner = "liburnb"
 $RepoName = "Touch-Dashboard"
-$InstallDir = "$env:LOCALAPPDATA\$RepoName"
+if ($env:TARGET_DIR) {
+    $InstallDir = $env:TARGET_DIR
+} else {
+    $InstallDir = "$env:LOCALAPPDATA\$RepoName"
+}
 $VbsLauncher = "$InstallDir\TouchDashboard.vbs"
 $ZipUrl = "https://codeberg.org/$RepoOwner/$RepoName/archive/main.zip"
 $ApiUrl = "https://codeberg.org/api/v1/repos/$RepoOwner/$RepoName"

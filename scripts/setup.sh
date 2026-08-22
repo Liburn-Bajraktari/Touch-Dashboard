@@ -7,7 +7,7 @@ set -e
 
 REPO_OWNER="liburnb"
 REPO_NAME="Touch-Dashboard"
-INSTALL_DIR="$HOME/.local/share/$REPO_NAME"
+INSTALL_DIR="${TARGET_DIR:-$HOME/.local/share/$REPO_NAME}"
 DESKTOP_ENTRY_DIR="$HOME/.local/share/applications"
 ZIP_URL="https://codeberg.org/$REPO_OWNER/$REPO_NAME/archive/main.tar.gz"
 API_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME"
