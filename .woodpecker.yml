@@ -1,4 +1,28 @@
 when:
+  - event: push
+    branch: main
+
+steps:
+  auto-release:
+    image: alpine:latest
+    secrets: [ codeberg_token ]
+    commands:
+      - apk add --no-cache curl jq bash
+      - |
+        if [[ "$CI_COMMIT_MESSAGE" == Release:\ * ]]; then
+          VERSION=$(echo "$CI_COMMIT_MESSAGE" | sed 's/^Release: //')
+          echo "Creating Codeberg release for $VERSION..."
+          
+          curl -X POST "https://codeberg.org/api/v1/repos/${CI_REPO}/releases" \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\": \"$VERSION\", \"name\": \"$VERSION\", \"body\": \"Automated desktop release triggered by push to main.\"}"
+        else
+          echo "Not a release commit. Skipping."
+        fi
+
+---
+when:
   - event: tag
     branch: main
 

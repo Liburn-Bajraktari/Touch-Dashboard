@@ -806,16 +806,31 @@ async def lifespan(app: FastAPI):
             
             releases = await asyncio.to_thread(fetch_releases)
             if releases and isinstance(releases, list):
-                # Simple check: if the first release tag isn't our version and isn't pre-release, or we parse it
-                latest = releases[0]
-                tag = latest.get("tag_name", "")
-                if tag and tag != "pre-release" and tag != f"v{VERSION}" and tag != VERSION:
-                    update_available = True
-                    latest_version = tag
-                    for asset in latest.get("assets", []):
-                        if asset.get("name", "").endswith(".apk"):
-                            update_apk_url = asset.get("browser_download_url", "")
-                            break
+                desktop_checked = False
+                apk_url_found = False
+                
+                for release in releases:
+                    tag = release.get("tag_name", "")
+                    if not tag or tag == "pre-release":
+                        continue
+                        
+                    # Find the newest APK asset across recent releases
+                    if not apk_url_found:
+                        for asset in release.get("assets", []):
+                            if asset.get("name", "").endswith(".apk"):
+                                update_apk_url = asset.get("browser_download_url", "")
+                                apk_url_found = True
+                                break
+                                
+                    # Check for desktop update (ignore tags starting with apk-)
+                    if not desktop_checked and not tag.lower().startswith("apk-"):
+                        if tag != f"v{VERSION}" and tag != VERSION:
+                            update_available = True
+                            latest_version = tag
+                        desktop_checked = True
+                        
+                    if desktop_checked and apk_url_found:
+                        break
         except Exception as e:
             logger.error(f"Update check failed: {e}")
 
