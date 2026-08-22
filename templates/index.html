@@ -433,10 +433,6 @@
 </head>
 <body id="body">
     <script>
-        function toggleDiscordModule() {
-            const enabled = document.getElementById('cfg-disc-enabled').checked;
-            document.getElementById('disc-settings-wrap').style.display = enabled ? 'flex' : 'none';
-        }
     </script>
     <div class="desktop-titlebar" id="desktop-titlebar" style="position: relative;">
         <!-- Absolute full-width drag region to prevent Linux GTK drag warping (must start at 0,0) -->
@@ -503,10 +499,10 @@
             
             <div class="tabs" style="padding: 1.5rem 1rem; min-width: 16rem; background: rgba(255, 255, 255, 0.03);">
                 <button class="tab active" onclick="switchTab('tab-general')">General</button>
-                <button class="tab" onclick="switchTab('tab-spotify')">Spotify</button>
-                <button class="tab" onclick="switchTab('tab-weather')">Weather</button>
-                <button class="tab" onclick="switchTab('tab-discord')">Discord</button>
-                <button class="tab" onclick="switchTab('tab-aud')">Audio Routing</button>
+                <button class="tab" id="btn-tab-spotify" onclick="switchTab('tab-spotify')">Spotify</button>
+                <button class="tab" id="btn-tab-weather" onclick="switchTab('tab-weather')">Weather</button>
+                <button class="tab" id="btn-tab-discord" onclick="switchTab('tab-discord')">Discord</button>
+                <button class="tab" id="btn-tab-aud" onclick="switchTab('tab-aud')">Audio Routing</button>
                 <button class="tab" id="tab-btn-sb" onclick="switchTab('tab-sb')" style="display: none;">Soundboard</button>
             </div>
             
@@ -540,6 +536,30 @@
                             <span class="slider"></span>
                         </label>
                     </div>
+                    
+                    <div style="margin-top: 1.5rem; margin-bottom: 0.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 0.5rem;">
+                        <label style="color: var(--text-main); font-size: 1.2rem; font-weight: 800; letter-spacing: 1px; margin: 0; text-transform: uppercase;">Feature Modules</label>
+                    </div>
+                    <div class="setting-row" style="margin-bottom: 0.5rem;">
+                        <div><label class="title">Spotify</label><label class="desc">Enable Spotify widget and settings</label></div>
+                        <label class="switch"><input type="checkbox" id="cfg-spot-enabled"><span class="slider"></span></label>
+                    </div>
+                    <div class="setting-row" style="margin-bottom: 0.5rem;">
+                        <div><label class="title">Weather</label><label class="desc">Enable Weather widget and settings</label></div>
+                        <label class="switch"><input type="checkbox" id="cfg-weather-enabled"><span class="slider"></span></label>
+                    </div>
+                    <div class="setting-row" style="margin-bottom: 0.5rem;">
+                        <div><label class="title">Discord</label><label class="desc">Enable Discord widget and settings</label></div>
+                        <label class="switch"><input type="checkbox" id="cfg-disc-enabled"><span class="slider"></span></label>
+                    </div>
+                    <div class="setting-row" style="margin-bottom: 0.5rem;">
+                        <div><label class="title">Audio Routing</label><label class="desc">Enable Audio routing settings</label></div>
+                        <label class="switch"><input type="checkbox" id="cfg-audio-enabled"><span class="slider"></span></label>
+                    </div>
+                    <div class="setting-row" style="margin-bottom: 0.5rem;">
+                        <div><label class="title">Soundboard</label><label class="desc">Enable Soundboard functionality</label></div>
+                        <label class="switch"><input type="checkbox" id="cfg-sb-enabled"><span class="slider"></span></label>
+                    </div>
                 </div>
 
                 <div id="tab-spotify" class="tab-content">
@@ -570,14 +590,6 @@
                 </div>
 
                 <div id="tab-discord" class="tab-content">
-                    <div style="display: flex; justify-content: flex-start; align-items: center; gap: 1.5rem; padding: 0.5rem 0 1.5rem 0; margin-bottom: 0.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
-                        <label style="color: var(--text-main); font-size: 1.4rem; font-weight: 800; letter-spacing: 1px; margin: 0; text-transform: uppercase;">Enable Discord</label>
-                        <label class="switch switch-lg">
-                            <input type="checkbox" id="cfg-disc-enabled" onchange="toggleDiscordModule()">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    
                     <div id="disc-settings-wrap" style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <div class="setting-row" style="margin-bottom: 1.5rem;">
                             <div>
@@ -632,7 +644,7 @@
                     </div>
                 </div>
 
-                <button class="btn" style="width: 80%; align-self: center; background: rgba(14, 165, 233, 0.1); border: 1px solid #7dd3fc; color: var(--accent); font-weight: bold; height: 5rem; font-size: 1.4rem; margin-top: auto; margin-bottom: 1rem; transition: opacity 0.2s, background-color 0.2s, transform 0.2s;" onclick="saveConfig()">Save & Apply</button>
+                <button class="btn" style="width: 80%; align-self: center; background: rgba(14, 165, 233, 0.1); border: 1px solid #7dd3fc; color: var(--accent); font-weight: bold; height: 3.5rem; font-size: 1.1rem; margin-top: auto; margin-bottom: 1rem; transition: opacity 0.2s, background-color 0.2s, transform 0.2s;" onclick="saveConfig()">Save & Apply</button>
             </div>
         </div>
     </div>
@@ -1275,7 +1287,6 @@
                 renderMacros();
                 sendSocket('req_apps_list');
                 CONFIG_FIELDS.forEach(([elId, key]) => document.getElementById(elId).value = c[key] || '');
-                document.getElementById('cfg-disc-enabled').checked = c.disc_enabled !== false;
                 document.getElementById('cfg-disc-vc').checked = c.disc_vc_enabled !== false;
                 
                 const mbEnabled = c.show_mouse_batt !== false;
@@ -1287,7 +1298,28 @@
                 const sysPanel = document.getElementById('sys-monitor-panel');
                 if (sysPanel) sysPanel.style.display = hwEnabled ? 'flex' : 'none';
 
-                toggleDiscordModule();
+                // Feature Modules handling
+                const applyToggle = (cfgKey, elId, tabBtnId, panelSelector) => {
+                    const enabled = c[cfgKey] !== false;
+                    const chk = document.getElementById(elId);
+                    if (chk) chk.checked = enabled;
+                    const tabBtn = document.getElementById(tabBtnId);
+                    if (tabBtn) tabBtn.style.display = enabled ? 'block' : 'none';
+                    if (panelSelector) {
+                        const panel = document.querySelector(panelSelector) || document.getElementById(panelSelector.replace('#', ''));
+                        if (panel) panel.style.display = enabled ? 'flex' : 'none';
+                    }
+                    return enabled;
+                };
+
+                const spotEnabled = applyToggle('spot_enabled', 'cfg-spot-enabled', 'btn-tab-spotify', '.spotify');
+                const weatherEnabled = applyToggle('weather_enabled', 'cfg-weather-enabled', 'btn-tab-weather', '.time-weather-panel');
+                const discEnabled = applyToggle('disc_enabled', 'cfg-disc-enabled', 'btn-tab-discord', '#discord-panel');
+                applyToggle('audio_enabled', 'cfg-audio-enabled', 'btn-tab-aud', null);
+                
+                const sbEnabled = c.sb_enabled !== false;
+                const sbChk = document.getElementById('cfg-sb-enabled');
+                if (sbChk) sbChk.checked = sbEnabled;
 
                 // Apply initial Discord state from server (replaces Python DOM surgery)
                 if (d.disc_init) {
@@ -1307,18 +1339,18 @@
                 
                 const spLabel = document.getElementById('label-macro-sp');
                 if (osTarget === 'linux') {
-                    document.getElementById('tab-btn-sb').style.display = 'block';
+                    document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
                     spBtns = c.local_buttons || [];
                     if(spLabel) spLabel.innerText = 'SOUNDBOARD';
                     sendSocket('req_local_sounds');
                 } else if (osTarget === 'windows' && c.sounds_path) {
                     // Windows local soundboard: show tab when a sounds path is configured
-                    document.getElementById('tab-btn-sb').style.display = 'block';
+                    document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
                     spBtns = c.local_buttons || [];
                     if(spLabel) spLabel.innerText = 'SOUNDBOARD';
                     sendSocket('req_local_sounds');
                 } else {
-                    document.getElementById('tab-btn-sb').style.display = c.sounds_path ? 'block' : 'none';
+                    document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
                     spBtns = c.soundpad_buttons || [];
                     if(spLabel) spLabel.innerText = 'SOUNDPAD';
                 }
@@ -2300,10 +2332,14 @@
 
             const data = { audio_names: audio_names };
             CONFIG_FIELDS.forEach(([elId, key]) => data[key] = document.getElementById(elId).value);
-            data.disc_enabled = document.getElementById('cfg-disc-enabled').checked;
             data.disc_vc_enabled = document.getElementById('cfg-disc-vc').checked;
             data.show_mouse_batt = document.getElementById('cfg-mouse-batt').checked;
             data.show_hw_stats = document.getElementById('cfg-hw-stats').checked;
+            data.spot_enabled = document.getElementById('cfg-spot-enabled').checked;
+            data.weather_enabled = document.getElementById('cfg-weather-enabled').checked;
+            data.disc_enabled = document.getElementById('cfg-disc-enabled').checked;
+            data.audio_enabled = document.getElementById('cfg-audio-enabled').checked;
+            data.sb_enabled = document.getElementById('cfg-sb-enabled').checked;
             
             if (osTarget === 'linux') {
                 data.local_buttons = spBtns;
