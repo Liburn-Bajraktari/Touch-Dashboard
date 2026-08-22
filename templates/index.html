@@ -1439,7 +1439,9 @@
                 setText(dom.sysRam, d.ram + '%');
 
                 // Battery widget (handles both new dict and legacy string)
-                updateBattWidget(d.mouse_batt);
+                if (d.mouse_batt !== undefined) {
+                    updateBattWidget(d.mouse_batt);
+                }
 
                 const gpuRow = dom.gpuRow;
                 if (d.gpu !== null && d.gpu !== "") {

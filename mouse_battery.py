@@ -123,6 +123,7 @@ class UPowerMouseMonitor:
         self._lock          = threading.Lock()
         # Per-device state: {dbus_path: {pct, state, model, vendor, connection_type}}
         self._device_states: dict[str, dict] = {}
+        self._last_pct: float | None         = None
         self._loop          = None           # GLib.MainLoop
         self._thread        = None           # daemon thread
         self._bus           = None           # dbus.SystemBus
@@ -152,22 +153,24 @@ class UPowerMouseMonitor:
     # ── Internal ────────────────────────────────────────────────────────────────
 
     def _best_state(self) -> dict:
-        """
-        Elect the most informative device from _device_states.
-
-        Must be called with self._lock held.
-
-        Priority (highest wins):
-          1. State score: charging > discharging > full > pending > empty > unknown
-          2. Percentage (tiebreaker — real mouse always has Pct > 0, idle dongle = 0)
-
-        This guarantees that a Lightspeed dongle visible as (State=unknown, Pct=0%)
-        never overshadows the actual wired-USB-C reading (State=charging, Pct=X%).
-        """
+        """Elect the most informative device state."""
         if not self._device_states:
+            if sys.platform.startswith("linux"):
+                wired_model = _check_wired_fallback()
+                if wired_model:
+                    return {
+                        "pct": self._last_pct,
+                        "state": "charging",
+                        "model": wired_model,
+                        "vendor": "Logitech",
+                        "connection_type": "usb",
+                    }
             return _make_empty_state()
-        best = max(self._device_states.values(), key=_device_score)
-        return dict(best)
+
+        winner = dict(max(self._device_states.values(), key=_device_score))
+        if winner.get("pct") is not None:
+            self._last_pct = winner["pct"]
+        return winner
 
     def _run(self) -> None:
         """Entry point for the daemon thread. Sets up D-Bus and runs the GLib loop."""
@@ -398,3 +401,26 @@ class UPowerMouseMonitor:
 def _make_empty_state() -> dict:
     return {"pct": None, "state": "unknown", "model": "", "vendor": "",
             "connection_type": "unknown"}
+
+def _check_wired_fallback() -> str | None:
+    """Check sysfs for a Logitech mouse if UPower drops the device entirely."""
+    try:
+        import os
+        base = "/sys/bus/usb/devices"
+        if not os.path.exists(base):
+            return None
+        for dev in os.listdir(base):
+            if ":" in dev: 
+                continue
+            prod_path = os.path.join(base, dev, "product")
+            if os.path.exists(prod_path):
+                try:
+                    with open(prod_path) as f:
+                        prod = f.read().strip()
+                        if "G502" in prod or "Logitech Mouse" in prod:
+                            return prod
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return None
