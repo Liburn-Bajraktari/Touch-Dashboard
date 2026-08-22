@@ -107,18 +107,27 @@ if [ "$2" == "--apk" ]; then
     sed -i "s/const APK_VERSION = \".*\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/www/index.html"
     (cd "$TMP_APK_DIR" && zip -q -u "$NEW_APK" assets/public/index.html assets/www/index.html)
     
-    # Resign APK
-    echo -e "${CYAN}  Removing old signature and resigning...${NC}"
+    # Resign APK properly with V2 signature and zipalign
+    echo -e "${CYAN}  Removing old signature and resigning with uber-apk-signer...${NC}"
     zip -q -d "$TMP_APK_DIR/$NEW_APK" "META-INF/*" || true
     
-    KEYSTORE="/tmp/debug.keystore"
-    if [ ! -f "$KEYSTORE" ]; then
-        keytool -genkey -v -keystore "$KEYSTORE" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
+    UBER_SIGNER="$HOME/.config/touch-dashboard/uber-apk-signer.jar"
+    if [ ! -f "$UBER_SIGNER" ]; then
+        echo -e "${CYAN}  Downloading uber-apk-signer for proper V2 signing...${NC}"
+        mkdir -p "$(dirname "$UBER_SIGNER")"
+        curl -L -s -o "$UBER_SIGNER" "https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar"
     fi
-    jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KEYSTORE" -storepass android "$TMP_APK_DIR/$NEW_APK" androiddebugkey > /dev/null 2>&1
+    
+    java -jar "$UBER_SIGNER" -a "$TMP_APK_DIR/$NEW_APK" -o "$TMP_APK_DIR" > /dev/null 2>&1
+    
+    SIGNED_APK=$(ls "$TMP_APK_DIR"/*-aligned-debugSigned.apk 2>/dev/null | head -n 1)
+    if [ -z "$SIGNED_APK" ]; then
+        echo -e "${RED}Error: Failed to sign and align APK! Make sure Java is installed.${NC}"
+        exit 1
+    fi
     
     # Bring the new APK back to the repo root and clean up
-    mv "$TMP_APK_DIR/$NEW_APK" "./$NEW_APK"
+    mv "$SIGNED_APK" "./$NEW_APK"
     rm -rf "$TMP_APK_DIR"
     if [ "$OLD_APK" != "$NEW_APK" ]; then
         rm -f "$OLD_APK"
