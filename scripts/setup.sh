@@ -59,7 +59,14 @@ install_update() {
     echo -e "\n${CYAN}=== Installing / Updating Touch Dashboard ===${NC}"
     
     # Check if running
-    if pgrep -f "server.py" > /dev/null; then
+    running_pids=""
+    for pid in $(pgrep -f "server.py"); do
+        if [ "$pid" != "$$" ] && [ "$pid" != "$PPID" ]; then
+            running_pids="$running_pids $pid"
+        fi
+    done
+    
+    if [ -n "$running_pids" ]; then
         write_color "  [!] Touch Dashboard is currently running." "$YELLOW"
         if [ "$AUTO_UPDATE" = "1" ]; then
             ans="y"
@@ -70,7 +77,9 @@ install_update() {
         if [[ "$ans" =~ ^[Yy]$ ]]; then
             write_color "  [*] Stopping processes..." "$CYAN"
             curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
-            pkill -f "server.py" || true
+            for pid in $running_pids; do
+                kill -9 "$pid" 2>/dev/null || true
+            done
             sleep 1
         else
             write_color "  [-] Cannot update while the application is running." "$RED"
