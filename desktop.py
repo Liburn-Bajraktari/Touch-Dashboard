@@ -319,6 +319,8 @@ def launch_desktop(
             window.destroy()
         except Exception:
             pass
+        import os, threading
+        threading.Timer(1.0, lambda: os._exit(0)).start()
 
     # ── Build API and window ───────────────────────────────────────────────────
     api = DesktopApi(local_ip=local_ip, quit_fn=_do_quit)
