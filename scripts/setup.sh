@@ -67,26 +67,30 @@ install_update() {
     done
     
     if [ -n "$running_pids" ]; then
-        write_color "  [!] Touch Dashboard is currently running." "$YELLOW"
-        if [ "$AUTO_UPDATE" = "1" ]; then
-            ans="y"
-        else
-            read -p "  Would you like to close it to continue updating? (Y/N): " ans || true
-        fi
-        
-        if [[ "$ans" =~ ^[Yy]$ ]]; then
-            write_color "  [*] Stopping processes..." "$CYAN"
-            curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
-            for pid in $running_pids; do
-                kill -9 "$pid" 2>/dev/null || true
-            done
-            sleep 1
-        else
-            write_color "  [-] Cannot update while the application is running." "$RED"
-            if [ "$AUTO_UPDATE" != "1" ]; then
-                read -p "Press Enter to return to menu..."
+        if [ "$BACKGROUND_UPDATE" != "1" ]; then
+            write_color "  [!] Touch Dashboard is currently running." "$YELLOW"
+            if [ "$AUTO_UPDATE" = "1" ]; then
+                ans="y"
+            else
+                read -p "  Would you like to close it to continue updating? (Y/N): " ans || true
             fi
-            return
+            
+            if [[ "$ans" =~ ^[Yy]$ ]]; then
+                write_color "  [*] Stopping processes..." "$CYAN"
+                curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
+                for pid in $running_pids; do
+                    kill -9 "$pid" 2>/dev/null || true
+                done
+                sleep 1
+            else
+                write_color "  [-] Cannot update while the application is running." "$RED"
+                if [ "$AUTO_UPDATE" != "1" ]; then
+                    read -p "Press Enter to return to menu..."
+                fi
+                return
+            fi
+        else
+            write_color "  [*] Running in background update mode..." "$CYAN"
         fi
     fi
 
@@ -97,7 +101,7 @@ install_update() {
     write_color "[*] Downloading latest source code from Codeberg..." "$CYAN"
     TEMP_DIR=$(mktemp -d)
     TEMP_TAR="$TEMP_DIR/TouchDashboard_main.tar.gz"
-    curl -L "$ZIP_URL" -o "$TEMP_TAR"
+    curl -L -# "$ZIP_URL" -o "$TEMP_TAR"
     
     write_color "[*] Extracting files..." "$CYAN"
     mkdir -p "$INSTALL_DIR"
@@ -111,12 +115,11 @@ install_update() {
     EXTRACTED_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)
     
     if [ -z "$EXTRACTED_DIR" ]; then
-        write_color "  [-] Failed to find extracted repository directory." "$RED"
-        read -p "Press Enter to return to menu..." || true
-        return
+        write_color "[-] Failed to extract the archive." "$RED"
+        exit 1
     fi
     
-    cp -r "$EXTRACTED_DIR/"* "$INSTALL_DIR/"
+    cp -r "$EXTRACTED_DIR"/* "$INSTALL_DIR/"
 
     # Restore user data
     if [ -f "$TEMP_DIR/config_backup.json" ]; then cp "$TEMP_DIR/config_backup.json" "$INSTALL_DIR/config.json"; fi
@@ -135,7 +138,7 @@ install_update() {
 
     write_color "[*] Creating Application Launcher..." "$CYAN"
     mkdir -p "$DESKTOP_ENTRY_DIR"
-    cat > "$DESKTOP_ENTRY_DIR/touch-dashboard.desktop" <<EOF
+    cat <<EOF > "$DESKTOP_ENTRY_DIR/touch-dashboard.desktop"
 [Desktop Entry]
 Name=Touch Dashboard
 Comment=System dashboard and macro pad
@@ -156,6 +159,15 @@ EOF
         launch="y"
     else
         read -p "[?] Would you like to launch Touch Dashboard now? (Y/N): " launch || true
+    fi
+
+    if [ "$BACKGROUND_UPDATE" = "1" ] && [ -n "$running_pids" ]; then
+        write_color "  [*] Stopping old processes..." "$CYAN"
+        curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
+        for pid in $running_pids; do
+            kill -9 "$pid" 2>/dev/null || true
+        done
+        sleep 1
     fi
 
     if [[ "$launch" =~ ^[Yy]$ ]]; then
