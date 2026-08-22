@@ -29,3 +29,4 @@ touch-dashboard.spec
 error.log
 trace.log
 AGENTS.md
+stderr.log

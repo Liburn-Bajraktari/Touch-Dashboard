@@ -175,8 +175,11 @@ except ImportError:
 # initialising the GTK/WebKit2 subsystem in server-only mode).
 import desktop as _desktop_module
 
+import warnings
 try:
-    import pynvml  # type: ignore[import]
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning, message=".*pynvml.*")
+        import pynvml  # type: ignore[import]
 except ImportError:
     pynvml = None
 
