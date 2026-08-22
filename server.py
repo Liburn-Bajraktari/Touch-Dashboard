@@ -1085,6 +1085,24 @@ async def api_update():
                         "error": True
                     }
                 })
+            else:
+                await ws_manager.broadcast({
+                    "type": "update_progress",
+                    "data": {
+                        "text": f"\n[*] Update successful! Restarting server...",
+                        "progress": 100,
+                        "error": False
+                    }
+                })
+                await asyncio.sleep(1) # wait for ws broadcast
+                
+                # Restart the server
+                if get_os_target() == "linux":
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                else:
+                    # On Windows, os.execv is unreliable, better to spawn and exit
+                    subprocess.Popen([sys.executable] + sys.argv, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008)
+                    os._exit(0)
         except Exception as e:
             logger.error(f"Error reading update stream: {e}")
             await ws_manager.broadcast({

@@ -161,7 +161,12 @@ EOF
         read -p "[?] Would you like to launch Touch Dashboard now? (Y/N): " launch || true
     fi
 
-    if [ "$BACKGROUND_UPDATE" = "1" ] && [ -n "$running_pids" ]; then
+    if [ "$BACKGROUND_UPDATE" = "1" ]; then
+        write_color "  [*] Update completed. Server will restart automatically." "$GREEN"
+        exit 0
+    fi
+
+    if [ -n "$running_pids" ]; then
         write_color "  [*] Stopping old processes..." "$CYAN"
         curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
         for pid in $running_pids; do
