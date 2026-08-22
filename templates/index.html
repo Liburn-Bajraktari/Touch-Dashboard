@@ -1190,7 +1190,11 @@
                 
                 // Update checks
                 const urlParams = new URLSearchParams(window.location.search);
-                const apkVersion = urlParams.get('apk_version');
+                let apkVersion = urlParams.get('apk_version');
+                if (!apkVersion) {
+                    const uaMatch = navigator.userAgent.match(/TouchDashboard\/([\d.]+)/);
+                    if (uaMatch) apkVersion = uaMatch[1];
+                }
                 
                 function isVersionOutdated(clientVer, requiredVer) {
                     if (!clientVer) return false;

@@ -156,8 +156,8 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
 
-VERSION = "0.2.0"
-REQUIRED_APK_VERSION = "0.2.0"
+VERSION = "0.2.1"
+REQUIRED_APK_VERSION = "0.2.1"
 
 # Update state
 update_available = False
@@ -997,7 +997,7 @@ async def discord_callback(code: str | None = None):
 async def api_update():
     """Trigger the auto-update process."""
     if get_os_target() == "linux":
-        cmd = "bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\" < /dev/tty"
+        cmd = "bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\""
     else:
         cmd = "powershell -ExecutionPolicy Bypass -Command \"irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
     
