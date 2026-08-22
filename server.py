@@ -1021,9 +1021,9 @@ async def discord_callback(code: str | None = None):
 async def api_update():
     """Trigger the auto-update process."""
     if get_os_target() == "linux":
-        cmd = "bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\""
+        cmd = "export AUTO_UPDATE=1; bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\""
     else:
-        cmd = "powershell -ExecutionPolicy Bypass -Command \"irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
+        cmd = "powershell -ExecutionPolicy Bypass -Command \"$env:AUTO_UPDATE=1; irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
     
     # Run in background and exit
     async def run_update():

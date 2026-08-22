@@ -47,18 +47,19 @@ function Find-Python {
 function Install-Update {
     Write-Color "`n=== Installing / Updating Touch Dashboard ===" "Cyan"
     
-    $processes = Get-WmiObject Win32_Process | Where-Object { 
-        ($_.CommandLine -match "server.py" -and $_.CommandLine -match "Touch-Dashboard") -or 
-        $_.ProcessName -match "TouchDashboard" 
-    }
-    
-    if ($processes) {
+    if (Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match "server.py.*Touch-Dashboard"}) {
         Write-Color "  [!] Touch Dashboard is currently running." "Yellow"
-        $ans = Read-Host "  Would you like to close it to continue updating? (Y/N)"
-        if ($ans -match "^[yY]") {
+        
+        if ($env:AUTO_UPDATE -eq "1") {
+            $ans = "Y"
+        } else {
+            $ans = Read-Host "  Would you like to close it to continue updating? (Y/N)"
+        }
+        
+        if ($ans -match "^[Yy]$") {
             Write-Color "  [*] Stopping processes..." "Cyan"
             try { Invoke-RestMethod -Uri "http://127.0.0.1:8888/api/exit" -Method Post -ErrorAction SilentlyContinue | Out-Null } catch {}
-            $processes | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match "server.py.*Touch-Dashboard"} | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
             Start-Sleep -Seconds 1
         } else {
             Write-Color "  [-] Cannot update while the application is running." "Red"
@@ -172,12 +173,23 @@ objShell.Run """$InstallDir\.venv\Scripts\pythonw.exe"" ""$InstallDir\server.py"
 
     Write-Color "`n[+] Installation Complete!" "Green"
     
-    $launch = Read-Host "[?] Would you like to launch Touch Dashboard now? (Y/N)"
-    if ($launch -match "^[yY]") {
-        Start-Process "wscript.exe" -ArgumentList """$VbsLauncher""" -WindowStyle Hidden
+    if ($env:AUTO_UPDATE -eq "1") {
+        $launch = "Y"
+    } else {
+        $launch = Read-Host "[?] Would you like to launch Touch Dashboard now? (Y/N)"
+    }
+
+    if ($launch -match "^[Yy]$") {
+        if ($env:AUTO_UPDATE -eq "1") {
+            Start-Process "$InstallDir\.venv\Scripts\python.exe" -ArgumentList "server.py" -WorkingDirectory $InstallDir -WindowStyle Hidden
+        } else {
+            Start-Process "$DesktopPath\Touch Dashboard.lnk"
+        }
     }
     
-    Read-Host "`nPress Enter to return to menu..."
+    if ($env:AUTO_UPDATE -ne "1") {
+        Read-Host "`nPress Enter to return to menu..."
+    }
 }
 
 function Repair-Installation {
@@ -222,10 +234,7 @@ function Uninstall-App {
         # Kill running processes
         Write-Color "[*] Stopping backend processes..." "Cyan"
         try { Invoke-RestMethod -Uri "http://127.0.0.1:8888/api/exit" -Method Post -ErrorAction SilentlyContinue | Out-Null } catch {}
-        Get-WmiObject Win32_Process | Where-Object { 
-            ($_.CommandLine -match "server.py" -and $_.CommandLine -match "Touch-Dashboard") -or 
-            $_.ProcessName -match "TouchDashboard" 
-        } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match "server.py.*Touch-Dashboard"} | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 
         Start-Sleep -Seconds 2
 
@@ -293,6 +302,12 @@ function Get-APK {
 }
 
 # ── Main Menu Loop ────────────────────────────────────────────────────────
+
+if ($env:AUTO_UPDATE -eq "1") {
+    Install-Update
+    exit 0
+}
+
 while ($true) {
     Clear-Host
     Write-Host ""

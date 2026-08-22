@@ -61,7 +61,12 @@ install_update() {
     # Check if running
     if pgrep -f "server.py.*Touch-Dashboard" > /dev/null; then
         write_color "  [!] Touch Dashboard is currently running." "$YELLOW"
-        read -p "  Would you like to close it to continue updating? (Y/N): " ans || true
+        if [ "$AUTO_UPDATE" = "1" ]; then
+            ans="y"
+        else
+            read -p "  Would you like to close it to continue updating? (Y/N): " ans || true
+        fi
+        
         if [[ "$ans" =~ ^[Yy]$ ]]; then
             write_color "  [*] Stopping processes..." "$CYAN"
             curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
@@ -133,12 +138,24 @@ EOF
     rm -rf "$TEMP_DIR"
 
     write_color "\n[+] Installation Complete!" "$GREEN"
-    read -p "[?] Would you like to launch Touch Dashboard now? (Y/N): " launch || true
+    
+    if [ "$AUTO_UPDATE" = "1" ]; then
+        launch="y"
+    else
+        read -p "[?] Would you like to launch Touch Dashboard now? (Y/N): " launch || true
+    fi
+
     if [[ "$launch" =~ ^[Yy]$ ]]; then
-        gtk-launch touch-dashboard.desktop || (cd "$INSTALL_DIR" && "$INSTALL_DIR/.venv/bin/python" server.py &)
+        if [ "$AUTO_UPDATE" = "1" ]; then
+            (cd "$INSTALL_DIR" && "$INSTALL_DIR/.venv/bin/python" server.py &)
+        else
+            gtk-launch touch-dashboard.desktop || (cd "$INSTALL_DIR" && "$INSTALL_DIR/.venv/bin/python" server.py &)
+        fi
     fi
     
-    read -p $'\nPress Enter to return to menu...' || true
+    if [ "$AUTO_UPDATE" != "1" ]; then
+        read -p $'\nPress Enter to return to menu...' || true
+    fi
 }
 
 repair() {
@@ -224,6 +241,11 @@ get_apk() {
     fi
     read -p "Press Enter to return to menu..."
 }
+
+if [ "$AUTO_UPDATE" = "1" ]; then
+    install_update
+    exit 0
+fi
 
 while true; do
     clear || true
