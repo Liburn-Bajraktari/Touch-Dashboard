@@ -2243,29 +2243,44 @@
                     if (d.req_apk_version && apkVersion && isVersionOutdated(apkVersion, d.req_apk_version)) {
                         document.getElementById('update-title').innerText = "APK Update Required";
                         const url = d.update_apk_url || "https://codeberg.org/liburnb/Touch-Dashboard/releases";
-                        document.getElementById('update-message').innerHTML = `Current desktop version requires APK version ${d.req_apk_version} or above. You are on ${apkVersion}.<br><br>Since the dashboard app blocks direct downloads, please copy this link and open it in Chrome/Firefox:<br><br><a href="${url}" target="_blank" style="color: var(--accent); word-break: break-all;">${url}</a>`;
+                        document.getElementById('update-message').innerHTML = `Current desktop version requires APK version ${d.req_apk_version} or above. You are on ${apkVersion}.<br><br>If the button below fails to open your browser, please copy this link:<br><br><a href="${url}" target="_blank" style="color: var(--accent); word-break: break-all;">${url}</a>`;
                         document.getElementById('update-dismiss-btn').style.display = 'none'; // Force update
                         
                         const btn = document.getElementById('update-download-btn');
-                        btn.innerText = "Copy Link to Browser";
+                        btn.innerText = "Download via Browser";
                         btn.onclick = () => {
-                            try {
-                                navigator.clipboard.writeText(url);
-                                btn.innerText = "Copied! Open Chrome and paste.";
-                                btn.style.background = "var(--success)";
-                                btn.style.color = "white";
-                            } catch (err) {
-                                // Fallback for older webviews
-                                const textArea = document.createElement("textarea");
-                                textArea.value = url;
-                                document.body.appendChild(textArea);
-                                textArea.select();
-                                document.execCommand("Copy");
-                                textArea.remove();
-                                btn.innerText = "Copied! Open Chrome and paste.";
-                                btn.style.background = "var(--success)";
-                                btn.style.color = "white";
-                            }
+                            // Try the standard way to open an external browser
+                            window.open(url, '_blank');
+                            
+                            // As a fallback, we also update the text to let them copy
+                            setTimeout(() => {
+                                btn.innerText = "Copy Link Instead";
+                                btn.onclick = () => {
+                                    const copyFallback = () => {
+                                        const textArea = document.createElement("textarea");
+                                        textArea.value = url;
+                                        textArea.style.position = "fixed";
+                                        textArea.style.opacity = "0";
+                                        document.body.appendChild(textArea);
+                                        textArea.select();
+                                        try {
+                                            document.execCommand("copy");
+                                            btn.innerText = "Copied! Paste in Chrome.";
+                                        } catch (err) {
+                                            btn.innerText = "Copy Failed - Manually select link";
+                                        }
+                                        document.body.removeChild(textArea);
+                                    };
+                                    
+                                    if (navigator.clipboard && window.isSecureContext) {
+                                        navigator.clipboard.writeText(url).then(() => {
+                                            btn.innerText = "Copied! Paste in Chrome.";
+                                        }).catch(() => copyFallback());
+                                    } else {
+                                        copyFallback();
+                                    }
+                                };
+                            }, 1000);
                         };
                         document.getElementById('update-modal').classList.add('active');
                     } else if (d.update_available && !document.getElementById('update-modal').classList.contains('active')) {
