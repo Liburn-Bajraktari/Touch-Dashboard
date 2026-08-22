@@ -173,21 +173,26 @@ class UPowerMouseMonitor:
         """Entry point for the daemon thread. Sets up D-Bus and runs the GLib loop."""
         try:
             # GLib mainloop MUST be set as the dbus default BEFORE any SystemBus()
-            # call on this thread, otherwise signal delivery is unreliable.
+            # call on this thread. We use a thread-default context so we don't
+            # crash GTK's g_application_run() which acquires the global default context.
             import dbus  # type: ignore[import-untyped]
             import dbus.mainloop.glib  # type: ignore[import-untyped]
             from gi.repository import GLib  # type: ignore[import-untyped]  # noqa: PLC0415
 
+            context = GLib.MainContext.new()
+            context.push_thread_default()
+
             dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
             self._bus  = dbus.SystemBus()
-            self._loop = GLib.MainLoop()
+            self._loop = GLib.MainLoop.new(context, False)
 
             self._subscribe_hotplug()
             self._scan_existing_devices()
 
             logger.info("UPower mouse monitor started")
             self._loop.run()
+            context.pop_thread_default()
 
         except Exception as exc:
             logger.error("UPower monitor error: %s", exc, exc_info=True)
