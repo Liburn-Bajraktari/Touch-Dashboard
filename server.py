@@ -221,6 +221,8 @@ DEFAULT_CONFIG: dict = {
     "disc_id": "", "disc_secret": "",
     "disc_enabled": True,
     "disc_vc_enabled": True,
+    "show_mouse_batt": True,
+    "show_hw_stats": True,
     "audio_names": {},
     "soundpad_buttons": [],
     "local_buttons": [],
