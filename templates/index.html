@@ -485,6 +485,19 @@
         <div class="modal-card" style="height: auto; width: min(35rem, calc(100vw - 2rem));">
             <h3 id="update-title" style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 2rem;">Update Available</h3>
             <p id="update-message" style="margin: 0; color: var(--text-muted); font-size: 1.25rem; line-height: 1.4;"></p>
+            
+            <div id="update-progress-container" style="display: none; margin-top: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <span style="color: var(--text-main); font-weight: bold;">Downloading...</span>
+                    <span id="update-progress-text" style="color: var(--accent); font-weight: bold;">0%</span>
+                </div>
+                <div style="width: 100%; height: 0.5rem; background: rgba(255,255,255,0.1); border-radius: 1rem; overflow: hidden;">
+                    <div id="update-progress-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
+                </div>
+                <div id="update-log" style="margin-top: 1rem; background: rgba(0,0,0,0.3); border-radius: 0.5rem; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; color: #a1a1aa; max-height: 10rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.2rem; border: 1px solid rgba(255,255,255,0.05);">
+                </div>
+            </div>
+            
             <div id="update-actions" style="margin-top: 1.5rem; display: flex; gap: 1rem;">
                 <button class="btn" id="update-download-btn" style="flex: 1; background: rgba(14, 165, 233, 0.1); border: 1px solid #7dd3fc; color: var(--accent); font-weight: bold; padding: 1rem;">Download Now</button>
                 <button class="btn" id="update-dismiss-btn" style="flex: 1; background: var(--panel-bg); font-weight: bold; padding: 1rem;" onclick="document.getElementById('update-modal').classList.remove('active')">Dismiss</button>
@@ -1394,6 +1407,42 @@
                     if (osTarget === 'linux') {
                         const draftId = localStorage.getItem('sp_draft_id');
                         if (draftId) select.value = draftId;
+                    }
+                }
+            }
+            else if (msg.type === 'update_progress') {
+                const p = d.progress;
+                const txt = d.text;
+                
+                const container = document.getElementById('update-progress-container');
+                if (container) container.style.display = 'block';
+                
+                const bar = document.getElementById('update-progress-bar');
+                const pText = document.getElementById('update-progress-text');
+                if (bar) {
+                    bar.style.width = p + '%';
+                    if (d.error) bar.style.background = '#ef4444';
+                }
+                if (pText) pText.innerText = p + '%';
+                
+                const log = document.getElementById('update-log');
+                if (log && txt) {
+                    const span = document.createElement('span');
+                    span.innerText = txt + '\n';
+                    if (d.error) span.style.color = '#ef4444';
+                    log.appendChild(span);
+                    log.scrollTop = log.scrollHeight;
+                }
+                
+                if (d.error) {
+                    const updateTitle = document.getElementById('update-title');
+                    const updateMessage = document.getElementById('update-message');
+                    if (updateTitle) updateTitle.innerText = "Update Failed";
+                    if (updateMessage) updateMessage.innerText = "An error occurred during the update process. Please review the logs below.";
+                    const dismissBtn = document.getElementById('update-dismiss-btn');
+                    if (dismissBtn) {
+                        dismissBtn.style.display = 'block';
+                        dismissBtn.innerText = "Close";
                     }
                 }
             }

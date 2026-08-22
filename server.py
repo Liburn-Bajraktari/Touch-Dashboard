@@ -1033,28 +1033,69 @@ async def api_update():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
     if get_os_target() == "linux":
-        cmd = f"export AUTO_UPDATE=1 TARGET_DIR='{current_dir}'; bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\""
+        cmd = f"export AUTO_UPDATE=1 BACKGROUND_UPDATE=1 TARGET_DIR='{current_dir}'; bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\""
     else:
-        cmd = f"powershell -ExecutionPolicy Bypass -Command \"$env:AUTO_UPDATE=1; $env:TARGET_DIR='{current_dir}'; irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
+        cmd = f"powershell -ExecutionPolicy Bypass -Command \"$env:AUTO_UPDATE=1; $env:BACKGROUND_UPDATE=1; $env:TARGET_DIR='{current_dir}'; irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
     
-    # Run in background and exit
+    # Run in background and stream output to WS
     async def run_update():
-        await asyncio.sleep(1) # wait for response to send
-        logger.info(f"Triggering update: {cmd}")
-        if get_os_target() == "linux":
-            subprocess.Popen(
-                ["/bin/bash", "-c", cmd],
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+        logger.info(f"Triggering background update: {cmd}")
+        try:
+            process = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
             )
-        else:
-            subprocess.Popen(
-                ["powershell", "-ExecutionPolicy", "Bypass", "-Command", "Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -Command \"irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\"'"],
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008 # 0x00000008 is DETACHED_PROCESS
-            )
-        os._exit(0)
-        
+            
+            buf = b""
+            progress_pct = 0.0
+            
+            while True:
+                char = await process.stdout.read(1)
+                if not char:
+                    break
+                buf += char
+                if char in (b'\r', b'\n'):
+                    line = buf.decode('utf-8', errors='replace').strip()
+                    buf = b""
+                    if not line:
+                        continue
+                        
+                    import re
+                    match = re.search(r'(\d+\.\d+)%', line)
+                    if match:
+                        progress_pct = float(match.group(1))
+                        
+                    await ws_manager.broadcast({
+                        "type": "update_progress",
+                        "data": {
+                            "text": line,
+                            "progress": progress_pct,
+                            "error": False
+                        }
+                    })
+                    
+            await process.wait()
+            if process.returncode != 0:
+                await ws_manager.broadcast({
+                    "type": "update_progress",
+                    "data": {
+                        "text": f"\n[!] Update failed with exit code {process.returncode}",
+                        "progress": progress_pct,
+                        "error": True
+                    }
+                })
+        except Exception as e:
+            logger.error(f"Error reading update stream: {e}")
+            await ws_manager.broadcast({
+                "type": "update_progress",
+                "data": {
+                    "text": f"\n[!] Internal error during update: {e}",
+                    "progress": 0,
+                    "error": True
+                }
+            })
+            
     asyncio.create_task(run_update())
     return {"status": "updating"}
 
