@@ -1966,12 +1966,15 @@
         let reconnectTimer = null;
 
         function isCapacitorRuntime() {
-            // Check native platform first (most reliable in Capacitor 6)
             if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function') {
                 return window.Capacitor.isNativePlatform();
             }
-            // Detect the new Kotlin thin client via URL parameter or User-Agent
-            if (new URLSearchParams(window.location.search).has('apk_version')) return true;
+            if (navigator.userAgent.includes('Android') && navigator.userAgent.includes('wv')) return true;
+            if (new URLSearchParams(window.location.search).has('apk_version')) {
+                sessionStorage.setItem('is_thin_client', 'true');
+                return true;
+            }
+            if (sessionStorage.getItem('is_thin_client') === 'true') return true;
             if (navigator.userAgent.includes('TouchDashboard/')) return true;
             return Boolean(window.Capacitor) || location.protocol === 'capacitor:' || location.protocol === 'file:';
         }
@@ -1982,7 +1985,9 @@
         }
 
         function getSocketHost(serverIp) {
-            return isCapacitorRuntime() ? `${serverIp}:8888` : location.host;
+            // If it's a native app loading from file:// or capacitor://, use serverIp.
+            // If it's the thin client loading over HTTP, it can safely use location.host!
+            return (isCapacitorRuntime() && location.protocol !== 'http:') ? `${serverIp}:8888` : location.host;
         }
 
         function closePendingSocket() {
@@ -2032,7 +2037,13 @@
                 return;
             }
             closePendingSocket();
-            showIpModal(message, failedIp);
+            
+            // Proper thin client disconnect handling
+            if (window.Android && typeof window.Android.disconnect === 'function') {
+                window.Android.disconnect();
+            } else {
+                showIpModal(message, failedIp);
+            }
         }
 
         function connectDashboardSocket(serverIp = '') {
@@ -2483,7 +2494,7 @@
             if (event.key === 'Enter') connectFromIpModal();
         });
 
-        if (isCapacitorRuntime()) {
+        if (isCapacitorRuntime() && location.protocol !== 'http:') {
             const cachedIp = normalizeServerIp(localStorage.getItem(SERVER_IP_KEY));
             if (cachedIp) {
                 connectDashboardSocket(cachedIp);

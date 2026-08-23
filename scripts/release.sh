@@ -101,10 +101,13 @@ if [ "$2" == "--apk" ]; then
     cp "$OLD_APK" "$TMP_APK_DIR/$NEW_APK"
     
     # Extract, patch, and re-inject index.html
-    echo -e "${CYAN}  Patching internal APK version to $VERSION...${NC}"
-    unzip -q "$TMP_APK_DIR/$NEW_APK" assets/public/index.html assets/www/index.html -d "$TMP_APK_DIR"
-    sed -i "s/const APK_VERSION = \".*\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/public/index.html"
-    sed -i "s/const APK_VERSION = \".*\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/www/index.html"
+    echo -e "${CYAN}  Bundling templates/index.html into APK and setting version $VERSION...${NC}"
+    mkdir -p "$TMP_APK_DIR/assets/public" "$TMP_APK_DIR/assets/www"
+    cp "templates/index.html" "$TMP_APK_DIR/assets/public/index.html"
+    cp "templates/index.html" "$TMP_APK_DIR/assets/www/index.html"
+    # Inject APK_VERSION right after the first script tag
+    sed -i "0,/<script>/s/<script>/<script>\n        const APK_VERSION = \"$VERSION\";/" "$TMP_APK_DIR/assets/public/index.html"
+    sed -i "0,/<script>/s/<script>/<script>\n        const APK_VERSION = \"$VERSION\";/" "$TMP_APK_DIR/assets/www/index.html"
     (cd "$TMP_APK_DIR" && zip -q -u "$NEW_APK" assets/public/index.html assets/www/index.html)
     
     # Resign APK properly with V2 signature and zipalign
