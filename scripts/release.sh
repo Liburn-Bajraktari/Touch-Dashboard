@@ -108,9 +108,9 @@ if [ "$2" == "--apk" ]; then
     cp -r "static" "$TMP_APK_DIR/assets/public/"
     cp -r "static" "$TMP_APK_DIR/assets/www/"
     
-    # Inject APK_VERSION right after the first script tag
-    sed -i "0,/<script>/s/<script>/<script>\n        const APK_VERSION = \"$VERSION\";/" "$TMP_APK_DIR/assets/public/index.html"
-    sed -i "0,/<script>/s/<script>/<script>\n        const APK_VERSION = \"$VERSION\";/" "$TMP_APK_DIR/assets/www/index.html"
+    # Replace the placeholder APK_VERSION in the main script block
+    sed -i "s/const APK_VERSION = \"dev\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/public/index.html"
+    sed -i "s/const APK_VERSION = \"dev\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/www/index.html"
     (cd "$TMP_APK_DIR" && zip -q -r -u "$NEW_APK" assets/public assets/www)
     
     # Resign APK properly with V2 signature and zipalign
