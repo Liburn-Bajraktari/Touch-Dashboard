@@ -78,7 +78,7 @@ class DesktopApi:
             self._quit_fn()
 
     def set_minimize_to_tray(self, val: bool) -> None:
-        self._minimize_to_tray = bool(val)
+        self._minimize_to_tray = val
 
     def get_local_ip(self) -> str:
         return self._local_ip
@@ -184,9 +184,8 @@ def configure_windows_app_identity(app_user_model_id: str) -> None:
         return
     try:
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            app_user_model_id
-        )
+        windll = getattr(ctypes, "windll")
+        windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_user_model_id)
     except Exception as exc:
         logger.debug("AppUserModelID: %s", exc)
 
@@ -322,7 +321,8 @@ def launch_desktop(
         _quit_called.set()
         stop_server_fn()
         try:
-            window.destroy()
+            if window is not None:
+                window.destroy()
         except Exception:
             pass
         import os, threading
@@ -342,6 +342,7 @@ def launch_desktop(
         easy_drag=True,
         background_color="#070b12",
     )
+    assert window is not None
     _active_window = window
 
     # ── System tray ────────────────────────────────────────────────────────────
@@ -367,17 +368,17 @@ def launch_desktop(
             import webview.platforms.gtk as gtk_module
             original_on_mouse_press = gtk_module.BrowserView.on_mouse_press
             
-            def patched_on_mouse_press(self, widget, event):
+            def patched_on_mouse_press(self, _, event):
                 # event.y is relative to the widget
                 if event.y > 60:
                     return False
-                return original_on_mouse_press(self, widget, event)
+                return original_on_mouse_press(self, _, event)
                 
-            gtk_module.BrowserView.on_mouse_press = patched_on_mouse_press
+            gtk_module.BrowserView.on_mouse_press = patched_on_mouse_press  # type: ignore[assignment]
         except Exception as exc:
             logger.warning("Could not monkey-patch GTK easy_drag: %s", exc)
 
-    webview.start(gui=gui, private_mode=False, storage_path=data_dir, icon=icon_path)
+    webview.start(gui=gui, private_mode=False, storage_path=data_dir, icon=icon_path)  # type: ignore[arg-type]
 
     # ── Cleanup after GTK loop exits ───────────────────────────────────────────
     _active_window = None

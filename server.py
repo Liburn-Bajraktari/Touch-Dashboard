@@ -59,7 +59,7 @@ import webbrowser
 
 # ─── Fast JSON (orjson → stdlib fallback) ─────────────────────────────────────
 try:
-    import orjson as _json_lib  # type: ignore[import]
+    import orjson as _json_lib  
 
     def _dumps(obj) -> str:
         return _json_lib.dumps(obj).decode()
@@ -68,8 +68,8 @@ try:
         return _json_lib.loads(s)
 
 except ImportError:
-    _dumps = json.dumps   # type: ignore[assignment]
-    _loads = json.loads   # type: ignore[assignment]
+    _dumps = json.dumps   
+    _loads = json.loads   
 
 # ─── Runtime dependency check ─────────────────────────────────────────────────
 
@@ -156,6 +156,8 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
 
+logger = logging.getLogger(__name__)
+
 # Version Management
 VERSION = "v0.4.0" # Fallbacks
 REQUIRED_APK_VERSION = "v0.3.0"
@@ -177,7 +179,7 @@ update_apk_url = ""
 
 
 try:
-    from PIL import Image, ImageDraw  # type: ignore[import]
+    from PIL import Image, ImageDraw    
 except ImportError:
     Image = ImageDraw = None
 
@@ -189,7 +191,7 @@ import warnings
 try:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning, message=".*pynvml.*")
-        import pynvml  # type: ignore[import]
+        import pynvml  
 except ImportError:
     pynvml = None
 
@@ -294,7 +296,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
-logger = logging.getLogger(__name__)
 
 # Enable the fault handler so native crashes (SIGSEGV / access violations)
 # write a Python stack dump to server.log instead of silently killing the process.
@@ -627,8 +628,9 @@ async def hardware_loop():
         if curr - last_gpu_check > 2.0:
             if has_nvml and nvml_handle:
                 try:
+                    assert pynvml is not None
                     util      = await asyncio.to_thread(
-                        pynvml.nvmlDeviceGetUtilizationRates, nvml_handle  # type: ignore[attr-defined]
+                        pynvml.nvmlDeviceGetUtilizationRates, nvml_handle  
                     )
                     gpu_cache = str(util.gpu)
                 except Exception:
@@ -848,20 +850,20 @@ async def lifespan(app: FastAPI):
 
     # Linux: create Dashboard-Soundboard virtual sink
     if get_os_target() == "linux":
-        async def _run(cmd, timeout=3):
+        async def _run(cmd: list[str], timeout: int = 3) -> subprocess.CompletedProcess:
             return await asyncio.to_thread(subprocess.run, cmd, stdout=subprocess.DEVNULL,
                                            stderr=subprocess.DEVNULL, timeout=timeout)
-        async def _out(cmd, timeout=3):
+        async def _out(cmd: list[str], timeout: int = 3) -> bytes:
             return await asyncio.to_thread(subprocess.check_output, cmd, stderr=subprocess.DEVNULL, timeout=timeout)
 
         try:
             try:
-                real_sink = (await _out(["pactl", "get-default-sink"])).decode().strip()  # type: ignore[union-attr]
-                real_src  = (await _out(["pactl", "get-default-source"])).decode().strip()  # type: ignore[union-attr]
+                real_sink = (await _out(["pactl", "get-default-sink"])).decode().strip()  
+                real_src  = (await _out(["pactl", "get-default-source"])).decode().strip()  
             except Exception:
                 real_sink = real_src = ""
 
-            sinks_out = (await _out(["pactl", "list", "short", "sinks"])).decode()  # type: ignore[union-attr]
+            sinks_out = (await _out(["pactl", "list", "short", "sinks"])).decode()
             if "Dashboard-Soundboard" not in sinks_out:
                 await _run(["pactl", "load-module", "module-null-sink",
                       "sink_name=Dashboard-Soundboard",
@@ -869,7 +871,7 @@ async def lifespan(app: FastAPI):
             await _run(["pactl", "set-sink-volume", "Dashboard-Soundboard", "100%"])
             await _run(["pactl", "set-sink-mute",   "Dashboard-Soundboard", "0"])
 
-            mods_out = (await _out(["pactl", "list", "short", "modules"])).decode()  # type: ignore[union-attr]
+            mods_out = (await _out(["pactl", "list", "short", "modules"])).decode()
             if "source=Dashboard-Soundboard.monitor" not in mods_out:
                 await _run(["pactl", "load-module", "module-loopback",
                       "source=Dashboard-Soundboard.monitor"])
@@ -1051,6 +1053,7 @@ async def api_update():
             progress_pct = 0.0
             
             while True:
+                if process.stdout is None: break
                 char = await process.stdout.read(1)
                 if not char:
                     break
@@ -1096,12 +1099,16 @@ async def api_update():
                 })
                 await asyncio.sleep(1) # wait for ws broadcast
                 
+                # Cleanly close Discord IPC to allow immediate reconnection on restart
+                restart_discord_ipc()
+
                 # Restart the server
                 if get_os_target() == "linux":
                     os.execv(sys.executable, [sys.executable] + sys.argv)
                 else:
                     # On Windows, os.execv is unreliable, better to spawn and exit
-                    subprocess.Popen([sys.executable] + sys.argv, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008)
+                    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 512) | 0x00000008
+                    subprocess.Popen([sys.executable] + sys.argv, creationflags=flags)
                     os._exit(0)
         except Exception as e:
             logger.error(f"Error reading update stream: {e}")
@@ -1491,11 +1498,15 @@ async def _handle_action(ws: WebSocket, action: str):
 
 # ─── App launch helpers ────────────────────────────────────────────────────────
 
-def _popen(cmd, **kwargs):
-    defaults = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+def _popen(cmd: list[str], **kwargs):
+    import typing
+    kwargs.setdefault("stdout", subprocess.DEVNULL)
+    kwargs.setdefault("stderr", subprocess.DEVNULL)
     if sys.platform != "win32":
-        defaults["start_new_session"] = True
-    subprocess.Popen(cmd, **{**defaults, **kwargs})  # type: ignore[call-overload]
+        kwargs.setdefault("start_new_session", True)
+    
+    popen_cls: typing.Any = subprocess.Popen
+    popen_cls(cmd, **kwargs)
 
 
 def _launch_terminal():
