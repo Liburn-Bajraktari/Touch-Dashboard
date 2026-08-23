@@ -2051,7 +2051,11 @@
             const attemptId = ++socketAttemptId;
             const normalizedIp = normalizeServerIp(serverIp);
             dashboardServerHost = getSocketHost(normalizedIp);
-            const socketProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+            
+            // If we are in the native app (Capacitor/WebViewAssetLoader), we are connecting to a local IP without SSL, so force 'ws'.
+            // Only use 'wss' if loaded from a remote HTTPS server.
+            const socketProtocol = (location.protocol === 'https:' && !isCapacitorRuntime()) ? 'wss' : 'ws';
+            
             const nextSocket = new WebSocket(`${socketProtocol}://${dashboardServerHost}/ws`);
             socket = nextSocket;
 
