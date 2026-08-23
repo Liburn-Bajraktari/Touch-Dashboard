@@ -1970,8 +1970,6 @@
             if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function') {
                 return window.Capacitor.isNativePlatform();
             }
-            if (navigator.userAgent.includes('TouchDashboard/')) return true;
-            if (location.hostname.includes('appassets.androidplatform.net')) return true;
             return Boolean(window.Capacitor) || location.protocol === 'capacitor:' || location.protocol === 'file:';
         }
 
@@ -2025,18 +2023,13 @@
                         attempts++;
                         fetch(window.location.href, { cache: 'no-cache' })
                             .then(res => { if (res.ok) window.location.reload(); })
-                            .catch(() => { if (attempts >= 15 && !isUpdating) window.location.reload(); });
+                            .catch(() => { if (attempts >= 15) window.location.reload(); });
                     }, 1000);
                 }
                 return;
             }
             closePendingSocket();
-            if (isUpdating) {
-                showIpModal('Updating... The dashboard will restart shortly.', failedIp);
-                document.getElementById('ip-actions').style.display = 'none';
-            } else {
-                showIpModal(message, failedIp);
-            }
+            showIpModal(message, failedIp);
         }
 
         function connectDashboardSocket(serverIp = '') {
