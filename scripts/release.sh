@@ -19,6 +19,33 @@ if [ -z "$1" ]; then
 fi
 
 VERSION="$1"
+shift
+
+COMMENT="Automated desktop release triggered by release.sh"
+APK_BUILD=false
+APK_FILE=""
+BUMP_APK=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --comment)
+            COMMENT="$2"
+            shift 2
+            ;;
+        --apk)
+            APK_BUILD=true
+            BUMP_APK="true"
+            shift
+            ;;
+        *)
+            if [ -f "$1" ]; then
+                APK_FILE="$1"
+                BUMP_APK="true"
+            fi
+            shift
+            ;;
+    esac
+done
 
 # Load or ask for token
 if [ -f "$TOKEN_FILE" ]; then
@@ -44,7 +71,7 @@ import json
 with open('version.json', 'r') as f:
     data = json.load(f)
 data['desktop_version'] = '$VERSION'
-if '$2':
+if '$BUMP_APK':
     data['required_apk_version'] = '$VERSION'
 with open('version.json', 'w') as f:
     json.dump(data, f, indent=4)
@@ -59,10 +86,12 @@ echo -e "${CYAN}Creating Release $VERSION on Codeberg...${NC}"
 
 # Use a temporary file to avoid pipe issues
 TMP_FILE=$(mktemp)
+JSON_PAYLOAD=$(python3 -c "import sys, json; print(json.dumps({'tag_name': sys.argv[1], 'name': sys.argv[1], 'body': sys.argv[2]}))" "$VERSION" "$COMMENT")
+
 HTTP_CODE=$(curl -s -w "%{http_code}" -o "$TMP_FILE" -X POST "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" \
     -H "Authorization: token $TOKEN" \
     -H "Content-Type: application/json" \
-    -d "{\"tag_name\": \"$VERSION\", \"name\": \"$VERSION\", \"body\": \"Automated desktop release triggered by release.sh\"}")
+    -d "$JSON_PAYLOAD")
 
 BODY=$(cat "$TMP_FILE")
 rm -f "$TMP_FILE"
@@ -85,7 +114,7 @@ else
     exit 1
 fi
 
-if [ "$2" == "--apk" ]; then
+if [ "$APK_BUILD" = true ]; then
     echo -e "${CYAN}Finding existing APK to rebuild...${NC}"
     OLD_APK=$(ls TouchDashboard-*.apk 2>/dev/null | head -n 1)
     if [ -z "$OLD_APK" ]; then
@@ -140,10 +169,6 @@ if [ "$2" == "--apk" ]; then
     fi
     
     APK_FILE="$NEW_APK"
-elif [ -n "$2" ] && [ -f "$2" ]; then
-    APK_FILE="$2"
-else
-    APK_FILE=""
 fi
 
 if [ -n "$APK_FILE" ]; then
