@@ -1970,6 +1970,9 @@
             if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function') {
                 return window.Capacitor.isNativePlatform();
             }
+            // Detect the new Kotlin thin client via URL parameter or User-Agent
+            if (new URLSearchParams(window.location.search).has('apk_version')) return true;
+            if (navigator.userAgent.includes('TouchDashboard/')) return true;
             return Boolean(window.Capacitor) || location.protocol === 'capacitor:' || location.protocol === 'file:';
         }
 
