@@ -292,6 +292,12 @@ def launch_desktop(
 
     configure_windows_app_identity(app_user_model_id)
 
+    # ── Pre-import PyGObject on Linux to prevent import race conditions ────────
+    # mouse_battery.py imports GLib in a background thread, while pystray imports
+    # Gtk in the main thread. If they happen concurrently, PyGObject crashes.
+    if sys.platform.startswith("linux"):
+        import pystray  # noqa: F401
+
     # ── Start FastAPI server, then open window ─────────────────────────────────
     srv_thread = threading.Thread(
         target=run_server_fn,
