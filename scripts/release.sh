@@ -101,14 +101,17 @@ if [ "$2" == "--apk" ]; then
     cp "$OLD_APK" "$TMP_APK_DIR/$NEW_APK"
     
     # Extract, patch, and re-inject index.html
-    echo -e "${CYAN}  Bundling templates/index.html into APK and setting version $VERSION...${NC}"
+    echo -e "${CYAN}  Bundling templates/index.html and static/ into APK and setting version $VERSION...${NC}"
     mkdir -p "$TMP_APK_DIR/assets/public" "$TMP_APK_DIR/assets/www"
     cp "templates/index.html" "$TMP_APK_DIR/assets/public/index.html"
     cp "templates/index.html" "$TMP_APK_DIR/assets/www/index.html"
+    cp -r "static" "$TMP_APK_DIR/assets/public/"
+    cp -r "static" "$TMP_APK_DIR/assets/www/"
+    
     # Inject APK_VERSION right after the first script tag
     sed -i "0,/<script>/s/<script>/<script>\n        const APK_VERSION = \"$VERSION\";/" "$TMP_APK_DIR/assets/public/index.html"
     sed -i "0,/<script>/s/<script>/<script>\n        const APK_VERSION = \"$VERSION\";/" "$TMP_APK_DIR/assets/www/index.html"
-    (cd "$TMP_APK_DIR" && zip -q -u "$NEW_APK" assets/public/index.html assets/www/index.html)
+    (cd "$TMP_APK_DIR" && zip -q -r -u "$NEW_APK" assets/public assets/www)
     
     # Resign APK properly with V2 signature and zipalign
     echo -e "${CYAN}  Removing old signature and resigning with uber-apk-signer...${NC}"
