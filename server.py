@@ -148,6 +148,18 @@ ensure_runtime_dependencies()
 import requests
 import psutil
 import speedtest as speedtest_lib
+
+# Monkey-patch speedtest-cli to prefer c.speedtest.net for server lists.
+# This fixes the issue where the PyPI version picks far away servers.
+_orig_build_request = speedtest_lib.build_request
+def _patched_build_request(*args, **kwargs):
+    args = list(args)
+    if args and isinstance(args[0], str) and "www.speedtest.net/speedtest-servers" in args[0]:
+        args[0] = args[0].replace("www.speedtest.net", "c.speedtest.net")
+    elif "url" in kwargs and isinstance(kwargs["url"], str) and "www.speedtest.net/speedtest-servers" in kwargs["url"]:
+        kwargs["url"] = kwargs["url"].replace("www.speedtest.net", "c.speedtest.net")
+    return _orig_build_request(*args, **kwargs)
+speedtest_lib.build_request = _patched_build_request
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
@@ -1281,10 +1293,33 @@ async def _run_speedtest():
         return
     async with speedtest_lock:
         try:
+            loop = asyncio.get_running_loop()
+            
+            def dl_cb(i, total, start=False, **kwargs):
+                if total > 0:
+                    asyncio.run_coroutine_threadsafe(
+                        ws_manager.broadcast({"type": "speedtest_progress", "data": {"step": "down", "progress": i / total}}),
+                        loop
+                    )
+            
+            def ul_cb(i, total, start=False, **kwargs):
+                if total > 0:
+                    asyncio.run_coroutine_threadsafe(
+                        ws_manager.broadcast({"type": "speedtest_progress", "data": {"step": "up", "progress": i / total}}),
+                        loop
+                    )
+
             st   = await asyncio.to_thread(speedtest_lib.Speedtest)
             await asyncio.to_thread(st.get_best_server)
-            down = await asyncio.to_thread(st.download)
-            up   = await asyncio.to_thread(st.upload)
+            await ws_manager.broadcast({"type": "speedtest_progress", "data": {"step": "ping", "progress": 1.0}})
+            
+            down = await asyncio.to_thread(st.download, callback=dl_cb)
+            
+            await ws_manager.broadcast({"type": "speedtest_intermediate",
+                                         "data": {"down": round(down / 1e6, 1)}})
+                                         
+            up   = await asyncio.to_thread(st.upload, callback=ul_cb)
+            
             await ws_manager.broadcast({"type": "speedtest_result",
                                          "data": {"down": round(down / 1e6, 1),
                                                   "up":   round(up   / 1e6, 1)}})

@@ -238,17 +238,26 @@
             height: 2.4rem;
         }
 
-        .speed-data {
-            text-align: right;
-            font-size: 1.45rem;
-            color: var(--text-muted);
-            line-height: 1.15;
-            font-weight: 600;
+        .speed-widget {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 0.3rem 0.8rem;
+            border-radius: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.4), 0 1px 0 rgba(255, 255, 255, 0.05);
+            cursor: pointer;
+            transition: background 0.2s, transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+            height: 3.8rem;
         }
 
-        .speed-data span {
-            color: var(--text-main);
-            font-weight: 800;
+        .speed-widget:hover {
+            background: rgba(0, 0, 0, 0.35);
+        }
+
+        .speed-widget:active {
+            transform: scale(0.95) translateZ(0);
         }
 
         .btn {
@@ -1671,9 +1680,19 @@
         <div class="section" style="justify-content: flex-end; position: relative;">
             <div id="top-right-normal"
                 style="display: flex; gap: 0.5rem; align-items: center; transform: translateZ(0);">
-                <div class="speed-data" id="speed-out">DL <span id="s-dl">--</span><br>UL <span id="s-ul">--</span>
+                <div class="speed-widget" id="speed-out" onclick="runSpeedtest()" title="Run Speedtest">
+                    <div style="position: relative; width: 5.5rem; height: 2.6rem; display: flex; align-items: flex-end; justify-content: center;">
+                        <svg viewBox="0 0 100 50" style="position: absolute; bottom: 0; left: 0; width: 100%; height: 100%; overflow: visible;">
+                            <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="12" stroke-linecap="round"/>
+                            <path id="speed-gauge-arc" d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#8b9bb2" stroke-width="12" stroke-linecap="round" stroke-dasharray="125.66" stroke-dashoffset="125.66" style="transition: stroke 0.3s ease, stroke-dashoffset 0.1s linear;"/>
+                        </svg>
+                        <div id="speed-gauge-val" style="position: absolute; bottom: -0.2rem; font-size: 0.95rem; font-weight: 900; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.9); font-variant-numeric: tabular-nums;">--</div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; font-size: 0.85rem; font-weight: 700; line-height: 1.2; gap: 0.2rem; min-width: 4.5rem; text-align: left;">
+                        <div style="color: #22c55e; display: flex; align-items: center; gap: 0.3rem;"><i data-lucide="arrow-down" style="width:14px; height:14px;"></i><span id="s-dl">-- Mbps</span></div>
+                        <div style="color: #a855f7; display: flex; align-items: center; gap: 0.3rem;"><i data-lucide="arrow-up" style="width:14px; height:14px;"></i><span id="s-ul">-- Mbps</span></div>
+                    </div>
                 </div>
-                <button class="btn btn-top" onclick="runSpeedtest()"><i data-lucide="activity"></i></button>
                 <button class="btn btn-top" style="color: #ef4444;" id="btn-power" title="Settings / Shutdown"
                     onclick="document.getElementById('modal').classList.add('active')"><i
                         data-lucide="power"></i></button>
@@ -2439,8 +2458,41 @@
                 }
                 else if (msg.type === 'speedtest_result') {
                     requestAnimationFrame(() => {
-                        document.getElementById('s-dl').innerText = d.down;
-                        document.getElementById('s-ul').innerText = d.up;
+                        document.getElementById('s-dl').innerText = d.down !== "ERR" ? d.down + " Mbps" : d.down;
+                        document.getElementById('s-ul').innerText = d.up !== "ERR" ? d.up + " Mbps" : d.up;
+                        const arc = document.getElementById('speed-gauge-arc');
+                        const val = document.getElementById('speed-gauge-val');
+                        if (arc && val) {
+                            arc.style.stroke = "#8b9bb2";
+                            arc.style.strokeDashoffset = "125.66";
+                            val.innerText = "DONE";
+                        }
+                    });
+                }
+                else if (msg.type === 'speedtest_intermediate') {
+                    requestAnimationFrame(() => {
+                        if (d.down) document.getElementById('s-dl').innerText = d.down + " Mbps";
+                    });
+                }
+                else if (msg.type === 'speedtest_progress') {
+                    requestAnimationFrame(() => {
+                        const arc = document.getElementById('speed-gauge-arc');
+                        const val = document.getElementById('speed-gauge-val');
+                        if (arc && val) {
+                            if (d.step === 'ping') {
+                                val.innerText = "PING";
+                                arc.style.stroke = "#eab308";
+                                arc.style.strokeDashoffset = "125.66";
+                            } else if (d.step === 'down') {
+                                val.innerText = "DL";
+                                arc.style.stroke = "#22c55e";
+                                arc.style.strokeDashoffset = (125.66 * (1 - d.progress)).toString();
+                            } else if (d.step === 'up') {
+                                val.innerText = "UL";
+                                arc.style.stroke = "#a855f7";
+                                arc.style.strokeDashoffset = (125.66 * (1 - d.progress)).toString();
+                            }
+                        }
                     });
                 }
                 else if (msg.type === 'local_sounds_list') {
@@ -3865,8 +3917,15 @@
         }
 
         function runSpeedtest() {
-            document.getElementById('s-dl').innerText = "...";
-            document.getElementById('s-ul').innerText = "...";
+            document.getElementById('s-dl').innerText = "... Mbps";
+            document.getElementById('s-ul').innerText = "... Mbps";
+            const arc = document.getElementById('speed-gauge-arc');
+            const val = document.getElementById('speed-gauge-val');
+            if (arc && val) {
+                arc.style.stroke = "#8b9bb2";
+                arc.style.strokeDashoffset = "125.66";
+                val.innerText = "TEST";
+            }
             sendSocket('run_speedtest');
         }
 
