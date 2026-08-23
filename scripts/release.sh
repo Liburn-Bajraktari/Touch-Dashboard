@@ -51,7 +51,7 @@ with open('version.json', 'w') as f:
 "
 
 echo -e "${CYAN}Committing and pushing changes...${NC}"
-git add version.json
+git add -A
 git commit -m "Release: $VERSION" || true
 git push origin main || true
 

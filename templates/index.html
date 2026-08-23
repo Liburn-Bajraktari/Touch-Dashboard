@@ -1241,7 +1241,9 @@
 
         <div id="win-menu"
             style="display: none; position: absolute; top: 3.5rem; left: 0.5rem; background: linear-gradient(180deg, rgba(18, 27, 43, 0.98), rgba(9, 14, 24, 0.98)); border: 1px solid var(--border); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--shadow); flex-direction: column; gap: 1.5rem; z-index: 99999;">
-            <div id="win-menu-version" style="font-size: 0.9rem; color: var(--text-muted); text-align: center; margin-bottom: -0.5rem; margin-top: -0.5rem; letter-spacing: 0.5px;">Version: unknown</div>
+            <div id="win-menu-version"
+                style="font-size: 0.9rem; color: var(--text-muted); text-align: center; margin-bottom: -0.5rem; margin-top: -0.5rem; letter-spacing: 0.5px;">
+                Version: unknown</div>
             <button class="btn"
                 style="background: rgba(14, 165, 233, 0.1); border: 1px solid #7dd3fc; color: var(--accent); font-weight: bold; width: 100%; height: 3.5rem; min-height: 0; font-size: 1.1rem;"
                 onclick="document.getElementById('win-menu').style.display='none'; document.getElementById('modal').classList.add('active');"><i
@@ -1268,7 +1270,8 @@
     </svg>
 
     <div id="ip-modal" class="modal-overlay">
-        <div class="modal-card" style="align-items: center; text-align: center; max-width: 28rem; padding: 3rem 2.5rem; background: var(--panel-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
+        <div class="modal-card"
+            style="align-items: center; text-align: center; max-width: 28rem; padding: 3rem 2.5rem 2rem; background: var(--panel-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
             <div
                 style="width: 5rem; height: 5rem; border-radius: 50%; background: linear-gradient(135deg, rgba(34, 211, 238, 0.1), rgba(34, 211, 238, 0.05)); display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; border: 1px solid rgba(34, 211, 238, 0.2); box-shadow: inset 0 0 20px rgba(34, 211, 238, 0.05), 0 0 20px var(--accent-glow);">
                 <i data-lucide="monitor-smartphone" style="width: 2.5rem; height: 2.5rem; color: var(--accent);"></i>
@@ -1279,15 +1282,19 @@
             <p style="margin: 0 0 2.5rem 0; color: var(--text-muted); font-size: 1.1rem; line-height: 1.6;">Enter the
                 Local IP Address shown in your PC's tray menu.</p>
             <div class="form-group" style="width: 100%; text-align: left;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; color: #cbd5e1; font-weight: 600; margin-bottom: 0.5rem;"><i data-lucide="wifi"
-                        style="width: 1.1rem; height: 1.1rem; color: var(--accent);"></i> Desktop IP Address</label>
+                <label
+                    style="display: flex; align-items: center; gap: 0.5rem; color: #cbd5e1; font-weight: 600; margin-bottom: 0.5rem;"><i
+                        data-lucide="wifi" style="width: 1.1rem; height: 1.1rem; color: var(--accent);"></i> Desktop IP
+                    Address</label>
                 <input type="text" id="ip-input" placeholder="e.g. 192.168.1.50"
                     style="width: 100%; font-size: 1.3rem; padding: 1.2rem; text-align: center; letter-spacing: 1px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0.75rem; color: var(--text-main); outline: none; transition: all 0.2s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);"
                     onfocus="this.style.borderColor='var(--accent)'; this.style.boxShadow='0 0 0 3px var(--accent-glow), inset 0 2px 4px rgba(0,0,0,0.2)';"
                     onblur="this.style.borderColor='rgba(255, 255, 255, 0.08)'; this.style.boxShadow='inset 0 2px 4px rgba(0,0,0,0.2)';">
             </div>
-            <div id="ip-error" style="width: 100%; text-align: center; min-height: 1.5rem; color: var(--danger); font-size: 0.95rem; font-weight: 600; margin-top: 0.75rem;"></div>
-            <div id="ip-actions" style="width: 100%; margin-top: 1.5rem;">
+            <div id="ip-error"
+                style="width: 100%; text-align: center; min-height: 1.5rem; color: var(--danger); font-size: 0.95rem; font-weight: 600; margin-top: 0.75rem;">
+            </div>
+            <div id="ip-actions" style="width: 100%; margin-top: 0.5rem;">
                 <button class="btn" id="ip-connect-btn"
                     style="width: 100%; padding: 1.25rem; font-size: 1.2rem; background: var(--accent); color: #0f172a; border: none; border-radius: 0.75rem; font-weight: 800; letter-spacing: 0.5px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.5rem; box-shadow: 0 4px 15px var(--accent-glow);"
                     onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px var(--accent-glow)';"
@@ -1301,7 +1308,7 @@
 
     <!-- --- Update Modal --- -->
     <div id="update-modal" class="modal-overlay">
-        <div class="modal-card" style="height: auto; width: min(35rem, calc(100vw - 2rem));">
+        <div class="modal-card" style="height: max-content; width: min(35rem, calc(100vw - 2rem));">
             <h3 id="update-title" style="margin: 0 0 1rem 0; color: var(--text-main); font-size: 2rem;">Update Available
             </h3>
             <p id="update-message" style="margin: 0; color: var(--text-muted); font-size: 1.25rem; line-height: 1.4;">
@@ -2037,7 +2044,7 @@
                 return;
             }
             closePendingSocket();
-            
+
             // Proper thin client disconnect handling
             if (window.Android && typeof window.Android.disconnect === 'function') {
                 window.Android.disconnect();
@@ -2051,11 +2058,11 @@
             const attemptId = ++socketAttemptId;
             const normalizedIp = normalizeServerIp(serverIp);
             dashboardServerHost = getSocketHost(normalizedIp);
-            
+
             // If we are in the native app (Capacitor/WebViewAssetLoader), we are connecting to a local IP without SSL, so force 'ws'.
             // Only use 'wss' if loaded from a remote HTTPS server.
             const socketProtocol = (location.protocol === 'https:' && !isCapacitorRuntime()) ? 'wss' : 'ws';
-            
+
             const nextSocket = new WebSocket(`${socketProtocol}://${dashboardServerHost}/ws`);
             socket = nextSocket;
 
@@ -2238,7 +2245,7 @@
                     globalCfg = d.cfg;
                     currentHwDevices = d.hw;
                     osTarget = d.os_target || 'windows';
-                    
+
                     if (d.server_version) {
                         const verEl = document.getElementById('win-menu-version');
                         if (verEl) verEl.innerText = "Version: " + d.server_version;
@@ -2268,13 +2275,13 @@
                         const url = d.update_apk_url || "https://codeberg.org/liburnb/Touch-Dashboard/releases";
                         document.getElementById('update-message').innerHTML = `Current desktop version requires APK version ${d.req_apk_version} or above. You are on ${apkVersion}.<br><br>If the button below fails to open your browser, please copy this link:<br><br><a href="${url}" target="_blank" style="color: var(--accent); word-break: break-all;">${url}</a>`;
                         document.getElementById('update-dismiss-btn').style.display = 'none'; // Force update
-                        
+
                         const btn = document.getElementById('update-download-btn');
                         btn.innerText = "Download via Browser";
                         btn.onclick = () => {
                             // Try the standard way to open an external browser
                             window.open(url, '_blank');
-                            
+
                             // As a fallback, we also update the text to let them copy
                             setTimeout(() => {
                                 btn.innerText = "Copy Link Instead";
@@ -2294,7 +2301,7 @@
                                         }
                                         document.body.removeChild(textArea);
                                     };
-                                    
+
                                     if (navigator.clipboard && window.isSecureContext) {
                                         navigator.clipboard.writeText(url).then(() => {
                                             btn.innerText = "Copied! Paste in Chrome.";
