@@ -896,24 +896,7 @@
             will-change: transform;
         }
 
-        .animate-marquee {
-            animation: marquee-infinite 15s linear infinite;
-            will-change: transform;
-        }
 
-        @keyframes marquee-infinite {
-            0% {
-                transform: translate3d(0, 0, 0);
-            }
-
-            20% {
-                transform: translate3d(0, 0, 0);
-            }
-
-            100% {
-                transform: translate3d(var(--scroll-dist, -50%), 0, 0);
-            }
-        }
 
         #soundpad-view {
             position: absolute;
@@ -1313,6 +1296,7 @@
             </h3>
             <p id="update-message" style="margin: 0; color: var(--text-muted); font-size: 1.25rem; line-height: 1.4;">
             </p>
+            <div id="update-notes-container" style="display: none; margin-top: 1rem; padding: 1rem; background: var(--bg-main); border-radius: 0.5rem; max-height: 200px; overflow-y: auto; text-align: left; font-size: 1rem; color: var(--text-muted); border: 1px solid var(--border); white-space: pre-wrap;"></div>
 
             <div id="update-progress-container" style="display: none; margin-top: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
@@ -1481,11 +1465,12 @@
                             <i data-lucide="lightbulb"
                                 style="color: #eab308; width: 1.2rem; height: 1.2rem; flex-shrink: 0; margin-top: 0.1rem;"></i>
                             <span>
-                                <strong style="color: #eab308;">Note:</strong> This widget uses OpenWeather. You need to
+                                <strong style="color: #eab308;">Note:</strong> This widget uses
+                                <strong>OpenWeather</strong>. You need to
                                 generate a free API key at <a href="https://openweathermap.org/" target="_blank"
                                     style="color: #eab308; text-decoration: underline;">openweathermap.org</a>.
                                 Additionally, the city name must match exactly what is displayed in the
-                                <strong>openweather</strong> city page.
+                                <strong>OpenWeather</strong> city page.
                             </span>
                         </p>
                     </div>
@@ -2333,6 +2318,15 @@
                     } else if (d.update_available && !document.getElementById('update-modal').classList.contains('active')) {
                         document.getElementById('update-title').innerText = "Desktop Update Available";
                         document.getElementById('update-message').innerText = `Version ${d.latest_version} is available. Update now?`;
+                        
+                        const notesContainer = document.getElementById('update-notes-container');
+                        if (d.update_notes) {
+                            notesContainer.innerText = d.update_notes;
+                            notesContainer.style.display = 'block';
+                        } else {
+                            notesContainer.style.display = 'none';
+                        }
+                        
                         document.getElementById('update-dismiss-btn').style.display = 'block';
                         document.getElementById('update-download-btn').onclick = () => {
                             isUpdating = true;
@@ -2699,26 +2693,45 @@
 
                         if (el.getAttribute('data-last-text') !== item.text) {
                             if (wrapNode._marqueeAnim) {
-                                wrapNode._marqueeAnim.cancel();
+                                if (wrapNode._marqueeAnim.kill) wrapNode._marqueeAnim.kill();
+                                else if (wrapNode._marqueeAnim.cancel) wrapNode._marqueeAnim.cancel();
                                 wrapNode._marqueeAnim = null;
                             }
-                            wrapNode.classList.remove('animate-marquee');
 
                             el.innerHTML = '';
                             el.textContent = item.text;
                             el.setAttribute('data-last-text', item.text);
 
                             requestAnimationFrame(() => {
-                                requestAnimationFrame(() => {
+                                setTimeout(() => {
+                                    if (el.getAttribute('data-last-text') !== item.text) return;
                                     if (wrapNode.scrollWidth > outer.clientWidth) {
                                         const spacer = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0';
                                         const fullText = item.text + spacer;
 
-                                        el.innerHTML = `<span>${fullText}</span><span>${fullText}</span>`;
-                                        wrapNode.style.setProperty('--scroll-dist', `-${Math.round(wrapNode.scrollWidth / 2)}px`);
-                                        wrapNode.classList.add('animate-marquee');
+                                        el.innerHTML = `<span>${fullText}</span>`;
+                                        const exactWidth = el.firstElementChild.getBoundingClientRect().width;
+                                        const intWidth = Math.ceil(exactWidth);
+                                        
+                                        el.innerHTML = `<span style="display: inline-block; width: ${intWidth}px;">${fullText}</span><span style="display: inline-block; width: ${intWidth}px;">${fullText}</span>`;
+                                        
+                                        // We want the text to scroll at 50px/sec during the active movement phase.
+                                        // The animation pauses for the first 20% (offset 0 to 0.2).
+                                        // So active movement is 80% of the total duration.
+                                        const activeDuration = intWidth / 50; 
+                                        const totalDurationMs = (activeDuration / 0.8) * 1000;
+                                        
+                                        wrapNode._marqueeAnim = wrapNode.animate([
+                                            { transform: 'translate3d(0px, 0px, 0px)', offset: 0 },
+                                            { transform: 'translate3d(0px, 0px, 0px)', offset: 0.2 },
+                                            { transform: `translate3d(-${intWidth}px, 0px, 0px)`, offset: 1 }
+                                        ], {
+                                            duration: totalDurationMs,
+                                            iterations: Infinity,
+                                            easing: 'linear'
+                                        });
                                     }
-                                });
+                                }, 100);
                             });
                         }
                     });

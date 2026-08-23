@@ -83,7 +83,7 @@ def get_local_mpris_meta() -> dict:
             return _STOPPED
 
         out = subprocess.check_output(
-            ["playerctl", "metadata", "--format",
+            ["playerctl", "--player=spotify,plasma-browser-integration,%any", "metadata", "--format",
              "{{status}}|||{{artist}}|||{{title}}|||{{mpris:artUrl}}"],
             stderr=subprocess.DEVNULL, timeout=2,
         ).decode().strip()
@@ -122,9 +122,13 @@ def get_local_mpris_meta() -> dict:
                 elif time.time() - _mpris_burst_start > 6.0:
                     _last_art_url       = ""
                     _mpris_burst_active = False
-            else:
+            elif raw_art_url:
                 _last_art_url       = raw_art_url
                 _mpris_burst_active = False
+            else:
+                if time.time() - _mpris_burst_start > 6.0:
+                    _last_art_url       = ""
+                    _mpris_burst_active = False
         else:
             if raw_art_url.startswith("file://"):
                 path = urllib.parse.unquote(raw_art_url.replace("file://", ""))
@@ -136,6 +140,8 @@ def get_local_mpris_meta() -> dict:
                         (current_song + mod_time + f_size).encode()
                     ).hexdigest()
                     _last_art_url = f"/api/local_art?h={song_hash}"
+            elif raw_art_url and raw_art_url != _last_art_url:
+                _last_art_url = raw_art_url
 
         return {"status": status, "artist": artist, "title": title, "art_url": _last_art_url}
     except Exception as e:

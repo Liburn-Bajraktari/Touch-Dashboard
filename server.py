@@ -175,6 +175,7 @@ except Exception as e:
 update_available = False
 latest_version = ""
 update_apk_url = ""
+update_notes = ""
 
 
 
@@ -808,7 +809,7 @@ async def lifespan(app: FastAPI):
 
     # Check for updates on Codeberg
     async def check_for_updates():
-        global update_available, latest_version, update_apk_url
+        global update_available, latest_version, update_apk_url, update_notes
         try:
             def fetch_releases():
                 url = "https://codeberg.org/api/v1/repos/liburnb/Touch-Dashboard/releases"
@@ -839,6 +840,7 @@ async def lifespan(app: FastAPI):
                         if tag != f"v{VERSION}" and tag != VERSION:
                             update_available = True
                             latest_version = tag
+                            update_notes = release.get("body", "")
                         desktop_checked = True
                         
                     if desktop_checked and apk_url_found:
@@ -1156,6 +1158,7 @@ async def websocket_endpoint(ws: WebSocket):
                 "update_available": update_available,
                 "latest_version": latest_version,
                 "update_apk_url": update_apk_url,
+                "update_notes": update_notes,
                 "server_version": VERSION,
                 "req_apk_version": REQUIRED_APK_VERSION,
             },
@@ -1264,6 +1267,7 @@ def _make_config_sync(audio_data: dict) -> dict:
             "update_available": update_available,
             "latest_version": latest_version,
             "update_apk_url": update_apk_url,
+            "update_notes": update_notes,
         },
     }
 
