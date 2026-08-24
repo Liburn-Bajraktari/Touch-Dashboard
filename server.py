@@ -215,6 +215,8 @@ from discord_ipc import DiscordIPC
 from macro_system import MacroSystem, AppEnumerator
 import media as media_module
 
+import lock_monitor as _lock_monitor_mod
+
 if sys.platform.startswith("linux"):
     import mouse_battery as _mouse_battery_mod
 
@@ -352,6 +354,7 @@ last_spotify_check   = 0.0
 last_audio_devs: list = []
 last_weather_data    = {"temp": "--", "desc": "--", "timestamp": 0}
 upower_monitor       = None   # UPowerMouseMonitor instance (Linux only)
+lock_monitor_instance = None  # LockMonitor instance (all platforms)
 # NOTE: asyncio primitives MUST be created inside a running event loop.
 # We declare them as None here and initialise them inside lifespan().
 weather_update_event: asyncio.Event | None = None
@@ -690,6 +693,8 @@ async def hardware_loop():
             "gpu":        gpu_cache or None,
             # mouse_batt is a dict: {pct: float|null, state: str, model: str, vendor: str}
             "mouse_batt": batt_cache,
+            # pc_locked: True when the host session's lock screen is active.
+            "pc_locked":  lock_monitor_instance.get_state() if lock_monitor_instance else False,
             "spotify":    media,
             "discord":    disc_state,
             "audio": {
@@ -901,9 +906,23 @@ async def lifespan(app: FastAPI):
     # exist at this point. Creating them at module scope binds them to a
     # different (or non-existent) loop and causes:
     #   RuntimeError: Task got Future <Event> attached to a different loop
-    global weather_update_event, speedtest_lock, upower_monitor
+    global weather_update_event, speedtest_lock, upower_monitor, lock_monitor_instance
     weather_update_event = asyncio.Event()
     speedtest_lock       = asyncio.Lock()
+
+    # All platforms: start the lock-state monitor.
+    # The callback fires call_soon_threadsafe(sys_data_trigger.set) so that
+    # hardware_loop wakes immediately when the PC is locked or unlocked.
+    _loop_ref_lock = asyncio.get_running_loop()
+    lock_monitor_instance = _lock_monitor_mod.create()
+
+    def _on_lock_change(is_locked: bool):
+        # Runs on the lock-monitor thread — wake the asyncio loop.
+        if _loop_ref_lock and sys_data_trigger:
+            _loop_ref_lock.call_soon_threadsafe(sys_data_trigger.set)
+
+    lock_monitor_instance.on_lock_change = _on_lock_change
+    lock_monitor_instance.start()
 
     # Linux: start the event-driven UPower mouse battery monitor.
     # The callback fires call_soon_threadsafe(sys_data_trigger.set) so that
@@ -937,6 +956,8 @@ async def lifespan(app: FastAPI):
     await asyncio.gather(*tasks, return_exceptions=True)
     if disc_ipc_instance:
         disc_ipc_instance.close()
+    if lock_monitor_instance is not None:
+        lock_monitor_instance.stop()
     if upower_monitor is not None:
         upower_monitor.stop()
 

@@ -1203,10 +1203,119 @@
             margin: 0;
             line-height: 1.3;
         }
+
+        /* ── PC Lock Screensaver Overlay ─────────────────────────────────── */
+        #lock-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            visibility: hidden;
+            pointer-events: none;
+            /* Deep, de-saturated navy backdrop that feels "on-theme" but clearly
+               different from the active dashboard behind it. */
+            background:
+                radial-gradient(ellipse at 50% 45%, rgba(6, 12, 22, 0.94) 0%, rgba(3, 6, 12, 0.97) 100%);
+            backdrop-filter: blur(10px) saturate(0.25) brightness(0.55);
+            -webkit-backdrop-filter: blur(10px) saturate(0.25) brightness(0.55);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            overflow: hidden;
+        }
+
+        #lock-overlay-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.75rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Soft vignette ring around the icon */
+        #lock-overlay-icon {
+            position: relative;
+            width: 7rem;
+            height: 7rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #lock-overlay-icon::before {
+            content: '';
+            position: absolute;
+            inset: -1.5rem;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(34, 211, 238, 0.08) 0%, transparent 70%);
+            animation: lock-pulse 3s ease-in-out infinite;
+        }
+
+        #lock-overlay-icon svg {
+            width: 4.5rem;
+            height: 4.5rem;
+            color: rgba(34, 211, 238, 0.55);
+            filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.25));
+            animation: lock-pulse-icon 3s ease-in-out infinite;
+        }
+
+        #lock-overlay-label {
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(139, 155, 178, 0.6);
+        }
+
+        @keyframes lock-pulse {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50%       { opacity: 1;   transform: scale(1.08); }
+        }
+
+        @keyframes lock-pulse-icon {
+            0%, 100% { opacity: 0.5; }
+            50%       { opacity: 0.75; }
+        }
+
+        /* Ambient floating particles (CSS-only, zero JS) */
+        .lock-particle {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(34, 211, 238, 0.06);
+            animation: lock-float linear infinite;
+            pointer-events: none;
+        }
+
+        @keyframes lock-float {
+            0%   { transform: translateY(110vh) scale(0.6); opacity: 0; }
+            10%  { opacity: 1; }
+            90%  { opacity: 1; }
+            100% { transform: translateY(-20vh)  scale(1.1); opacity: 0; }
+        }
     </style>
 </head>
 
 <body id="body">
+
+    <!-- ── PC Lock Screensaver Overlay ─────────────────────────────────────── -->
+    <!-- Visibility and pointer-events are toggled by setLockOverlay() via GSAP. -->
+    <div id="lock-overlay">
+        <!-- Ambient floating particles (purely decorative, CSS-animated) -->
+        <div class="lock-particle" style="width:18rem;height:18rem;left:-4rem;bottom:-6rem;animation-duration:18s;animation-delay:-2s;"></div>
+        <div class="lock-particle" style="width:10rem;height:10rem;right:8%;bottom:5%;animation-duration:24s;animation-delay:-8s;"></div>
+        <div class="lock-particle" style="width:7rem;height:7rem;left:12%;bottom:20%;animation-duration:20s;animation-delay:-14s;"></div>
+        <div class="lock-particle" style="width:5rem;height:5rem;right:20%;bottom:35%;animation-duration:16s;animation-delay:-5s;"></div>
+        <div class="lock-particle" style="width:3rem;height:3rem;left:40%;bottom:10%;animation-duration:22s;animation-delay:-10s;"></div>
+
+        <div id="lock-overlay-inner">
+            <div id="lock-overlay-icon">
+                <!-- Lock icon rendered by Lucide; created when overlay is first shown. -->
+            </div>
+            <div id="lock-overlay-label">PC Locked</div>
+        </div>
+    </div>
     <script>
     </script>
     <div class="desktop-titlebar" id="desktop-titlebar" style="position: relative;">
@@ -2679,9 +2788,80 @@
         }
 
         // --- System Data Rendering ---
+        // ── PC Lock Screensaver Overlay ──────────────────────────────────────
+        // Expands from the time/weather panel's position to fullscreen.
+        // GSAP is available globally (loaded at top of <head>).
+        (function initLockOverlay() {
+            let _isLocked = false;
+            let _iconCreated = false;
+
+            window.setLockOverlay = function setLockOverlay(locked) {
+                if (locked === _isLocked) return;
+                _isLocked = locked;
+
+                const overlay = document.getElementById('lock-overlay');
+                if (!overlay) return;
+
+                if (locked) {
+                    // Create the Lucide lock icon once.
+                    if (!_iconCreated) {
+                        const iconEl = document.getElementById('lock-overlay-icon');
+                        if (iconEl) {
+                            iconEl.innerHTML = '<i data-lucide="lock"></i>';
+                            if (window.lucide) window.lucide.createIcons({ root: iconEl });
+                            _iconCreated = true;
+                        }
+                    }
+
+                    // Measure the time/weather panel to animate FROM its position.
+                    const srcEl = document.querySelector('.time-weather-panel');
+                    let fromClip = 'inset(0% 0% 0% 0%)';
+                    if (srcEl) {
+                        const r = srcEl.getBoundingClientRect();
+                        const vw = window.innerWidth, vh = window.innerHeight;
+                        const t = Math.round(r.top  / vh * 100);
+                        const b = Math.round((vh - r.bottom) / vh * 100);
+                        const l = Math.round(r.left / vw * 100);
+                        const ri = Math.round((vw - r.right)  / vw * 100);
+                        fromClip = `inset(${t}% ${ri}% ${b}% ${l}% round 10px)`;
+                    }
+
+                    overlay.style.visibility = 'visible';
+                    overlay.style.pointerEvents = 'all';
+
+                    gsap.fromTo(overlay,
+                        { opacity: 0, clipPath: fromClip },
+                        { opacity: 1, clipPath: 'inset(0% 0% 0% 0% round 0px)', duration: 0.65, ease: 'power2.out' }
+                    );
+                    gsap.fromTo('#lock-overlay-inner',
+                        { scale: 0.88, y: 22, opacity: 0 },
+                        { scale: 1, y: 0, opacity: 1, duration: 0.65, delay: 0.1, ease: 'power2.out' }
+                    );
+                } else {
+                    gsap.to(overlay, {
+                        opacity: 0,
+                        duration: 0.45,
+                        ease: 'power2.in',
+                        onComplete: function () {
+                            overlay.style.visibility = 'hidden';
+                            overlay.style.pointerEvents = 'none';
+                            // Reset clip for next entry animation
+                            gsap.set(overlay, { clipPath: '' });
+                        }
+                    });
+                    gsap.to('#lock-overlay-inner', { opacity: 0, scale: 0.92, duration: 0.35, ease: 'power2.in' });
+                }
+            };
+        }());
+
         function updateSysDataDOM(d) {
             if (!_pageVisible) { pendingSysData = d; return; }
             requestAnimationFrame(() => {
+                // Lock-state screensaver
+                if (d.pc_locked !== undefined) {
+                    window.setLockOverlay(!!d.pc_locked);
+                }
+
                 setText(dom.sysCpu, d.cpu + '%');
                 setText(dom.sysRam, d.ram + '%');
 
