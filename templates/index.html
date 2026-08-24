@@ -1645,6 +1645,17 @@
                             </label>
                         </div>
 
+                        <div class="setting-row" style="margin-bottom: 1.5rem;">
+                            <div>
+                                <label class="title">Sort Active Speakers</label>
+                                <label class="desc">Move speaking users to the top of the list</label>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="cfg-disc-sort-speakers">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
                         <div class="form-group"><label>Discord Client ID</label><input type="text" id="cfg-disc-id">
                         </div>
                         <div class="form-group"><label>Discord Client Secret</label><input type="password"
@@ -2312,6 +2323,7 @@
         let discordPanelVisible = false;
         let discordPanelAnimating = false;
         let discordDisconnectCount = 0;
+        let discordActiveSpeakers = [];
         let macros = [];
         let osApps = [];
         let editingMacroIndex = -1;
@@ -2522,6 +2534,7 @@
                     sendSocket('req_apps_list');
                     CONFIG_FIELDS.forEach(([elId, key]) => document.getElementById(elId).value = c[key] || '');
                     document.getElementById('cfg-disc-vc').checked = c.disc_vc_enabled !== false;
+                    document.getElementById('cfg-disc-sort-speakers').checked = c.disc_sort_speakers !== false;
 
                     const mbEnabled = c.show_mouse_batt !== false;
                     document.getElementById('cfg-mouse-batt').checked = mbEnabled;
@@ -3149,9 +3162,23 @@
                                 if (!userIds.includes(el.getAttribute('data-uid'))) el.remove();
                             });
 
+                            // Cleanup active speakers
+                            discordActiveSpeakers = discordActiveSpeakers.filter(uid => userIds.includes(uid));
+
                             // Add or Update
                             userIds.forEach(uid => {
                                 const u = vc.users[uid];
+
+                                // Update speaking order
+                                if (u.speaking) {
+                                    if (!discordActiveSpeakers.includes(uid)) {
+                                        discordActiveSpeakers.push(uid);
+                                    }
+                                } else {
+                                    const idx = discordActiveSpeakers.indexOf(uid);
+                                    if (idx !== -1) discordActiveSpeakers.splice(idx, 1);
+                                }
+
                                 let el = dom.vcUsersList.querySelector(`[data-uid="${uid}"]`);
 
                                 if (!el) {
@@ -3193,6 +3220,20 @@
                                     if (window.lucide) window.lucide.createIcons({ root: statusIcon });
                                 } else {
                                     statusIcon.style.display = 'none';
+                                }
+
+                                // Set Order (if > 4 people on call, put speakers on top based on who spoke first)
+                                if (userIds.length > 4 && (!globalCfg || globalCfg.disc_sort_speakers !== false)) {
+                                    const speakIdx = discordActiveSpeakers.indexOf(uid);
+                                    if (speakIdx !== -1) {
+                                        // Speaking: put at top, respecting order
+                                        el.style.order = speakIdx - 1000;
+                                    } else {
+                                        // Not speaking: keep original order
+                                        el.style.order = userIds.indexOf(uid);
+                                    }
+                                } else {
+                                    el.style.order = 0;
                                 }
                             });
 
@@ -3731,6 +3772,7 @@
             const data = { audio_names: audio_names };
             CONFIG_FIELDS.forEach(([elId, key]) => data[key] = document.getElementById(elId).value);
             data.disc_vc_enabled = document.getElementById('cfg-disc-vc').checked;
+            data.disc_sort_speakers = document.getElementById('cfg-disc-sort-speakers').checked;
             data.show_mouse_batt = document.getElementById('cfg-mouse-batt').checked;
             data.show_hw_stats = document.getElementById('cfg-hw-stats').checked;
             data.spot_enabled = document.getElementById('cfg-spot-enabled').checked;
@@ -4055,7 +4097,9 @@
             if (tapGap > 0 && tapGap < 400) {
                 if (maxTouches === 2 || lastTapFingers === 2) {
                     e.preventDefault();
-                    document.getElementById('modal').classList.add('active');
+                    if (window.pywebview) {
+                        document.getElementById('modal').classList.add('active');
+                    }
                 } else if (maxTouches === 1 && lastTapFingers === 1) {
                     e.preventDefault();
                     toggleFullscreen();
@@ -4184,6 +4228,12 @@
                 });
             }
         }, 1000);
+
+        // Hide settings button on tablet/browser
+        if (!window.pywebview) {
+            const btnPower = document.getElementById('btn-power');
+            if (btnPower) btnPower.style.display = 'none';
+        }
     </script>
 </body>
 

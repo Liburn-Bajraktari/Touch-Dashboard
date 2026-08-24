@@ -243,11 +243,12 @@ os.makedirs(SOUNDS_DIR, exist_ok=True)
 CONFIG_LOCK = threading.RLock()
 
 DEFAULT_CONFIG: dict = {
-    "weather_api": "", "weather_city": "Pristina",
+    "weather_api": "", "weather_city": "",
     "spot_id": "", "spot_secret": "",
     "disc_id": "", "disc_secret": "",
     "disc_enabled": True,
     "disc_vc_enabled": True,
+    "disc_sort_speakers": True,
     "show_mouse_batt": True,
     "show_hw_stats": True,
     "spot_enabled": True,
