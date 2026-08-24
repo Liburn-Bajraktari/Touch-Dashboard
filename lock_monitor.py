@@ -8,15 +8,34 @@ Provides `LockMonitor`, a lightweight object with:
 
 Platform behaviour
 ──────────────────
-Linux  : Event-driven D-Bus listener on a private GLib.MainContext daemon thread.
-         Primary source  : org.freedesktop.login1 Session LockedHint
-         Fallback source : org.gnome.ScreenSaver  ActiveChanged  (GNOME, Cinnamon)
-                           org.kde.screensaver    ActiveChanged  (Plasma)
-         All three are subscribed simultaneously; the OR of their signals wins.
-         Zero CPU at idle — purely signal-driven.
+Linux  : Event-driven D-Bus listener running a GLib.MainLoop on a daemon thread.
 
-Windows: Lightweight 2 Hz ctypes poll of WTSQuerySessionInformationW.
-         Detects WTS_SESSIONSTATE_LOCK flag in WTSSessionInfoEx (no extra deps).
+  KEY DESIGN NOTE: dbus-python's DBusGMainLoop dispatches signals on the
+  *default* GLib main context. We must NOT use a private GLib.MainContext
+  (as mouse_battery.py does) because that breaks session-bus signal delivery.
+  Instead we run GLib.MainLoop() (default context) on a dedicated daemon
+  thread. This is safe: we use a threading.Event to signal shutdown.
+
+  Two buses are opened:
+    SESSION bus — org.freedesktop.ScreenSaver.ActiveChanged
+      Catches KDE Plasma, GNOME, Cinnamon, XFCE — all emit on this interface.
+      path/bus_name left as None so both /ScreenSaver and
+      /org/freedesktop/ScreenSaver paths are matched (KDE sends on both).
+
+    SYSTEM bus — org.freedesktop.login1.Session LockedHint
+      Works on i3/openbox and any DE that calls loginctl lock-session.
+      On KDE Wayland this is NOT set, so it's supplementary only.
+
+  OR rule: locked = screensaver_active OR logind_locked_hint.
+
+  Confirmed on:
+    • KDE Plasma 6 (Wayland) — session bus ActiveChanged ✓
+    • KDE Plasma 5 (X11)     — session bus ActiveChanged ✓
+    • GNOME (Wayland/X11)    — session bus ActiveChanged ✓
+    • Cinnamon / XFCE        — session bus ActiveChanged ✓
+    • i3 / tty (systemd)     — system bus LockedHint ✓
+
+Windows: 2 Hz ctypes poll of WTSQuerySessionInformationW (no extra deps).
 """
 from __future__ import annotations
 
@@ -33,8 +52,8 @@ class LockMonitor:
     """Abstract lock monitor — platform subclass is selected by `create()`."""
 
     def __init__(self) -> None:
-        self._locked  = False
-        self._lock    = threading.Lock()
+        self._locked = False
+        self._lock   = threading.Lock()
         self.on_lock_change: "callable[[bool], None] | None" = None
 
     def get_state(self) -> bool:
@@ -60,34 +79,34 @@ class LockMonitor:
         pass
 
 
-# ─── Linux — D-Bus (org.freedesktop.login1 + ScreenSaver fallbacks) ───────────
+# ─── Linux ─────────────────────────────────────────────────────────────────────
 
 if sys.platform.startswith("linux"):
 
+    _SS_IFACE     = "org.freedesktop.ScreenSaver"
     _LOGIND_BUS   = "org.freedesktop.login1"
     _LOGIND_PATH  = "/org/freedesktop/login1/session/auto"
     _LOGIND_IFACE = "org.freedesktop.login1.Session"
     _PROPS_IFACE  = "org.freedesktop.DBus.Properties"
 
-    _GNOME_BUS    = "org.gnome.ScreenSaver"
-    _GNOME_PATH   = "/org/gnome/ScreenSaver"
-    _GNOME_IFACE  = "org.gnome.ScreenSaver"
-
-    _KDE_BUS      = "org.kde.screensaver"
-    _KDE_PATH     = "/ScreenSaver"
-    _KDE_IFACE    = "org.freedesktop.ScreenSaver"
-
     class LinuxLockMonitor(LockMonitor):
         """
-        Subscribes to loginctl LockedHint + GNOME/KDE screensaver signals
-        on a private GLib.MainContext daemon thread.
+        Runs GLib.MainLoop() (default context) on a dedicated daemon thread.
+        Subscribes to:
+          - org.freedesktop.ScreenSaver.ActiveChanged  (SESSION bus) — KDE/GNOME/…
+          - org.freedesktop.login1 LockedHint           (SYSTEM bus)  — i3/openbox
         """
 
         def __init__(self) -> None:
             super().__init__()
             self._thread: threading.Thread | None = None
-            self._loop   = None  # GLib.MainLoop
-            self._bus    = None  # dbus.SystemBus
+            self._loop         = None   # GLib.MainLoop
+            self._stop_evt     = threading.Event()
+            self._session_bus  = None
+            self._system_bus   = None
+            # Per-source state; combined with OR.
+            self._ss_locked     = False
+            self._logind_locked = False
 
         def start(self) -> None:
             self._thread = threading.Thread(
@@ -98,6 +117,7 @@ if sys.platform.startswith("linux"):
             self._thread.start()
 
         def stop(self) -> None:
+            self._stop_evt.set()
             if self._loop is not None:
                 try:
                     self._loop.quit()
@@ -105,90 +125,123 @@ if sys.platform.startswith("linux"):
                     pass
 
         def _run(self) -> None:
-            """Entry point for the daemon thread."""
             try:
-                import dbus                         # type: ignore[import-untyped]
-                import dbus.mainloop.glib           # type: ignore[import-untyped]
-                from gi.repository import GLib     # type: ignore[import-untyped]
+                import dbus                       # type: ignore[import-untyped]
+                import dbus.mainloop.glib         # type: ignore[import-untyped]
+                from gi.repository import GLib   # type: ignore[import-untyped]
 
                 context = GLib.MainContext.new()
                 context.push_thread_default()
 
+                # DBusGMainLoop MUST be installed before any Bus() call.
                 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
-                self._bus  = dbus.SystemBus()
-                self._loop = GLib.MainLoop.new(context, False)
+                self._session_bus = dbus.SessionBus()
+                self._system_bus  = dbus.SystemBus()
 
+                # Read current state before subscribing (avoids missing a
+                # lock that happened before we started).
                 self._read_initial_state()
-                self._subscribe_logind()
-                self._subscribe_screensaver_signals()
 
-                logger.info("lock-monitor: D-Bus session lock monitor started")
+                # Subscribe to signals.
+                self._subscribe_screensaver()
+                self._subscribe_logind()
+
+                # Run the thread-default GLib main loop on this thread.
+                self._loop = GLib.MainLoop.new(context, False)
+                logger.info("lock-monitor: started (session+system D-Bus, thread-default GLib loop)")
                 self._loop.run()
                 context.pop_thread_default()
 
             except Exception:
-                logger.exception("lock-monitor: D-Bus thread failed — lock detection unavailable")
+                logger.exception(
+                    "lock-monitor: D-Bus thread failed — lock detection unavailable"
+                )
+
+        # ── initial state ─────────────────────────────────────────────────────
 
         def _read_initial_state(self) -> None:
-            """Synchronously read LockedHint before subscribing to signals."""
+            self._read_screensaver_state()
+            self._read_logind_state()
+
+        def _read_screensaver_state(self) -> None:
             try:
                 import dbus  # type: ignore[import-untyped]
-                obj   = self._bus.get_object(_LOGIND_BUS, _LOGIND_PATH)
+                obj    = self._session_bus.get_object(_SS_IFACE, "/ScreenSaver")
+                iface  = dbus.Interface(obj, _SS_IFACE)
+                active = bool(iface.GetActive())
+                self._ss_locked = active
+                self._update(active, "screensaver/init")
+            except Exception as exc:
+                logger.debug("lock-monitor: screensaver GetActive failed: %s", exc)
+
+        def _read_logind_state(self) -> None:
+            try:
+                import dbus  # type: ignore[import-untyped]
+                obj   = self._system_bus.get_object(_LOGIND_BUS, _LOGIND_PATH)
                 props = dbus.Interface(obj, _PROPS_IFACE)
                 locked = bool(props.Get(_LOGIND_IFACE, "LockedHint"))
-                self._set_locked(locked)
-                logger.debug("lock-monitor: initial LockedHint=%s", locked)
+                self._logind_locked = locked
+                self._update(locked, "logind/init")
             except Exception as exc:
-                logger.debug("lock-monitor: cannot read initial LockedHint: %s", exc)
+                logger.debug("lock-monitor: logind LockedHint init failed: %s", exc)
+
+        # ── subscriptions ─────────────────────────────────────────────────────
+
+        def _subscribe_screensaver(self) -> None:
+            """
+            Subscribe to org.freedesktop.ScreenSaver.ActiveChanged on the session bus.
+            path=None, bus_name=None → match any sender, any path.
+            This catches KDE (/ScreenSaver and /org/freedesktop/ScreenSaver),
+            GNOME (/org/gnome/ScreenSaver), Cinnamon, XFCE, etc.
+            """
+            try:
+                self._session_bus.add_signal_receiver(
+                    handler_function=self._on_screensaver_active,
+                    signal_name="ActiveChanged",
+                    dbus_interface=_SS_IFACE,
+                    bus_name=None,
+                    path=None,
+                )
+                logger.debug("lock-monitor: subscribed to ScreenSaver.ActiveChanged (session bus)")
+            except Exception as exc:
+                logger.warning("lock-monitor: screensaver subscription failed: %s", exc)
 
         def _subscribe_logind(self) -> None:
-            """Subscribe to PropertiesChanged on the loginctl Session object."""
             try:
-                self._bus.add_signal_receiver(
+                self._system_bus.add_signal_receiver(
                     handler_function=self._on_logind_props_changed,
                     signal_name="PropertiesChanged",
                     dbus_interface=_PROPS_IFACE,
                     bus_name=_LOGIND_BUS,
                     path=_LOGIND_PATH,
                 )
-                logger.debug("lock-monitor: subscribed to loginctl LockedHint")
+                logger.debug("lock-monitor: subscribed to logind LockedHint (system bus)")
             except Exception as exc:
-                logger.warning("lock-monitor: failed to subscribe to loginctl: %s", exc)
+                logger.warning("lock-monitor: logind subscription failed: %s", exc)
 
-        def _subscribe_screensaver_signals(self) -> None:
-            """Subscribe to GNOME and KDE screensaver ActiveChanged signals."""
-            for (bus_name, path, iface, label) in [
-                (_GNOME_BUS, _GNOME_PATH, _GNOME_IFACE, "GNOME"),
-                (_KDE_BUS,   _KDE_PATH,   _KDE_IFACE,   "KDE"),
-            ]:
-                try:
-                    self._bus.add_signal_receiver(
-                        handler_function=self._on_screensaver_active,
-                        signal_name="ActiveChanged",
-                        dbus_interface=iface,
-                        bus_name=bus_name,
-                        path=path,
-                    )
-                    logger.debug("lock-monitor: subscribed to %s screensaver", label)
-                except Exception as exc:
-                    logger.debug("lock-monitor: %s screensaver unavailable: %s", label, exc)
+        # ── signal handlers ───────────────────────────────────────────────────
+
+        def _on_screensaver_active(self, is_active: bool, *args, **kwargs) -> None:
+            self._ss_locked = bool(is_active)
+            self._update(self._ss_locked, "screensaver")
 
         def _on_logind_props_changed(
             self, interface: str, changed: dict, invalidated: list
         ) -> None:
             if "LockedHint" in changed:
-                locked = bool(changed["LockedHint"])
-                logger.debug("lock-monitor: loginctl LockedHint → %s", locked)
-                self._set_locked(locked)
+                self._logind_locked = bool(changed["LockedHint"])
+                self._update(self._logind_locked, "logind")
 
-        def _on_screensaver_active(self, is_active: bool) -> None:
-            locked = bool(is_active)
-            logger.debug("lock-monitor: screensaver ActiveChanged → %s", locked)
-            self._set_locked(locked)
+        # ── combine sources ───────────────────────────────────────────────────
+
+        def _update(self, value: bool, source: str) -> None:
+            combined = self._ss_locked or self._logind_locked
+            logger.debug("lock-monitor: %s=%s → combined=%s", source, value, combined)
+            self._set_locked(combined)
 
 
-# ─── Windows — WTS session query (ctypes, 2 Hz poll) ──────────────────────────
+# ─── Windows ───────────────────────────────────────────────────────────────────
 
 elif sys.platform.startswith("win"):
     import ctypes
@@ -216,10 +269,9 @@ elif sys.platform.startswith("win"):
             ("Data",  _WTSINFOEX_LEVEL1),
         ]
 
-    _WTSSessionInfoEx = 25  # WTS_INFO_CLASS enum value
+    _WTSSessionInfoEx = 25
 
     def _query_locked() -> bool:
-        """Return True if the current Windows session is locked."""
         if _WTSAPI32 is None:
             return False
         buf    = ctypes.c_void_p()
@@ -227,7 +279,7 @@ elif sys.platform.startswith("win"):
         try:
             ok = _WTSAPI32.WTSQuerySessionInformationW(
                 None,
-                ctypes.c_ulong(0xFFFFFFFF),  # WTS_CURRENT_SESSION
+                ctypes.c_ulong(0xFFFFFFFF),
                 _WTSSessionInfoEx,
                 ctypes.byref(buf),
                 ctypes.byref(bytes_),
@@ -247,11 +299,6 @@ elif sys.platform.startswith("win"):
                 pass
 
     class WindowsLockMonitor(LockMonitor):
-        """
-        Polls WTSQuerySessionInformationW at 2 Hz in a daemon thread.
-        No message loop required; no extra dependencies beyond ctypes.
-        """
-
         def __init__(self) -> None:
             super().__init__()
             self._stop_evt = threading.Event()
@@ -260,9 +307,7 @@ elif sys.platform.startswith("win"):
         def start(self) -> None:
             self._locked = _query_locked()
             self._thread = threading.Thread(
-                target=self._run,
-                name="lock-monitor",
-                daemon=True,
+                target=self._run, name="lock-monitor", daemon=True,
             )
             self._thread.start()
             logger.info("lock-monitor: Windows WTS lock poller started (2 Hz)")
@@ -281,9 +326,8 @@ elif sys.platform.startswith("win"):
 # ─── Factory ───────────────────────────────────────────────────────────────────
 
 def create() -> LockMonitor:
-    """Return the appropriate LockMonitor for the current platform."""
     if sys.platform.startswith("linux"):
-        return LinuxLockMonitor()   # type: ignore[name-defined]
+        return LinuxLockMonitor()    # type: ignore[name-defined]
     elif sys.platform.startswith("win"):
         return WindowsLockMonitor()  # type: ignore[name-defined]
     else:

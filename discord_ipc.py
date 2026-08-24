@@ -165,6 +165,8 @@ class DiscordIPC:
                 if not self.access_token:
                     self.auth_pending = True
                     self.connected = True
+                    if self.on_auth_error:
+                        self.on_auth_error(self.get_auth_url())
                     return True
 
                 self._authenticate()
@@ -242,6 +244,8 @@ class DiscordIPC:
             if self._config_save:
                 self._config_save("")
             self.auth_pending = True
+            if self.on_auth_error:
+                self.on_auth_error(self.get_auth_url())
             return
 
         for evt in ("VOICE_SETTINGS_UPDATE", "VOICE_CHANNEL_SELECT"):
