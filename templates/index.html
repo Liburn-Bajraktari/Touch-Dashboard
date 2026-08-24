@@ -1309,11 +1309,49 @@
         <div class="lock-particle" style="width:5rem;height:5rem;right:20%;bottom:35%;animation-duration:16s;animation-delay:-5s;"></div>
         <div class="lock-particle" style="width:3rem;height:3rem;left:40%;bottom:10%;animation-duration:22s;animation-delay:-10s;"></div>
 
-        <div id="lock-overlay-inner">
-            <div id="lock-overlay-icon">
-                <!-- Lock icon rendered by Lucide; created when overlay is first shown. -->
+        <div id="lock-overlay-inner" style="gap: 4rem; justify-content: center; width: 100%;">
+            <!-- Top Section: Time, Date, Weather -->
+            <div style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4rem; width: 100%; flex-wrap: wrap;">
+                
+                <!-- Time & Date -->
+                <div style="display: flex; flex-direction: row; align-items: center; gap: 2rem;">
+                    <div id="lock-time"
+                        style="font-size: clamp(5rem, 8vw, 7rem); font-weight: 700; letter-spacing: -2px; line-height: 1; color: rgba(255, 255, 255, 0.9);">
+                        00:00</div>
+                    <div
+                        style="display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 1.5rem; color: rgba(255, 255, 255, 0.6); line-height: 1;">
+                        <div id="lock-date-day">-</div>
+                        <div style="color: rgba(255, 255, 255, 0.2); font-size: 1.2rem; margin: 0.2rem 0;">/</div>
+                        <div id="lock-date-month">-</div>
+                        <div id="lock-date-dayname"
+                            style="background: rgba(255, 255, 255, 0.15); color: rgba(255, 255, 255, 0.9); padding: 0.3rem 0.8rem; border-radius: 1rem; font-size: 0.85rem; margin-top: 0.5rem; letter-spacing: 1px;">
+                            ---</div>
+                    </div>
+                </div>
+
+                <!-- Divider -->
+                <div style="width: 2px; height: 6rem; background: rgba(255, 255, 255, 0.1); border-radius: 2px;"></div>
+
+                <!-- Weather -->
+                <div style="display: flex; align-items: center; gap: 1.5rem; color: rgba(255, 255, 255, 0.9);">
+                    <i data-lucide="cloud" style="width: 4rem; height: 4rem; color: var(--accent);"></i>
+                    <div style="display: flex; flex-direction: column;">
+                        <div id="lock-w-temp" style="font-size: 3.5rem; font-weight: bold; line-height: 1;">--&deg;</div>
+                        <div id="lock-w-desc"
+                            style="color: rgba(255, 255, 255, 0.6); text-transform: uppercase; font-size: 1.1rem; letter-spacing: 1px;">
+                            --</div>
+                    </div>
+                </div>
+
             </div>
-            <div id="lock-overlay-label">PC Locked</div>
+
+            <!-- Lock Indicator -->
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; margin-top: 2rem;">
+                <div id="lock-overlay-icon">
+                    <!-- Lock icon rendered by Lucide; created when overlay is first shown. -->
+                </div>
+                <div id="lock-overlay-label">PC Locked</div>
+            </div>
         </div>
     </div>
     <script>
@@ -2563,6 +2601,11 @@
                     requestAnimationFrame(() => {
                         document.getElementById('w-temp').innerText = d.temp + '\u00b0';
                         document.getElementById('w-desc').innerText = d.desc;
+                        
+                        const lockTemp = document.getElementById('lock-w-temp');
+                        const lockDesc = document.getElementById('lock-w-desc');
+                        if (lockTemp) lockTemp.innerText = d.temp + '\u00b0';
+                        if (lockDesc) lockDesc.innerText = d.desc;
                     });
                 }
                 else if (msg.type === 'speedtest_result') {
@@ -4116,6 +4159,11 @@
         const elDateDay = document.getElementById('date-day');
         const elDateDayName = document.getElementById('date-dayname');
 
+        const lockElTime = document.getElementById('lock-time');
+        const lockElDateMonth = document.getElementById('lock-date-month');
+        const lockElDateDay = document.getElementById('lock-date-day');
+        const lockElDateDayName = document.getElementById('lock-date-dayname');
+
         setInterval(() => {
             const d = new Date();
             const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -4126,6 +4174,13 @@
                     elDateMonth.innerText = d.getMonth() + 1;
                     elDateDay.innerText = d.getDate();
                     elDateDayName.innerText = d.toLocaleDateString([], { weekday: 'short' }).toUpperCase();
+
+                    if (lockElTime) {
+                        lockElTime.innerText = timeStr;
+                        lockElDateMonth.innerText = d.getMonth() + 1;
+                        lockElDateDay.innerText = d.getDate();
+                        lockElDateDayName.innerText = d.toLocaleDateString([], { weekday: 'short' }).toUpperCase();
+                    }
                 });
             }
         }, 1000);
