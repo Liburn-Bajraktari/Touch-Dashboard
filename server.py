@@ -255,6 +255,7 @@ DEFAULT_CONFIG: dict = {
     "weather_enabled": True,
     "audio_enabled": True,
     "sb_enabled": True,
+    "soundboard_volume": 100,
     "audio_names": {},
     "soundpad_buttons": [],
     "local_buttons": [],
@@ -361,6 +362,8 @@ lock_monitor_instance = None  # LockMonitor instance (all platforms)
 weather_update_event: asyncio.Event | None = None
 last_host_url        = "127.0.0.1:8888"
 speedtest_lock: asyncio.Lock | None = None
+# Signalled by local_play_* to make pipewire_auto_router run immediately.
+sb_route_event: asyncio.Event | None = None
 
 # Template cache (mtime-based)
 _tmpl_cache = {"mtime": 0.0, "html": ""}
@@ -780,44 +783,93 @@ async def fetch_weather():
         await _do_fetch()
 
 
+async def _do_pipewire_route() -> None:
+    """One-shot: link Dashboard-Soundboard monitor into every active capture consumer.
+
+    Uses a two-pass approach:
+      Pass 1 — pw-link -o: find all nodes that have capture output ports.
+               These are mic sources + intermediaries (NoiseTorch, EasyEffects).
+      Pass 2 — pw-link -l: walk forward |-> links from those capture sources;
+               collect destinations whose node does NOT appear in Pass 1.
+               Those are the true leaf consumers (Discord/WEBRTC, OBS, etc.).
+
+    Correctly handles chains: Mic → NoiseTorch → EasyEffects → Discord
+    by injecting directly into Discord, skipping noise gates.
+    Does NOT require knowledge of the default source name.
+    """
+    def _run(cmd):
+        return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2)
+
+    # Collect Dashboard-Soundboard monitor output port names.
+    pw_out   = (await asyncio.to_thread(_run, ["pw-link", "-o"])).decode()
+    monitors = [p.strip() for p in pw_out.splitlines()
+                if "Dashboard-Soundboard" in p and "monitor" in p]
+    if not monitors:
+        return
+
+    sb_FL = monitors[0]
+    sb_FR = monitors[1] if len(monitors) > 1 else sb_FL
+
+    # Pass 1: use pw-link -o (output ports only, no |<- noise) to build the set
+    # of node names that have capture-type output ports (mic sources + processors).
+    capture_source_nodes: set[str] = set()
+    for line in pw_out.splitlines():
+        line = line.strip()
+        if ":" in line and "capture" in line and "Dashboard-Soundboard" not in line:
+            node_name = line.split(":")[0]
+            capture_source_nodes.add(node_name)
+
+    # Pass 2: walk pw-link -l forward links (|-> only, ignore |<- lines).
+    # Collect destinations of capture-source links whose dest node is NOT
+    # itself a capture source — those are the final endpoint apps.
+    pw_links = (await asyncio.to_thread(_run, ["pw-link", "-l"])).decode()
+    app_ports: list[str] = []
+    is_capture_out = False
+    for line in pw_links.splitlines():
+        if not line.startswith((" ", "\t")):
+            stripped = line.strip()
+            # Only mark as a capture source header if it's in our Pass-1 set.
+            node_name = stripped.split(":")[0] if ":" in stripped else ""
+            is_capture_out = node_name in capture_source_nodes
+        elif is_capture_out and "|->" in line:
+            dest = line.split("|->")[1].strip()
+            dest_node = dest.split(":")[0]
+            if ("Dashboard-Soundboard" not in dest
+                    and dest_node not in capture_source_nodes):
+                app_ports.append(dest)
+
+    for i, dest_port in enumerate(app_ports):
+        src = sb_FL if i % 2 == 0 else sb_FR
+        await asyncio.to_thread(
+            subprocess.run, ["pw-link", src, dest_port],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
+        )
+
+
 async def pipewire_auto_router():
-    """Route Dashboard-Soundboard monitor into microphone capture targets (Linux only)."""
+    """Route Dashboard-Soundboard monitor into microphone capture targets (Linux only).
+
+    Wakes immediately when sb_route_event is set (triggered by local_play_*)
+    and also re-runs every 30 s to repair links torn down by PipeWire.
+    """
     while True:
         try:
-            def _run(cmd):
-                return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2)
+            # Block until triggered by a playback event OR 30-second keepalive.
+            if sb_route_event is not None:
+                try:
+                    await asyncio.wait_for(sb_route_event.wait(), timeout=30.0)
+                    sb_route_event.clear()
+                except asyncio.TimeoutError:
+                    pass
+            else:
+                await asyncio.sleep(30)
 
-            def_src = (await asyncio.to_thread(_run, ["pactl", "get-default-source"])).decode().strip()
-            pw_out  = (await asyncio.to_thread(_run, ["pw-link", "-o"])).decode()
-            monitors = [p.strip() for p in pw_out.splitlines()
-                        if "Dashboard-Soundboard" in p and "monitor" in p]
-            if not monitors:
-                await asyncio.sleep(2)
-                continue
-
-            sb_FL = monitors[0]
-            sb_FR = monitors[1] if len(monitors) > 1 else sb_FL
-
-            pw_links  = (await asyncio.to_thread(_run, ["pw-link", "-l"])).decode()
-            app_ports: list[str] = []
-            is_cap    = False
-            for line in pw_links.splitlines():
-                if not line.startswith((" ", "\t")):
-                    is_cap = def_src in line and "capture" in line
-                elif is_cap and "|->" in line:
-                    port = line.split("|->")[1].strip()
-                    if "Dashboard-Soundboard" not in port and "loopback" not in port.lower():
-                        app_ports.append(port)
-
-            for i, port in enumerate(app_ports):
-                src = sb_FL if i % 2 == 0 else sb_FR
-                await asyncio.to_thread(
-                    subprocess.run, ["pw-link", src, port],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
-                )
+            await _do_pipewire_route()
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.debug(f"PipeWire router: {e}")
-        await asyncio.sleep(5)
+
 
 
 # ─── FastAPI app ────────────────────────────────────────────────────────────────
@@ -889,13 +941,27 @@ async def lifespan(app: FastAPI):
                 await _run(["pactl", "load-module", "module-null-sink",
                       "sink_name=Dashboard-Soundboard",
                       'sink_properties=device.description="Dashboard-Soundboard"'])
-            await _run(["pactl", "set-sink-volume", "Dashboard-Soundboard", "100%"])
+
+            # Apply stored volume (0-200%) so restarts preserve the user setting.
+            with CONFIG_LOCK:
+                sb_vol = int(config.get("soundboard_volume", 100))
+            sb_vol = max(0, min(200, sb_vol))
+            await _run(["pactl", "set-sink-volume", "Dashboard-Soundboard", f"{sb_vol}%"])
             await _run(["pactl", "set-sink-mute",   "Dashboard-Soundboard", "0"])
 
+            # Self-listen: loopback from Dashboard-Soundboard monitor → real speakers.
+            # We must specify sink= explicitly; without it PipeWire picks the default
+            # sink at load-time which may be a virtual sink (EasyEffects, etc.).
             mods_out = (await _out(["pactl", "list", "short", "modules"])).decode()
-            if "source=Dashboard-Soundboard.monitor" not in mods_out:
+            if "sink=" + real_sink not in mods_out and real_sink:
                 await _run(["pactl", "load-module", "module-loopback",
-                      "source=Dashboard-Soundboard.monitor"])
+                            "source=Dashboard-Soundboard.monitor",
+                            f"sink={real_sink}",
+                            "sink_dont_move=1",
+                            "source_dont_move=1"])
+
+            # Mic routing (→ Discord etc.) is done via pw-link in
+            # pipewire_auto_router, triggered immediately on each playback.
 
             if real_sink and "Dashboard" not in real_sink:
                 await _run(["pactl", "set-default-sink",   real_sink])
@@ -908,9 +974,10 @@ async def lifespan(app: FastAPI):
     # exist at this point. Creating them at module scope binds them to a
     # different (or non-existent) loop and causes:
     #   RuntimeError: Task got Future <Event> attached to a different loop
-    global weather_update_event, speedtest_lock, upower_monitor, lock_monitor_instance
+    global weather_update_event, speedtest_lock, upower_monitor, lock_monitor_instance, sb_route_event
     weather_update_event = asyncio.Event()
     speedtest_lock       = asyncio.Lock()
+    sb_route_event       = asyncio.Event()
 
     # All platforms: start the lock-state monitor.
     # The callback fires call_soon_threadsafe(sys_data_trigger.set) so that
@@ -1278,6 +1345,19 @@ async def websocket_endpoint(ws: WebSocket):
                           else "@DEFAULT_AUDIO_SOURCE@")
                 await asyncio.to_thread(AudioSystem.set_vol, target, data["val"])
 
+            # ── soundboard volume ───────────────────────────────────────────────
+            elif mtype == "set_sb_volume":
+                vol = max(0, min(200, int(data.get("val", 100))))
+                with CONFIG_LOCK:
+                    config["soundboard_volume"] = vol
+                    save_config()
+                if get_os_target() == "linux":
+                    await asyncio.to_thread(
+                        subprocess.run,
+                        ["pactl", "set-sink-volume", "Dashboard-Soundboard", f"{vol}%"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    )
+
             # ── speedtest ──────────────────────────────────────────────────────
             elif mtype == "run_speedtest":
                 asyncio.create_task(_run_speedtest())
@@ -1355,12 +1435,48 @@ async def _handle_action(ws: WebSocket, action: str):
     """Dispatch an 'action' message from the WebSocket client."""
     global force_media_update, current_media_source
 
+    # ── system actions ────────────────────────────────────────────────────────
+    if action == "sys_power_off":
+        if sys.platform.startswith("win"):
+            try:
+                import comtypes.client
+                shell = comtypes.client.CreateObject("Shell.Application")
+                shell.ShutdownWindows()
+            except Exception as e:
+                logger.error(f"Failed to show Windows shutdown prompt: {e}")
+        elif sys.platform.startswith("linux"):
+            desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+            try:
+                if "kde" in desktop:
+                    subprocess.run(["dbus-send", "--session", "--print-reply", "--dest=org.kde.LogoutPrompt", "/LogoutPrompt", "org.kde.LogoutPrompt.promptShutDown"], check=False)
+                elif "gnome" in desktop:
+                    subprocess.run(["gnome-session-quit", "--power-off"], check=False)
+                elif "xfce" in desktop:
+                    subprocess.run(["xfce4-session-logout"], check=False)
+                elif "cinnamon" in desktop:
+                    subprocess.run(["cinnamon-session-quit", "--power-off"], check=False)
+                elif "mate" in desktop:
+                    subprocess.run(["mate-session-save", "--shutdown-dialog"], check=False)
+                else:
+                    logger.warning(f"Unsupported DE for shutdown prompt: {desktop}")
+            except Exception as e:
+                logger.error(f"Failed to show Linux shutdown prompt: {e}")
+        return
+
     # ── local soundboard ──────────────────────────────────────────────────────
     if action.startswith("local_play_"):
         filename = action.removeprefix("local_play_")
         filepath = resolve_sound_path(filename)
         if filepath:
             await asyncio.to_thread(AudioSystem.play_local_sound, filepath)
+            # Immediately wire monitor ports into capture consumers.
+            # pw-play needs ~0.3 s to register its ports in the PipeWire graph
+            # before pw-link can see them, so we delay the trigger slightly.
+            if get_os_target() == "linux" and sb_route_event is not None:
+                async def _delayed_route():
+                    await asyncio.sleep(0.3)
+                    sb_route_event.set()
+                asyncio.create_task(_delayed_route(), name="sb_route_trigger")
         return
 
     if action == "stop_local_audio":

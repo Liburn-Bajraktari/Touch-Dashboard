@@ -260,6 +260,40 @@
             transform: scale(0.95) translateZ(0);
         }
 
+        .vol-step-btn {
+            cursor: pointer;
+            display: flex;
+            padding: 0.5rem;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            transition: transform 0.1s ease, background 0.1s ease;
+            transform: translateZ(0);
+        }
+        .vol-step-btn:active {
+            transform: scale(0.85) translateZ(0);
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        #sb-vol-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            outline: none;
+            background: rgba(255,255,255,0.1);
+        }
+        #sb-vol-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: transparent;
+            cursor: pointer;
+            border: none;
+            box-shadow: none;
+        }
+
         .btn {
             position: relative;
             background: linear-gradient(180deg, rgba(31, 42, 62, 0.92), rgba(17, 24, 39, 0.92));
@@ -1851,17 +1885,34 @@
                         <div style="color: #a855f7; display: flex; align-items: center; gap: 0.3rem;"><i data-lucide="arrow-up" style="width:14px; height:14px;"></i><span id="s-ul">-- Mbps</span></div>
                     </div>
                 </div>
-                <button class="btn btn-top" style="color: #ef4444;" id="btn-power" title="Settings / Shutdown"
-                    onclick="document.getElementById('modal').classList.add('active')"><i
+                <button class="btn btn-top" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444;" id="btn-shutdown" title="Turn Off PC"
+                    onclick="act('sys_power_off')"><i
                         data-lucide="power"></i></button>
             </div>
-            <button class="btn btn-top" id="btn-stop-audio"
-                style="position: absolute; right: 0; opacity: 0; pointer-events: none; color: #ef4444; width: auto; padding: 0 1.5rem; border-radius: 2rem; transform: translateZ(0);"
-                onclick="stopSoundboardAudio()">
-                <i data-lucide="square"></i><span
-                    style="margin-left:0.5rem; font-weight:700; font-size: 1.1rem; letter-spacing: 1px;">STOP
-                    AUDIO</span>
-            </button>
+            <div id="top-right-soundboard" style="position: absolute; right: 0; opacity: 0; pointer-events: none; display: flex; align-items: center; gap: 1rem; transform: translateZ(0);">
+                <!-- Volume bar — Linux only, hidden on Windows -->
+                <div id="sb-vol-row" style="display: none; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 2rem; padding: 0.2rem 1rem; width: 18rem; height: 3.2rem;">
+                    <div class="vol-step-btn" onclick="sbVolStep(-5)">
+                        <i data-lucide="minus" style="width:16px;height:16px;color:var(--text-muted);"></i>
+                    </div>
+                    <input type="range" id="sb-vol-slider" min="0" max="200" value="100"
+                        style="flex:1; cursor: pointer;"
+                        oninput="sbVolInput(this.value)"
+                        onchange="sbVolCommit(this.value)">
+                    <div class="vol-step-btn" onclick="sbVolStep(5)">
+                        <i data-lucide="plus" style="width:16px;height:16px;color:var(--text-muted);"></i>
+                    </div>
+                    <span id="sb-vol-label" onclick="sbVolSet(100)" title="Reset to 100%"
+                        style="min-width:3.2rem;text-align:right;font-weight:700;font-size:0.95rem;color:#fff;font-variant-numeric:tabular-nums;cursor:pointer;">100%</span>
+                </div>
+                <button class="btn btn-top" id="btn-stop-audio"
+                    style="color: #ef4444; width: auto; padding: 0 1.5rem; border-radius: 2rem;"
+                    onclick="stopSoundboardAudio()">
+                    <i data-lucide="square"></i><span
+                        style="margin-left:0.5rem; font-weight:700; font-size: 1.1rem; letter-spacing: 1px;">STOP
+                        AUDIO</span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -2590,6 +2641,15 @@
                         spBtns = c.local_buttons || [];
                         if (spLabel) spLabel.innerText = 'SOUNDBOARD';
                         sendSocket('req_local_sounds');
+                        // Show volume row and sync value from config
+                        const volRow = document.getElementById('sb-vol-row');
+                        if (volRow) volRow.style.display = 'flex';
+                        const sbVol = c.soundboard_volume ?? 100;
+                        const slider = document.getElementById('sb-vol-slider');
+                        if (slider) {
+                            slider.value = sbVol;
+                            sbVolInput(sbVol); // trigger visual fill update
+                        }
                     } else if (osTarget === 'windows' && c.sounds_path) {
                         // Windows local soundboard: show tab when a sounds path is configured
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
@@ -3276,7 +3336,7 @@
         const elBtnBack = document.getElementById('btn-back');
         const elBattSlide = document.getElementById('batt-slide');
         const elTopRightNormal = document.getElementById('top-right-normal');
-        const elBtnStopAudio = document.getElementById('btn-stop-audio');
+        const elTopRightSoundboard = document.getElementById('top-right-soundboard');
         const elViewWrapper = document.getElementById('view-wrapper');
         const elMainGlassPanels = document.querySelectorAll('#main-view .glass');
 
@@ -3360,8 +3420,8 @@
                 elBtnBack.style.pointerEvents = 'auto';
 
                 tl.to(elTopRightNormal, { x: '10rem', opacity: 0, duration: 0.3, ease: "power3.inOut", force3D: true }, 0);
-                tl.to(elBtnStopAudio, { opacity: 1, duration: 0.15 }, 0.1);
-                elBtnStopAudio.style.pointerEvents = 'auto';
+                tl.to(elTopRightSoundboard, { opacity: 1, duration: 0.15 }, 0.1);
+                elTopRightSoundboard.style.pointerEvents = 'auto';
 
             } else {
                 elMainView.style.pointerEvents = 'auto';
@@ -3401,8 +3461,8 @@
                 tl.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out", force3D: true }, 0);
                 tl.to(elBattSlide, { x: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", clearProps: 'transform,opacity', force3D: true }, 0.05);
 
-                elBtnStopAudio.style.pointerEvents = 'none';
-                tl.to(elBtnStopAudio, { opacity: 0, duration: 0.1, ease: "power2.out", force3D: true }, 0);
+                elTopRightSoundboard.style.pointerEvents = 'none';
+                tl.to(elTopRightSoundboard, { opacity: 0, duration: 0.1, ease: "power2.out", force3D: true }, 0);
                 tl.to(elTopRightNormal, { x: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", clearProps: 'transform,opacity', force3D: true }, 0.05);
             }
 
@@ -3839,6 +3899,40 @@
             sendSocket('action', 'stop_local_audio');
         }
 
+        let _sbVolTimer = null;
+        function sbVolInput(val) {
+            const lbl = document.getElementById('sb-vol-label');
+            if (lbl) lbl.textContent = val + '%';
+            const slider = document.getElementById('sb-vol-slider');
+            if (slider) {
+                const pct = (val / 200) * 100;
+                slider.style.background = `linear-gradient(to right, var(--accent) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
+            }
+        }
+        function sbVolCommit(val) {
+            // Debounce: only send after user stops dragging for 200 ms
+            clearTimeout(_sbVolTimer);
+            _sbVolTimer = setTimeout(() => {
+                sendSocket('set_sb_volume', { val: parseInt(val, 10) });
+            }, 200);
+        }
+        function sbVolStep(delta) {
+            const slider = document.getElementById('sb-vol-slider');
+            if (!slider) return;
+            let val = parseInt(slider.value, 10) + delta;
+            val = Math.max(0, Math.min(200, val));
+            slider.value = val;
+            sbVolInput(val);
+            sbVolCommit(val);
+        }
+        function sbVolSet(val) {
+            const slider = document.getElementById('sb-vol-slider');
+            if (!slider) return;
+            slider.value = val;
+            sbVolInput(val);
+            sbVolCommit(val);
+        }
+
         function checkSpInput() {
             const idVal = osTarget === 'linux' ? (document.getElementById('sp-id-select').value || '') : document.getElementById('sp-id-input').value.trim();
             let nameVal = document.getElementById('sp-name-input').value.trim();
@@ -4229,11 +4323,13 @@
             }
         }, 1000);
 
-        // Hide settings button on tablet/browser
-        if (!window.pywebview) {
-            const btnPower = document.getElementById('btn-power');
-            if (btnPower) btnPower.style.display = 'none';
-        }
+        // Hide desktop-specific buttons on tablet/browser
+        setTimeout(() => {
+            if (!window.pywebview) {
+                const btnShut = document.getElementById('btn-shutdown');
+                if (btnShut) btnShut.style.display = 'none';
+            }
+        }, 500);
     </script>
 </body>
 
