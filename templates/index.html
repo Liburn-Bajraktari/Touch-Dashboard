@@ -274,25 +274,7 @@
             background: rgba(255, 255, 255, 0.15);
         }
 
-        #sb-vol-slider {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%;
-            height: 8px;
-            border-radius: 4px;
-            outline: none;
-            background: rgba(255,255,255,0.1);
-        }
-        #sb-vol-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 20px;
-            height: 20px;
-            background: transparent;
-            cursor: pointer;
-            border: none;
-            box-shadow: none;
-        }
+
 
         .btn {
             position: relative;
@@ -1753,6 +1735,20 @@
                         <label>Local Sounds Directory</label>
                         <input type="text" id="cfg-sounds-path" placeholder="/path/to/your/sounds">
                     </div>
+                    
+                    <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
+                        <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                            <label style="margin: 0;">Enable Audio Normalization</label>
+                            <label class="switch"><input type="checkbox" id="cfg-sb-norm-enable"><span class="slider"></span></label>
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0 1rem 0;">Automatically levels the volume of all audio clips to a target decibel level (requires ffmpeg installed).</p>
+                        
+                        <div class="form-group">
+                            <label>Target Volume (dB)</label>
+                            <input type="number" id="cfg-sb-norm-db" placeholder="89.0" step="0.1">
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0 0 0;">Default is 89.0 dB (Standard ReplayGain target, same as Soundpad).</p>
+                    </div>
                 </div>
 
                 <button class="btn"
@@ -1891,14 +1887,17 @@
             </div>
             <div id="top-right-soundboard" style="position: absolute; right: 0; opacity: 0; pointer-events: none; display: flex; align-items: center; gap: 1rem; transform: translateZ(0);">
                 <!-- Volume bar — Linux only, hidden on Windows -->
-                <div id="sb-vol-row" style="display: none; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 2rem; padding: 0.2rem 1rem; width: 18rem; height: 3.2rem;">
+                <div id="sb-vol-row" style="display: none; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 2rem; padding: 0.2rem 1rem; width: 29rem; height: 3.2rem;">
+                    <button id="btn-toggle-sb-feedback" onclick="sendSocket('toggle_sb_feedback')" class="btn" style="width: 2.2rem; height: 2.2rem; min-height: 0; padding: 0; border-radius: 50%; background: transparent; border: none; color: #22c55e;" title="Toggle Local Feedback">
+                        <i data-lucide="headphones" style="width:18px;height:18px;"></i>
+                    </button>
+                    <div style="width: 1px; height: 1.5rem; background: rgba(255,255,255,0.1); margin: 0 0.2rem;"></div>
                     <div class="vol-step-btn" onclick="sbVolStep(-5)">
                         <i data-lucide="minus" style="width:16px;height:16px;color:var(--text-muted);"></i>
                     </div>
-                    <input type="range" id="sb-vol-slider" min="0" max="200" value="100"
-                        style="flex:1; cursor: pointer;"
-                        oninput="sbVolInput(this.value)"
-                        onchange="sbVolCommit(this.value)">
+                    <div id="sb-vol-slider" style="flex:1; height: 12px; background: rgba(0,0,0,0.4); border-radius: 6px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); position: relative; cursor: pointer; overflow: hidden; touch-action: none;">
+                        <div id="sb-vol-fill" style="position: absolute; left: 0; top: 0; bottom: 0; width: 50%; background: linear-gradient(90deg, #0891b2 0%, var(--accent) 100%); pointer-events: none;"></div>
+                    </div>
                     <div class="vol-step-btn" onclick="sbVolStep(5)">
                         <i data-lucide="plus" style="width:16px;height:16px;color:var(--text-muted);"></i>
                     </div>
@@ -2464,7 +2463,8 @@
             ['cfg-weather', 'weather_api'], ['cfg-city', 'weather_city'],
             ['cfg-spot-id', 'spot_id'], ['cfg-spot-secret', 'spot_secret'],
             ['cfg-disc-id', 'disc_id'], ['cfg-disc-secret', 'disc_secret'],
-            ['cfg-sounds-path', 'sounds_path']
+            ['cfg-sounds-path', 'sounds_path'],
+            ['cfg-sb-norm-db', 'sb_normalization_db']
         ];
         function attachSocketMessageHandler(targetSocket) {
             targetSocket.onmessage = (event) => {
@@ -2586,6 +2586,9 @@
                     CONFIG_FIELDS.forEach(([elId, key]) => document.getElementById(elId).value = c[key] || '');
                     document.getElementById('cfg-disc-vc').checked = c.disc_vc_enabled !== false;
                     document.getElementById('cfg-disc-sort-speakers').checked = c.disc_sort_speakers !== false;
+                    
+                    const normEnabled = document.getElementById('cfg-sb-norm-enable');
+                    if (normEnabled) normEnabled.checked = c.sb_normalization_enabled === true;
 
                     const mbEnabled = c.show_mouse_batt !== false;
                     document.getElementById('cfg-mouse-batt').checked = mbEnabled;
@@ -2645,10 +2648,13 @@
                         const volRow = document.getElementById('sb-vol-row');
                         if (volRow) volRow.style.display = 'flex';
                         const sbVol = c.soundboard_volume ?? 100;
-                        const slider = document.getElementById('sb-vol-slider');
-                        if (slider) {
-                            slider.value = sbVol;
-                            sbVolInput(sbVol); // trigger visual fill update
+                        updateSbVolVisuals(sbVol);
+                        
+                        const sbFbBtn = document.getElementById('btn-toggle-sb-feedback');
+                        if (sbFbBtn) {
+                            const fbOn = c.soundboard_feedback !== false;
+                            sbFbBtn.style.color = fbOn ? '#22c55e' : 'rgba(255,255,255,0.3)';
+                            sbFbBtn.title = fbOn ? 'Local Feedback: ON' : 'Local Feedback: OFF';
                         }
                     } else if (osTarget === 'windows' && c.sounds_path) {
                         // Windows local soundboard: show tab when a sounds path is configured
@@ -2662,6 +2668,14 @@
                         if (spLabel) spLabel.innerText = 'SOUNDPAD';
                     }
                     renderSpGrid();
+                }
+                else if (msg.type === 'sb_feedback_state') {
+                    if (globalCfg) globalCfg.soundboard_feedback = d;
+                    const sbFbBtn = document.getElementById('btn-toggle-sb-feedback');
+                    if (sbFbBtn) {
+                        sbFbBtn.style.color = d ? '#22c55e' : 'rgba(255,255,255,0.3)';
+                        sbFbBtn.title = d ? 'Local Feedback: ON' : 'Local Feedback: OFF';
+                    }
                 }
                 else if (msg.type === 'hw_scan_results') {
                     currentHwDevices = d;
@@ -3833,6 +3847,9 @@
             CONFIG_FIELDS.forEach(([elId, key]) => data[key] = document.getElementById(elId).value);
             data.disc_vc_enabled = document.getElementById('cfg-disc-vc').checked;
             data.disc_sort_speakers = document.getElementById('cfg-disc-sort-speakers').checked;
+            
+            const normEnabled = document.getElementById('cfg-sb-norm-enable');
+            if (normEnabled) data.sb_normalization_enabled = normEnabled.checked;
             data.show_mouse_batt = document.getElementById('cfg-mouse-batt').checked;
             data.show_hw_stats = document.getElementById('cfg-hw-stats').checked;
             data.spot_enabled = document.getElementById('cfg-spot-enabled').checked;
@@ -3899,16 +3916,20 @@
             sendSocket('action', 'stop_local_audio');
         }
 
+        let currentSbVol = 100;
         let _sbVolTimer = null;
-        function sbVolInput(val) {
+
+        function updateSbVolVisuals(val) {
+            currentSbVol = Math.max(0, Math.min(200, val));
             const lbl = document.getElementById('sb-vol-label');
-            if (lbl) lbl.textContent = val + '%';
-            const slider = document.getElementById('sb-vol-slider');
-            if (slider) {
-                const pct = (val / 200) * 100;
-                slider.style.background = `linear-gradient(to right, var(--accent) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
+            if (lbl) lbl.textContent = currentSbVol + '%';
+            const fill = document.getElementById('sb-vol-fill');
+            if (fill) {
+                const pct = (currentSbVol / 200) * 100;
+                fill.style.width = pct + '%';
             }
         }
+
         function sbVolCommit(val) {
             // Debounce: only send after user stops dragging for 200 ms
             clearTimeout(_sbVolTimer);
@@ -3916,22 +3937,58 @@
                 sendSocket('set_sb_volume', { val: parseInt(val, 10) });
             }, 200);
         }
+
         function sbVolStep(delta) {
-            const slider = document.getElementById('sb-vol-slider');
-            if (!slider) return;
-            let val = parseInt(slider.value, 10) + delta;
-            val = Math.max(0, Math.min(200, val));
-            slider.value = val;
-            sbVolInput(val);
-            sbVolCommit(val);
+            updateSbVolVisuals(currentSbVol + delta);
+            sbVolCommit(currentSbVol);
         }
+
         function sbVolSet(val) {
-            const slider = document.getElementById('sb-vol-slider');
-            if (!slider) return;
-            slider.value = val;
-            sbVolInput(val);
-            sbVolCommit(val);
+            updateSbVolVisuals(val);
+            sbVolCommit(currentSbVol);
         }
+
+        // Initialize drag for soundboard volume
+        setTimeout(() => {
+            const track = document.getElementById('sb-vol-slider');
+            if (!track) return;
+            let isDragging = false;
+            let rAF = null;
+            function setFromEvent(e) {
+                const r = track.getBoundingClientRect();
+                let clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+                if (clientX === undefined) return currentSbVol;
+                let rawPct = ((clientX - r.left) / r.width) * 100;
+                let pct = Math.max(0, Math.min(100, Math.round(rawPct)));
+                let val = pct * 2;
+                if (rAF) cancelAnimationFrame(rAF);
+                rAF = requestAnimationFrame(() => updateSbVolVisuals(val));
+                return val;
+            }
+            function drag(e) {
+                if (!isDragging) return;
+                if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
+                const val = setFromEvent(e);
+                sbVolCommit(val);
+            }
+            function startDrag(e) {
+                if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
+                isDragging = true;
+                drag(e);
+            }
+            function endDrag() {
+                if (isDragging) {
+                    isDragging = false;
+                    sbVolCommit(currentSbVol);
+                }
+            }
+            track.addEventListener('mousedown', startDrag);
+            track.addEventListener('touchstart', startDrag, { passive: false });
+            document.addEventListener('mousemove', drag, { passive: false });
+            document.addEventListener('touchmove', drag, { passive: false });
+            document.addEventListener('mouseup', endDrag);
+            document.addEventListener('touchend', endDrag);
+        }, 100);
 
         function checkSpInput() {
             const idVal = osTarget === 'linux' ? (document.getElementById('sp-id-select').value || '') : document.getElementById('sp-id-input').value.trim();

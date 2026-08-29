@@ -31,3 +31,5 @@ soundfile; sys_platform == "win32"
 winrt-runtime; sys_platform == "win32"
 winrt-Windows.Media.Control; sys_platform == "win32"
 winrt-Windows.Foundation; sys_platform == "win32"
+pydub>=0.25.1
+audioop-lts; python_version >= "3.13"

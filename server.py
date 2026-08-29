@@ -52,6 +52,7 @@ import importlib.util
 import site
 import subprocess
 import webbrowser
+from pydub import AudioSegment
 
 # ─── pywebview storage path (before any webview import) ──────────────────────
 # Disable pywebview's private mode so the WebSocket auth token persists
@@ -240,6 +241,9 @@ SPOTIFY_CACHE_FILE  = os.path.join(DATA_DIR, ".cache")
 SOUNDS_DIR          = os.path.join(DATA_DIR, "sounds")
 os.makedirs(SOUNDS_DIR, exist_ok=True)
 
+NORMALIZED_SOUNDS_CACHE_DIR = os.path.join(DATA_DIR, ".cache", "normalized_sounds")
+os.makedirs(NORMALIZED_SOUNDS_CACHE_DIR, exist_ok=True)
+
 CONFIG_LOCK = threading.RLock()
 
 DEFAULT_CONFIG: dict = {
@@ -255,6 +259,8 @@ DEFAULT_CONFIG: dict = {
     "weather_enabled": True,
     "audio_enabled": True,
     "sb_enabled": True,
+    "sb_normalization_enabled": False,
+    "sb_normalization_db": 89.0,
     "soundboard_volume": 100,
     "audio_names": {},
     "soundpad_buttons": [],
@@ -449,6 +455,45 @@ def resolve_sound_path(filename: str) -> str | None:
             and os.path.isfile(candidate)):
         return candidate
     return None
+
+def get_normalized_sound_path(original_filepath: str) -> str:
+    """Returns the path to the cached normalized sound file, generating it if necessary."""
+    if not config.get("sb_normalization_enabled", False):
+        return original_filepath
+    
+    target_db = float(config.get("sb_normalization_db", 89.0))
+    # Soundpad uses 89 dB SPL as default, which maps roughly to -14 dBFS digitally.
+    target_dbfs = target_db - 103.0 
+    
+    filename = os.path.basename(original_filepath)
+    # create a hash of the filepath and the target db to avoid collisions and allow changing target db
+    import hashlib
+    hash_str = hashlib.md5(f"{original_filepath}_{target_dbfs}".encode()).hexdigest()[:8]
+    cache_filename = f"{hash_str}_{filename}"
+    cache_filepath = os.path.join(NORMALIZED_SOUNDS_CACHE_DIR, cache_filename)
+    
+    try:
+        # Check if cache exists and is newer than original
+        if os.path.exists(cache_filepath) and os.path.getmtime(cache_filepath) >= os.path.getmtime(original_filepath):
+            return cache_filepath
+            
+        logger.info(f"Normalizing '{filename}' to {target_dbfs} dBFS...")
+        audio: AudioSegment = AudioSegment.from_file(original_filepath) # type: ignore
+        change_in_dbfs = target_dbfs - audio.dBFS # type: ignore
+        normalized_audio = audio.apply_gain(change_in_dbfs) # type: ignore
+        
+        # Determine format for export
+        ext = os.path.splitext(filename)[1].lower().replace('.', '')
+        if ext == 'm4a': ext = 'mp4'
+        if ext not in ['mp3', 'wav', 'ogg', 'flac', 'mp4']:
+            ext = 'wav'
+            cache_filepath = cache_filepath + '.wav'
+            
+        normalized_audio.export(cache_filepath, format=ext)
+        return cache_filepath
+    except Exception as e:
+        logger.error(f"Failed to normalize audio '{filename}': {e}")
+        return original_filepath
 
 
 def get_local_sounds() -> list[dict]:
@@ -819,6 +864,21 @@ async def _do_pipewire_route() -> None:
             node_name = line.split(":")[0]
             capture_source_nodes.add(node_name)
 
+    # Use pw-dump to collect valid application nodes (those that have a real application.name)
+    # This filters out internal processing nodes of EasyEffects, NoiseTorch, and loopbacks
+    valid_apps: set[str] = set()
+    try:
+        dump_out = (await asyncio.to_thread(_run, ["pw-dump"])).decode()
+        import json
+        dump_data = json.loads(dump_out)
+        for obj in dump_data:
+            if obj.get("type") == "PipeWire:Interface:Node":
+                props = obj.get("info", {}).get("props", {})
+                if props.get("application.name"):
+                    valid_apps.add(props.get("node.name", ""))
+    except Exception as e:
+        logger.error(f"Failed to parse pw-dump: {e}")
+
     # Pass 2: walk pw-link -l forward links (|-> only, ignore |<- lines).
     # Collect destinations of capture-source links whose dest node is NOT
     # itself a capture source — those are the final endpoint apps.
@@ -836,7 +896,28 @@ async def _do_pipewire_route() -> None:
             dest_node = dest.split(":")[0]
             if ("Dashboard-Soundboard" not in dest
                     and dest_node not in capture_source_nodes):
+                
+                # Exclude intermediary nodes (EasyEffects, loopbacks)
+                # by requiring them to be in valid_apps
+                if valid_apps and dest_node not in valid_apps:
+                    continue
+                    
                 app_ports.append(dest)
+
+    # Disconnect any rogue links from the soundboard to invalid apps (like EasyEffects internals)
+    # This cleans up old links created before the router was fixed.
+    current_src_port = ""
+    for line in pw_links.splitlines():
+        if not line.startswith((" ", "\t")):
+            current_src_port = line.strip()
+        elif current_src_port.startswith("Dashboard-Soundboard") and "monitor" in current_src_port and "|->" in line:
+            dest_port = line.split("|->")[1].strip()
+            # Preserve loopbacks so local audio feedback works (via module-loopback)
+            if dest_port not in app_ports and "loopback" not in dest_port:
+                await asyncio.to_thread(
+                    subprocess.run, ["pw-link", "-d", current_src_port, dest_port],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
+                )
 
     for i, dest_port in enumerate(app_ports):
         src = sb_FL if i % 2 == 0 else sb_FR
@@ -953,7 +1034,7 @@ async def lifespan(app: FastAPI):
             # We must specify sink= explicitly; without it PipeWire picks the default
             # sink at load-time which may be a virtual sink (EasyEffects, etc.).
             mods_out = (await _out(["pactl", "list", "short", "modules"])).decode()
-            if "sink=" + real_sink not in mods_out and real_sink:
+            if config.get("soundboard_feedback", True) and "sink=" + real_sink not in mods_out and real_sink:
                 await _run(["pactl", "load-module", "module-loopback",
                             "source=Dashboard-Soundboard.monitor",
                             f"sink={real_sink}",
@@ -1358,6 +1439,38 @@ async def websocket_endpoint(ws: WebSocket):
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     )
 
+            # ── soundboard feedback toggle ──────────────────────────────────────
+            elif mtype == "toggle_sb_feedback":
+                if get_os_target() == "linux":
+                    with CONFIG_LOCK:
+                        current = config.get("soundboard_feedback", True)
+                        new_val = not current
+                        config["soundboard_feedback"] = new_val
+                        save_config()
+                    
+                    def _toggle_feedback(enable: bool):
+                        try:
+                            mods_out = subprocess.check_output(["pactl", "list", "short", "modules"]).decode()
+                            if enable:
+                                if "source=Dashboard-Soundboard.monitor" not in mods_out:
+                                    real_sink = subprocess.check_output(["pactl", "get-default-sink"]).decode().strip()
+                                    subprocess.run(["pactl", "load-module", "module-loopback",
+                                                    "source=Dashboard-Soundboard.monitor",
+                                                    f"sink={real_sink}",
+                                                    "sink_dont_move=1",
+                                                    "source_dont_move=1"], check=True)
+                            else:
+                                for line in mods_out.splitlines():
+                                    if "source=Dashboard-Soundboard.monitor" in line and "module-loopback" in line:
+                                        mod_id = line.split()[0]
+                                        subprocess.run(["pactl", "unload-module", mod_id], check=True)
+                        except Exception as e:
+                            logger.error(f"Failed to toggle soundboard feedback: {e}")
+                    
+                    await asyncio.to_thread(_toggle_feedback, new_val)
+                    # Send a targeted update instead of a full config_sync to avoid UI resets
+                    await ws_manager.broadcast({"type": "sb_feedback_state", "data": new_val})
+
             # ── speedtest ──────────────────────────────────────────────────────
             elif mtype == "run_speedtest":
                 asyncio.create_task(_run_speedtest())
@@ -1468,7 +1581,8 @@ async def _handle_action(ws: WebSocket, action: str):
         filename = action.removeprefix("local_play_")
         filepath = resolve_sound_path(filename)
         if filepath:
-            await asyncio.to_thread(AudioSystem.play_local_sound, filepath)
+            play_path = get_normalized_sound_path(filepath)
+            await asyncio.to_thread(AudioSystem.play_local_sound, play_path)
             # Immediately wire monitor ports into capture consumers.
             # pw-play needs ~0.3 s to register its ports in the PipeWire graph
             # before pw-link can see them, so we delay the trigger slightly.
