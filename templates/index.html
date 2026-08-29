@@ -4323,13 +4323,6 @@
             }
         }, 1000);
 
-        // Hide desktop-specific buttons on tablet/browser
-        setTimeout(() => {
-            if (!window.pywebview) {
-                const btnShut = document.getElementById('btn-shutdown');
-                if (btnShut) btnShut.style.display = 'none';
-            }
-        }, 500);
     </script>
 </body>
 
