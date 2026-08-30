@@ -42,7 +42,7 @@ class DiscordIPC:
         self.needs_reauth   = False
         self.voice_supported = False
         self.vesktop_ipc_warning = False
-        self.voice_state    = {"mute": False, "deaf": False}
+        self.voice_state    = {"mute": False, "deaf": False, "video": False, "screenshare": False}
         self.voice_channel: dict | None = None
         self.pre_deafen_mute = False
 
@@ -248,7 +248,8 @@ class DiscordIPC:
                 self.on_auth_error(self.get_auth_url())
             return
 
-        for evt in ("VOICE_SETTINGS_UPDATE", "VOICE_CHANNEL_SELECT"):
+        for evt in ("VOICE_SETTINGS_UPDATE", "VOICE_CHANNEL_SELECT",
+                    "VIDEO_STATE_UPDATE", "SCREENSHARE_STATE_UPDATE"):
             self.send(1, {"cmd": "SUBSCRIBE", "evt": evt, "args": {}, "nonce": str(uuid.uuid4())})
         self.send(1, {"cmd": "GET_VOICE_SETTINGS",        "args": {}, "nonce": "GET_VOICE"})
         self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
@@ -322,6 +323,19 @@ class DiscordIPC:
             self.voice_supported = True
             if "mute" in data: self.voice_state["mute"] = data["mute"]
             if "deaf" in data: self.voice_state["deaf"] = data["deaf"]
+            self._trigger()
+            return
+
+        # Video / screenshare state
+        if evt == "VIDEO_STATE_UPDATE":
+            # data: {video_enabled: bool, ...}
+            self.voice_state["video"] = bool(data.get("video_enabled", data.get("enabled", False)))
+            self._trigger()
+            return
+
+        if evt == "SCREENSHARE_STATE_UPDATE":
+            # data: {screenshare_enabled: bool, ...}
+            self.voice_state["screenshare"] = bool(data.get("screenshare_enabled", data.get("enabled", False)))
             self._trigger()
             return
 
@@ -410,3 +424,15 @@ class DiscordIPC:
         if mute is not None: args["mute"] = mute
         if deaf is not None: args["deaf"] = deaf
         self.send(1, {"cmd": "SET_VOICE_SETTINGS", "args": args, "nonce": str(uuid.uuid4())})
+
+    def toggle_video(self) -> None:
+        """Toggle the local camera on/off. Requires rpc.video.write scope."""
+        if not self.connected:
+            return
+        self.send(1, {"cmd": "TOGGLE_VIDEO", "args": {}, "nonce": str(uuid.uuid4())})
+
+    def toggle_screenshare(self) -> None:
+        """Open the screenshare picker (or stop if already sharing). Requires rpc.screenshare.write scope."""
+        if not self.connected:
+            return
+        self.send(1, {"cmd": "TOGGLE_SCREENSHARE", "args": {}, "nonce": str(uuid.uuid4())})

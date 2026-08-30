@@ -735,6 +735,8 @@ async def hardware_loop():
             if disc_ipc_instance.connected:
                 disc_state["mute"] = getattr(disc_ipc_instance, 'voice_state', {}).get('mute', False)
                 disc_state["deaf"] = getattr(disc_ipc_instance, 'voice_state', {}).get('deaf', False)
+                disc_state["video"] = getattr(disc_ipc_instance, 'voice_state', {}).get('video', False)
+                disc_state["screenshare"] = getattr(disc_ipc_instance, 'voice_state', {}).get('screenshare', False)
                 disc_state["voice_channel"] = disc_ipc_instance.voice_channel
 
         new_payload = {
@@ -1738,8 +1740,14 @@ async def _handle_action(ws: WebSocket, action: str):
                                         "nonce": str(uuid.uuid4())})
         return
 
-    # disc_cam / disc_screen — placeholders
-    if action in ("disc_cam", "disc_screen"):
+    if action == "disc_cam":
+        if disc_ipc_instance and disc_ipc_instance.connected:
+            disc_ipc_instance.toggle_video()
+        return
+
+    if action == "disc_screen":
+        if disc_ipc_instance and disc_ipc_instance.connected:
+            disc_ipc_instance.toggle_screenshare()
         return
 
     # ── system apps ───────────────────────────────────────────────────────────

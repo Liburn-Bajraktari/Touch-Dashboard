@@ -354,6 +354,15 @@
             mask-image: linear-gradient(to bottom right, black calc(50% - 2.5px), transparent calc(50% - 2.5px), transparent calc(50% + 2.5px), black calc(50% + 2.5px));
         }
 
+        /* Camera / screenshare active state — green glow */
+        #btn-disc-cam.vid-active,
+        #btn-disc-screen.vid-active {
+            background: linear-gradient(180deg, #4ade80, #16a34a);
+            box-shadow: 0 0 18px rgba(74, 222, 128, 0.45);
+            color: #051a0d;
+            border-color: transparent;
+        }
+
         .btn-add {
             opacity: 0.4;
             transition: opacity 0.2s, transform 0.12s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s;
@@ -2005,9 +2014,9 @@
                                 style="width: 1.8rem; height: 1.8rem;"></i></button>
                         <button class="btn" id="btn-disc-deaf" onclick="act('disc_deaf')"><i data-lucide="headphones"
                                 style="width: 1.8rem; height: 1.8rem;"></i></button>
-                        <button class="btn" onclick="act('disc_cam')"><i data-lucide="video"
+                        <button class="btn" id="btn-disc-cam" onclick="act('disc_cam')"><i data-lucide="video"
                                 style="width: 1.8rem; height: 1.8rem;"></i></button>
-                        <button class="btn" onclick="act('disc_screen')"><i data-lucide="monitor-up"
+                        <button class="btn" id="btn-disc-screen" onclick="act('disc_screen')"><i data-lucide="monitor-up"
                                 style="width: 1.8rem; height: 1.8rem;"></i></button>
                     </div>
                 </div>
@@ -2363,6 +2372,7 @@
         let pendingSysData = null;
         let spotifyLock = 0;
         let discordLock = 0;
+        let discordVidLock = 0;
         let audioLockSpk = 0;
         let audioLockMic = 0;
         let lastAudioState = { spk: { vol: 0, muted: false }, mic: { vol: 0, muted: false } };
@@ -2404,6 +2414,8 @@
             btnDiscAuth: document.getElementById('btn-disc-auth'),
             btnDiscMute: document.getElementById('btn-disc-mute'),
             btnDiscDeaf: document.getElementById('btn-disc-deaf'),
+            btnDiscCam:  document.getElementById('btn-disc-cam'),
+            btnDiscScreen: document.getElementById('btn-disc-screen'),
             discGroup: document.getElementById('disc-connected-group'),
             discWarning: document.getElementById('disc-warning-container'),
             discVcContainer: document.getElementById('disc-vc-container'),
@@ -3162,6 +3174,10 @@
                                 const visuallyMuted = d.discord.mute || d.discord.deaf;
                                 if (dom.btnDiscMute) dom.btnDiscMute.classList.toggle('muted', visuallyMuted);
                                 if (dom.btnDiscDeaf) dom.btnDiscDeaf.classList.toggle('muted', d.discord.deaf);
+                            }
+                            if (Date.now() > discordVidLock) {
+                                if (dom.btnDiscCam)    dom.btnDiscCam.classList.toggle('vid-active',    !!d.discord.video);
+                                if (dom.btnDiscScreen) dom.btnDiscScreen.classList.toggle('vid-active', !!d.discord.screenshare);
                             }
                         } else {
                             discordDisconnectCount++;
@@ -4329,6 +4345,14 @@
                         }
                     }
                 }
+            }
+            else if (a === 'disc_cam') {
+                discordVidLock = Date.now() + 1500;
+                if (dom.btnDiscCam) dom.btnDiscCam.classList.toggle('vid-active');
+            }
+            else if (a === 'disc_screen') {
+                discordVidLock = Date.now() + 1500;
+                if (dom.btnDiscScreen) dom.btnDiscScreen.classList.toggle('vid-active');
             }
 
             sendSocket('action', a);
