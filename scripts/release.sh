@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-# Touch Dashboard Codeberg Releaser
+# Touch Dashboard GitHub Releaser
 
-REPO_OWNER="liburnb"
+REPO_OWNER="Liburn-Bajraktari"
 REPO_NAME="Touch-Dashboard"
-TOKEN_FILE="$HOME/.config/touch-dashboard/.codeberg_token"
+TOKEN_FILE="$HOME/.config/touch-dashboard/.github_token"
 
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
@@ -53,8 +53,9 @@ if [ -f "$TOKEN_FILE" ]; then
     # Clean up token in case it has trailing newlines/carriage returns
     TOKEN=$(echo "$TOKEN" | tr -d '\r\n')
 else
-    echo -e "${CYAN}First time setup: Please enter your Codeberg Personal Access Token.${NC}"
-    echo -e "You can generate one at: https://codeberg.org/user/settings/applications"
+    echo -e "${CYAN}First time setup: Please enter your GitHub Personal Access Token.${NC}"
+    echo -e "You can generate one at: https://github.com/settings/tokens"
+    echo -e "Required scopes: ${YELLOW}repo${NC} (or fine-grained: Contents + Releases write)"
     read -sp "Token: " TOKEN
     echo
     
@@ -82,14 +83,15 @@ git add -A
 git commit -m "Release: $VERSION" || true
 git push origin main || true
 
-echo -e "${CYAN}Creating Release $VERSION on Codeberg...${NC}"
+echo -e "${CYAN}Creating Release $VERSION on GitHub...${NC}"
 
 # Use a temporary file to avoid pipe issues
 TMP_FILE=$(mktemp)
 JSON_PAYLOAD=$(python3 -c "import sys, json; print(json.dumps({'tag_name': sys.argv[1], 'name': sys.argv[1], 'body': sys.argv[2]}))" "$VERSION" "$COMMENT")
 
-HTTP_CODE=$(curl -s -w "%{http_code}" -o "$TMP_FILE" -X POST "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" \
-    -H "Authorization: token $TOKEN" \
+HTTP_CODE=$(curl -s -w "%{http_code}" -o "$TMP_FILE" -X POST "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Accept: application/vnd.github+json" \
     -H "Content-Type: application/json" \
     -d "$JSON_PAYLOAD")
 
@@ -99,10 +101,13 @@ rm -f "$TMP_FILE"
 if [ "$HTTP_CODE" == "201" ]; then
     echo -e "${GREEN}Successfully created release $VERSION!${NC}"
     RELEASE_ID=$(echo "$BODY" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('id', ''))" 2>/dev/null)
-elif [ "$HTTP_CODE" == "409" ]; then
-    echo -e "${YELLOW}Release $VERSION already exists on Codeberg!${NC}"
-    EXISTING=$(curl -s -X GET "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION" -H "Authorization: token $TOKEN")
+    UPLOAD_URL=$(echo "$BODY" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('upload_url', '').split('{')[0])" 2>/dev/null)
+elif [ "$HTTP_CODE" == "422" ]; then
+    echo -e "${YELLOW}Release $VERSION already exists on GitHub!${NC}"
+    EXISTING=$(curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION")
     RELEASE_ID=$(echo "$EXISTING" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('id', ''))" 2>/dev/null)
+    UPLOAD_URL=$(echo "$EXISTING" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('upload_url', '').split('{')[0])" 2>/dev/null)
 else
     echo -e "${RED}Failed to create release (HTTP $HTTP_CODE)${NC}"
     echo "$BODY"
@@ -174,9 +179,11 @@ fi
 if [ -n "$APK_FILE" ]; then
     echo -e "${CYAN}Uploading $APK_FILE to release...${NC}"
     
-    UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets" \
-        -H "Authorization: token $TOKEN" \
-        -F "attachment=@$APK_FILE")
+    UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${UPLOAD_URL}?name=$(basename "$APK_FILE")" \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -H "Content-Type: application/vnd.android.package-archive" \
+        --data-binary "@$APK_FILE")
     
     U_HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
     if [ "$U_HTTP_CODE" == "201" ]; then

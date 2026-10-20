@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
 # Touch Dashboard Linux Installer
-# Run via: bash -c "$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)" < /dev/tty
+# Run via: bash -c "$(curl -fsSL https://raw.githubusercontent.com/liburnb/Touch-Dashboard/main/scripts/setup.sh)" < /dev/tty
 
 set -e
 
-REPO_OWNER="liburnb"
+REPO_OWNER="Liburn-Bajraktari"
 REPO_NAME="Touch-Dashboard"
 INSTALL_DIR="${TARGET_DIR:-$HOME/.local/share/$REPO_NAME}"
 DESKTOP_ENTRY_DIR="$HOME/.local/share/applications"
-ZIP_URL="https://codeberg.org/$REPO_OWNER/$REPO_NAME/archive/main.tar.gz"
-API_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME"
+ZIP_URL="https://github.com/$REPO_OWNER/$REPO_NAME/archive/refs/heads/main.tar.gz"
+API_URL="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME"
 
 # Colors
 CYAN='\033[0;36m'
@@ -98,7 +98,7 @@ install_update() {
         install_deps
     fi
 
-    write_color "[*] Downloading latest source code from Codeberg..." "$CYAN"
+    write_color "[*] Downloading latest source code from GitHub..." "$CYAN"
     TEMP_DIR=$(mktemp -d)
     TEMP_TAR="$TEMP_DIR/TouchDashboard_main.tar.gz"
     curl -L -# "$ZIP_URL" -o "$TEMP_TAR"
@@ -245,11 +245,11 @@ uninstall() {
 
 get_apk() {
     echo -e "\n${CYAN}=== Download Android APK ===${NC}"
-    write_color "[*] Fetching latest release from Codeberg API..." "$CYAN"
+    write_color "[*] Fetching latest release from GitHub API..." "$CYAN"
     
-    LATEST_JSON=$(curl -s "$API_URL/releases")
+    LATEST_JSON=$(curl -s -H "Accept: application/vnd.github+json" "$API_URL/releases")
     if echo "$LATEST_JSON" | grep -q '"message": "Not Found"'; then
-        write_color "  [-] No releases found on Codeberg." "$YELLOW"
+        write_color "  [-] No releases found on GitHub." "$YELLOW"
         read -p "Press Enter to return to menu..."
         return
     fi

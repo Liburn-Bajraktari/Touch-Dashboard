@@ -4,7 +4,7 @@ pkgver=0.1.2
 pkgrel=1
 pkgdesc="Touch-friendly FastAPI system dashboard with a PyWebView desktop wrapper"
 arch=('any')
-url="https://codeberg.org/liburnb/Touch-Dashboard"
+url="https://github.com/Liburn-Bajraktari/Touch-Dashboard"
 license=('MIT')
 depends=(
   'python'
@@ -30,11 +30,12 @@ optdepends=(
   'pulseaudio: pactl compatibility command'
   'appmenu-gtk-module: suppress pywebview GTK menu warning'
 )
-source=("https://codeberg.org/liburnb/Touch-Dashboard/archive/v${pkgver}.tar.gz")
+source=("https://github.com/Liburn-Bajraktari/Touch-Dashboard/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('3687056be13f67a441834aa067c747a3a27c8bd7d3abdb07e6eab440a8bcc933')
 
 package() {
-  cd "$srcdir/touch-dashboard"
+  # GitHub archives extract as Touch-Dashboard-<version>/
+  cd "$srcdir/Touch-Dashboard-${pkgver}"
 
   install -dm755 "$pkgdir/opt/touch-dashboard"
   install -Dm755 *.py "$pkgdir/opt/touch-dashboard/"

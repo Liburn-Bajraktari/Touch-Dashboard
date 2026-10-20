@@ -1,0 +1,99 @@
+name: Auto Release & AUR Publish
+
+on:
+  push:
+    branches: [main]
+  create:
+    tags:
+      - 'v*'
+
+jobs:
+  # ── Create GitHub release when commit message starts with "Release: vX.Y.Z" ──
+  auto-release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.head_commit.message, 'Release:')
+    permissions:
+      contents: write
+    steps:
+      - name: Extract version from commit message
+        id: version
+        run: |
+          VERSION=$(echo "${{ github.event.head_commit.message }}" | sed 's/^Release: //')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = "${{ steps.version.outputs.version }}";
+            try {
+              await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: version,
+                name: version,
+                body: "Automated desktop release triggered by push to main.",
+                draft: false,
+                prerelease: false,
+              });
+              core.info(`Created release ${version}`);
+            } catch (e) {
+              if (e.status === 422) {
+                core.warning(`Release ${version} already exists, skipping.`);
+              } else {
+                throw e;
+              }
+            }
+
+  # ── Publish to AUR on version tag push ────────────────────────────────────────
+  publish-aur:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    container:
+      image: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm git openssh sudo pacman-contrib
+
+      - name: Setup build user (makepkg cannot run as root)
+        run: |
+          useradd -m builduser
+          echo "builduser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builduser
+          chown -R builduser:builduser .
+
+      - name: Setup SSH for AUR access
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p /home/builduser/.ssh
+          echo "$AUR_SSH_PRIVATE_KEY" > /home/builduser/.ssh/id_rsa
+          chmod 600 /home/builduser/.ssh/id_rsa
+          ssh-keyscan aur.archlinux.org >> /home/builduser/.ssh/known_hosts
+          chown -R builduser:builduser /home/builduser/.ssh
+
+      - name: Configure Git
+        run: |
+          sudo -u builduser git config --global user.name "GitHub Actions"
+          sudo -u builduser git config --global user.email "actions@github.com"
+
+      - name: Update PKGBUILD version
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+      - name: Generate checksums and .SRCINFO
+        run: |
+          sudo -u builduser bash -c "updpkgsums"
+          sudo -u builduser bash -c "makepkg --printsrcinfo > .SRCINFO"
+
+      - name: Push to AUR
+        run: |
+          sudo -u builduser git clone ssh://aur@aur.archlinux.org/touch-dashboard.git /tmp/aur-repo
+          sudo -u builduser cp PKGBUILD .SRCINFO /tmp/aur-repo/
+          cd /tmp/aur-repo
+          sudo -u builduser git add PKGBUILD .SRCINFO
+          sudo -u builduser git commit -m "Release ${GITHUB_REF_NAME}" || true
+          sudo -u builduser git push origin master

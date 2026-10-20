@@ -52,7 +52,12 @@ import importlib.util
 import site
 import subprocess
 import webbrowser
-from pydub import AudioSegment
+try:
+    from pydub import AudioSegment as _AudioSegment
+    _PYDUB_AVAILABLE = True
+except ImportError:
+    _AudioSegment = None  # type: ignore
+    _PYDUB_AVAILABLE = False
 
 # ─── pywebview storage path (before any webview import) ──────────────────────
 # Disable pywebview's private mode so the WebSocket auth token persists
@@ -460,6 +465,10 @@ def get_normalized_sound_path(original_filepath: str) -> str:
     """Returns the path to the cached normalized sound file, generating it if necessary."""
     if not config.get("sb_normalization_enabled", False):
         return original_filepath
+
+    if not _PYDUB_AVAILABLE:
+        logger.warning("pydub is not installed — sound normalization disabled. Run: pip install 'pydub>=0.25.1' audioop-lts")
+        return original_filepath
     
     target_db = float(config.get("sb_normalization_db", 89.0))
     # Soundpad uses 89 dB SPL as default, which maps roughly to -14 dBFS digitally.
@@ -478,7 +487,7 @@ def get_normalized_sound_path(original_filepath: str) -> str:
             return cache_filepath
             
         logger.info(f"Normalizing '{filename}' to {target_dbfs} dBFS...")
-        audio: AudioSegment = AudioSegment.from_file(original_filepath) # type: ignore
+        audio: _AudioSegment = _AudioSegment.from_file(original_filepath) # type: ignore
         change_in_dbfs = target_dbfs - audio.dBFS # type: ignore
         normalized_audio = audio.apply_gain(change_in_dbfs) # type: ignore
         
@@ -961,13 +970,13 @@ async def pipewire_auto_router():
 async def lifespan(app: FastAPI):
     os.makedirs(SOUNDS_DIR, exist_ok=True)
 
-    # Check for updates on Codeberg
+    # Check for updates on GitHub
     async def check_for_updates():
         global update_available, latest_version, update_apk_url, update_notes
         try:
             def fetch_releases():
-                url = "https://codeberg.org/api/v1/repos/liburnb/Touch-Dashboard/releases"
-                req = urllib.request.Request(url, headers={"User-Agent": f"TouchDashboard/{VERSION}"})
+                url = "https://api.github.com/repos/Liburn-Bajraktari/Touch-Dashboard/releases"
+                req = urllib.request.Request(url, headers={"User-Agent": f"TouchDashboard/{VERSION}", "Accept": "application/vnd.github+json"})
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     return _loads(resp.read())
             
@@ -1222,9 +1231,9 @@ async def api_update():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
     if get_os_target() == "linux":
-        cmd = f"export AUTO_UPDATE=1 BACKGROUND_UPDATE=1 TARGET_DIR='{current_dir}'; bash -c \"$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)\""
+        cmd = f"export AUTO_UPDATE=1 BACKGROUND_UPDATE=1 TARGET_DIR='{current_dir}'; bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Liburn-Bajraktari/Touch-Dashboard/main/scripts/setup.sh)\""
     else:
-        cmd = f"powershell -ExecutionPolicy Bypass -Command \"$env:AUTO_UPDATE=1; $env:BACKGROUND_UPDATE=1; $env:TARGET_DIR='{current_dir}'; irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex\""
+        cmd = f"powershell -ExecutionPolicy Bypass -Command \"$env:AUTO_UPDATE=1; $env:BACKGROUND_UPDATE=1; $env:TARGET_DIR='{current_dir}'; irm https://raw.githubusercontent.com/Liburn-Bajraktari/Touch-Dashboard/main/scripts/install.ps1 | iex\""
     
     # Run in background and stream output to WS
     async def run_update():

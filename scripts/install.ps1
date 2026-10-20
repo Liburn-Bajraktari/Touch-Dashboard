@@ -3,7 +3,7 @@ param (
 )
 
 $ErrorActionPreference = "Stop"
-$RepoOwner = "liburnb"
+$RepoOwner = "Liburn-Bajraktari"
 $RepoName = "Touch-Dashboard"
 if ($env:TARGET_DIR) {
     $InstallDir = $env:TARGET_DIR
@@ -11,8 +11,8 @@ if ($env:TARGET_DIR) {
     $InstallDir = "$env:LOCALAPPDATA\$RepoName"
 }
 $VbsLauncher = "$InstallDir\TouchDashboard.vbs"
-$ZipUrl = "https://codeberg.org/$RepoOwner/$RepoName/archive/main.zip"
-$ApiUrl = "https://codeberg.org/api/v1/repos/$RepoOwner/$RepoName"
+$ZipUrl = "https://github.com/$RepoOwner/$RepoName/archive/refs/heads/main.zip"
+$ApiUrl = "https://api.github.com/repos/$RepoOwner/$RepoName"
 $DesktopPath = [Environment]::GetFolderPath("Desktop")
 $StartMenuPath = [Environment]::GetFolderPath("Programs")
 
@@ -74,7 +74,7 @@ function Install-Update {
 
     Find-Python
 
-    Write-Color "[*] Downloading latest source code from Codeberg..." "Cyan"
+    Write-Color "[*] Downloading latest source code from GitHub..." "Cyan"
     $tempZip = "$env:TEMP\TouchDashboard_main.zip"
     Invoke-WebRequest -Uri $ZipUrl -OutFile $tempZip
     
@@ -259,11 +259,12 @@ function Uninstall-App {
 
 function Get-APK {
     Write-Color "`n=== Download Android APK ===" "Cyan"
-    Write-Color "[*] Fetching latest release from Codeberg API..." "Cyan"
+    Write-Color "[*] Fetching latest release from GitHub API..." "Cyan"
     try {
-        $releases = Invoke-RestMethod -Uri "$ApiUrl/releases" -ErrorAction Stop
+        $headers = @{ "Accept" = "application/vnd.github+json" }
+        $releases = Invoke-RestMethod -Uri "$ApiUrl/releases" -Headers $headers -ErrorAction Stop
         if ($releases.Count -eq 0) {
-            Write-Color "  [-] No releases found on Codeberg." "Red"
+            Write-Color "  [-] No releases found on GitHub." "Red"
             Read-Host "Press Enter to return to menu..."
             return
         }
@@ -299,7 +300,7 @@ function Get-APK {
         if ($_.Exception.Response.StatusCode -eq "NotFound") {
             Write-Color "  [-] No releases have been published to this repository yet." "Yellow"
         } else {
-            Write-Color "  [-] Failed to fetch release from Codeberg: $($_.Exception.Message)" "Red"
+            Write-Color "  [-] Failed to fetch release from GitHub: $($_.Exception.Message)" "Red"
         }
     }
     Read-Host "Press Enter to return to menu..."
