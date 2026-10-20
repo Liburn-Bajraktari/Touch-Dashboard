@@ -280,9 +280,9 @@ def launch_desktop(
     # ── Linux: single-instance via lockfile ────────────────────────────────────
     elif sys.platform.startswith("linux"):
         # Force X11 backend for GTK on Linux to prevent WebKit2GTK Wayland crashes (Error 71)
-        # when using frameless/transparent windows with easy_drag
+        # when using frameless windows with easy_drag
         os.environ["GDK_BACKEND"] = "x11"
-        # Fix NVIDIA + XWayland GBM buffer allocation crash ("Failed to create GBM buffer")
+        # Fix NVIDIA + XWayland GBM buffer allocation crash and compositor CPU bottleneck
         os.environ["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
         os.environ["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
         if not _acquire_linux_lock(data_dir, port):
@@ -338,7 +338,7 @@ def launch_desktop(
         width=1280,
         height=800,
         frameless=True,
-        transparent=True,
+        transparent=False,
         easy_drag=True,
         background_color="#070b12",
     )

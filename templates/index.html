@@ -105,12 +105,10 @@
         }
 
         .glass {
-            background: linear-gradient(180deg, rgba(18, 27, 43, 0.86), rgba(9, 14, 24, 0.76));
+            background: linear-gradient(180deg, rgba(18, 27, 43, 0.94), rgba(9, 14, 24, 0.88));
             border: 1px solid var(--border);
             border-radius: var(--radius);
             box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-            backdrop-filter: blur(18px) saturate(1.15);
-            -webkit-backdrop-filter: blur(18px) saturate(1.15);
         }
 
         .top-bar {
@@ -486,7 +484,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            transform: translate3d(0, 100%, 0);
+            transform: translateY(100%);
             background: linear-gradient(0deg, #0891b2 0%, var(--accent) 100%);
             box-shadow: 0 -5px 15px var(--accent-glow);
             pointer-events: none;
@@ -617,10 +615,8 @@
             bottom: -4px;
             border-radius: 50%;
             background: radial-gradient(circle, rgba(34, 211, 238, 0.4) 0%, transparent 70%);
-            animation: pulse-ring 2.5s infinite alternate ease-in-out;
+            opacity: 0.7;
             pointer-events: none;
-            will-change: opacity;
-            transform: translateZ(0);
         }
 
         .audio-hub-ring::after {
@@ -699,9 +695,7 @@
             content: "";
             position: absolute;
             inset: 0;
-            background: rgba(10, 15, 25, 0.5);
-            backdrop-filter: blur(18px) saturate(1.15);
-            -webkit-backdrop-filter: blur(18px) saturate(1.15);
+            background: rgba(10, 15, 25, 0.82);
             z-index: -1;
             pointer-events: none;
             border-radius: inherit;
@@ -923,9 +917,7 @@
             display: inline-block;
             white-space: nowrap;
             width: auto;
-            backface-visibility: hidden;
-            perspective: 1000px;
-            transform: translate3d(0, 0, 0);
+            transform: translateX(0);
             -webkit-font-smoothing: antialiased;
             will-change: transform;
         }
@@ -2515,9 +2507,10 @@
 
                     if (d.req_apk_version && apkVersion && isVersionOutdated(apkVersion, d.req_apk_version)) {
                         document.getElementById('update-title').innerText = "APK Update Required";
-                        const url = d.update_apk_url || "https://codeberg.org/liburnb/Touch-Dashboard/releases";
+                        const url = d.update_apk_url || "https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases";
                         document.getElementById('update-message').innerHTML = `Current desktop version requires APK version ${d.req_apk_version} or above. You are on ${apkVersion}.<br><br>If the button below fails to open your browser, please copy this link:<br><br><a href="${url}" target="_blank" style="color: var(--accent); word-break: break-all;">${url}</a>`;
-                        document.getElementById('update-dismiss-btn').style.display = 'none'; // Force update
+                        document.getElementById('update-dismiss-btn').innerText = "Dismiss";
+                        document.getElementById('update-dismiss-btn').style.display = 'block';
 
                         const btn = document.getElementById('update-download-btn');
                         btn.innerText = "Download via Browser";
@@ -2556,7 +2549,7 @@
                             }, 1000);
                         };
                         document.getElementById('update-modal').classList.add('active');
-                    } else if (d.update_available && !document.getElementById('update-modal').classList.contains('active')) {
+                    } else if (!isCapacitorRuntime() && d.update_available && !document.getElementById('update-modal').classList.contains('active')) {
                         document.getElementById('update-title').innerText = "Desktop Update Available";
                         document.getElementById('update-message').innerText = `Version ${d.latest_version} is available. Update now?`;
                         
@@ -2568,13 +2561,15 @@
                             notesContainer.style.display = 'none';
                         }
                         
+                        document.getElementById('update-dismiss-btn').innerText = "Dismiss";
                         document.getElementById('update-dismiss-btn').style.display = 'block';
                         document.getElementById('update-download-btn').onclick = () => {
                             isUpdating = true;
                             fetch('/api/update', { method: 'POST' });
                             document.getElementById('update-message').innerText = "Updating... The server will restart shortly.";
                             document.getElementById('update-download-btn').style.display = 'none';
-                            document.getElementById('update-dismiss-btn').style.display = 'none';
+                            document.getElementById('update-dismiss-btn').innerText = "Close";
+                            document.getElementById('update-dismiss-btn').style.display = 'block';
                         };
                         document.getElementById('update-modal').classList.add('active');
                     }
@@ -3096,9 +3091,9 @@
                                         const totalDurationMs = (activeDuration / 0.8) * 1000;
                                         
                                         wrapNode._marqueeAnim = wrapNode.animate([
-                                            { transform: 'translate3d(0px, 0px, 0px)', offset: 0 },
-                                            { transform: 'translate3d(0px, 0px, 0px)', offset: 0.2 },
-                                            { transform: `translate3d(-${intWidth}px, 0px, 0px)`, offset: 1 }
+                                            { transform: 'translateX(0px)', offset: 0 },
+                                            { transform: 'translateX(0px)', offset: 0.2 },
+                                            { transform: `translateX(-${intWidth}px)`, offset: 1 }
                                         ], {
                                             duration: totalDurationMs,
                                             iterations: Infinity,
@@ -3990,20 +3985,24 @@
             function startDrag(e) {
                 if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
                 isDragging = true;
+                document.addEventListener('mousemove', drag, { passive: false });
+                document.addEventListener('touchmove', drag, { passive: false });
+                document.addEventListener('mouseup', endDrag);
+                document.addEventListener('touchend', endDrag);
                 drag(e);
             }
             function endDrag() {
                 if (isDragging) {
                     isDragging = false;
+                    document.removeEventListener('mousemove', drag);
+                    document.removeEventListener('touchmove', drag);
+                    document.removeEventListener('mouseup', endDrag);
+                    document.removeEventListener('touchend', endDrag);
                     sbVolCommit(currentSbVol);
                 }
             }
             track.addEventListener('mousedown', startDrag);
             track.addEventListener('touchstart', startDrag, { passive: false });
-            document.addEventListener('mousemove', drag, { passive: false });
-            document.addEventListener('touchmove', drag, { passive: false });
-            document.addEventListener('mouseup', endDrag);
-            document.addEventListener('touchend', endDrag);
         }, 100);
 
         function checkSpInput() {
@@ -4154,7 +4153,7 @@
 
             function set(pct, isMuted = false) {
                 currentPct = isMuted ? 0 : pct;
-                f.style.transform = `translate3d(0, ${100 - currentPct}%, 0)`;
+                f.style.transform = `translateY(${100 - currentPct}%)`;
                 if (isMuted) {
                     if (v.innerText !== 'MUTED') {
                         v.innerText = 'MUTED';
@@ -4219,12 +4218,20 @@
                 dCheck(true);
                 f.style.willChange = 'transform';
                 applyOptimisticUnmute();
+                document.addEventListener('mousemove', drag, { passive: false });
+                document.addEventListener('touchmove', drag, { passive: false });
+                document.addEventListener('mouseup', endDrag);
+                document.addEventListener('touchend', endDrag);
                 drag(e);
             }
             function endDrag() {
                 if (dCheck()) {
                     dCheck(false);
                     f.style.willChange = '';
+                    document.removeEventListener('mousemove', drag);
+                    document.removeEventListener('touchmove', drag);
+                    document.removeEventListener('mouseup', endDrag);
+                    document.removeEventListener('touchend', endDrag);
                     if (!s.dataset.snappedMute) {
                         applyOptimisticUnmute();
                         sendSocket('set_volume', { type: type, val: currentPct });
@@ -4233,10 +4240,6 @@
             }
             s.addEventListener('mousedown', startDrag);
             s.addEventListener('touchstart', startDrag, { passive: false });
-            document.addEventListener('mousemove', drag, { passive: false });
-            document.addEventListener('touchmove', drag, { passive: false });
-            document.addEventListener('mouseup', endDrag);
-            document.addEventListener('touchend', endDrag);
 
             return (ext, extMuted = false) => { if (!dCheck()) { if (rAF) cancelAnimationFrame(rAF); rAF = requestAnimationFrame(() => set(ext, extMuted)); } };
         }
