@@ -964,74 +964,102 @@ async def pipewire_auto_router():
 
 
 
+def _make_config_sync(audio_data: dict, initial_disc: dict | None = None) -> dict:
+    data = {
+        "cfg":             config,
+        "hw":              audio_data.get("sinks", []) if isinstance(audio_data, dict) else audio_data,
+        "os_target":       get_os_target(),
+        "host_ip":         get_lan_ip(),
+        "server_version":  VERSION,
+        "req_apk_version": REQUIRED_APK_VERSION,
+        "update_available": update_available,
+        "latest_version":  latest_version,
+        "update_apk_url":  update_apk_url,
+        "update_notes":    update_notes,
+    }
+    if initial_disc is not None:
+        data["disc_init"] = initial_disc
+    return {
+        "type": "config_sync",
+        "data": data,
+    }
+
+
+# Check for updates on GitHub (with Codeberg fallback)
+async def check_for_updates() -> dict:
+    global update_available, latest_version, update_apk_url, update_notes
+    try:
+        def fetch_releases():
+            for api_url in [
+                "https://api.github.com/repos/Liburn-Bajraktari/Touch-Dashboard/releases",
+                "https://codeberg.org/api/v1/repos/liburnb/Touch-Dashboard/releases",
+            ]:
+                try:
+                    req = urllib.request.Request(
+                        api_url,
+                        headers={"User-Agent": f"TouchDashboard/{VERSION}", "Accept": "application/vnd.github+json"}
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = _loads(resp.read())
+                        if isinstance(data, list) and len(data) > 0:
+                            return data
+                except Exception as err:
+                    logger.debug(f"Failed to fetch releases from {api_url}: {err}")
+            return []
+        
+        releases = await asyncio.to_thread(fetch_releases)
+        if releases and isinstance(releases, list):
+            desktop_checked = False
+            apk_url_found = False
+            prev_available = update_available
+            
+            for release in releases:
+                tag = release.get("tag_name", "")
+                if not tag or tag == "pre-release":
+                    continue
+                    
+                # Find the newest APK asset across recent releases
+                if not apk_url_found:
+                    for asset in release.get("assets", []):
+                        if asset.get("name", "").endswith(".apk"):
+                            update_apk_url = asset.get("browser_download_url", "")
+                            apk_url_found = True
+                            break
+                            
+                # Check for desktop update (ignore tags starting with apk-)
+                if not desktop_checked and not tag.lower().startswith("apk-"):
+                    if tag != f"v{VERSION}" and tag != VERSION:
+                        update_available = True
+                        latest_version = tag
+                        update_notes = release.get("body", "")
+                    desktop_checked = True
+                    
+                if desktop_checked and apk_url_found:
+                    break
+
+            if update_available and (not prev_available or latest_version):
+                if ws_manager.has_clients():
+                    logger.info(f"Update available ({latest_version}) — broadcasting to connected clients.")
+                    try:
+                        audio_data = await asyncio.to_thread(AudioSystem.poll_all, config.get("audio_names", {}))
+                        await ws_manager.broadcast(_make_config_sync(audio_data))
+                    except Exception as b_err:
+                        logger.error(f"Failed to broadcast update notification: {b_err}")
+    except Exception as e:
+        logger.error(f"Update check failed: {e}")
+
+    return {
+        "update_available": update_available,
+        "latest_version":  latest_version,
+        "update_notes":    update_notes,
+    }
+
+
 # ─── FastAPI app ────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(SOUNDS_DIR, exist_ok=True)
-
-    # Check for updates on GitHub (with Codeberg fallback)
-    async def check_for_updates():
-        global update_available, latest_version, update_apk_url, update_notes
-        try:
-            def fetch_releases():
-                for api_url in [
-                    "https://api.github.com/repos/Liburn-Bajraktari/Touch-Dashboard/releases",
-                    "https://codeberg.org/api/v1/repos/liburnb/Touch-Dashboard/releases",
-                ]:
-                    try:
-                        req = urllib.request.Request(
-                            api_url,
-                            headers={"User-Agent": f"TouchDashboard/{VERSION}", "Accept": "application/vnd.github+json"}
-                        )
-                        with urllib.request.urlopen(req, timeout=5) as resp:
-                            data = _loads(resp.read())
-                            if isinstance(data, list) and len(data) > 0:
-                                return data
-                    except Exception as err:
-                        logger.debug(f"Failed to fetch releases from {api_url}: {err}")
-                return []
-            
-            releases = await asyncio.to_thread(fetch_releases)
-            if releases and isinstance(releases, list):
-                desktop_checked = False
-                apk_url_found = False
-                prev_available = update_available
-                
-                for release in releases:
-                    tag = release.get("tag_name", "")
-                    if not tag or tag == "pre-release":
-                        continue
-                        
-                    # Find the newest APK asset across recent releases
-                    if not apk_url_found:
-                        for asset in release.get("assets", []):
-                            if asset.get("name", "").endswith(".apk"):
-                                update_apk_url = asset.get("browser_download_url", "")
-                                apk_url_found = True
-                                break
-                                
-                    # Check for desktop update (ignore tags starting with apk-)
-                    if not desktop_checked and not tag.lower().startswith("apk-"):
-                        if tag != f"v{VERSION}" and tag != VERSION:
-                            update_available = True
-                            latest_version = tag
-                            update_notes = release.get("body", "")
-                        desktop_checked = True
-                        
-                    if desktop_checked and apk_url_found:
-                        break
-
-                if update_available and (not prev_available or latest_version):
-                    if ws_manager.has_clients():
-                        logger.info(f"Update available ({latest_version}) — broadcasting to connected clients.")
-                        try:
-                            audio_data = await asyncio.to_thread(AudioSystem.poll_all, config.get("audio_names", {}))
-                            await ws_manager.broadcast(_make_config_sync(audio_data))
-                        except Exception as b_err:
-                            logger.error(f"Failed to broadcast update notification: {b_err}")
-        except Exception as e:
-            logger.error(f"Update check failed: {e}")
 
     async def update_monitor_loop():
         # Allow initial clients to connect before first check
@@ -1254,6 +1282,12 @@ async def discord_callback(code: str | None = None):
         disc_ipc_instance.needs_reauth = True
     return RedirectResponse("/")
 
+@_app.get("/api/check_update")
+async def api_check_update():
+    """Manually trigger a check for updates."""
+    result = await check_for_updates()
+    return result
+
 @_app.post("/api/update")
 async def api_update():
     """Trigger the auto-update process."""
@@ -1370,22 +1404,7 @@ async def websocket_endpoint(ws: WebSocket):
             "deaf": (disc_ipc_instance.voice_state.get("deaf", False)
                      if disc_ipc_instance else False),
         }
-        await ws.send_text(_dumps({
-            "type": "config_sync",
-            "data": {
-                "cfg":       config,
-                "hw":        hw,
-                "os_target": get_os_target(),
-                "host_ip":   get_lan_ip(),
-                "disc_init": initial_disc,
-                "update_available": update_available,
-                "latest_version": latest_version,
-                "update_apk_url": update_apk_url,
-                "update_notes": update_notes,
-                "server_version": VERSION,
-                "req_apk_version": REQUIRED_APK_VERSION,
-            },
-        }))
+        await ws.send_text(_dumps(_make_config_sync({"sinks": hw}, initial_disc=initial_disc)))
 
         if last_weather_data.get("temp") != "--":
             await ws.send_text(_dumps({"type": "weather_data", "data": last_weather_data}))
@@ -1523,21 +1542,7 @@ async def websocket_endpoint(ws: WebSocket):
         ws_manager.disconnect(ws)
 
 
-def _make_config_sync(audio_data: dict) -> dict:
-    return {
-        "type": "config_sync",
-        "data": {
-            "cfg":       config,
-            "hw":        audio_data.get("sinks", []),
-            "os_target": get_os_target(),
-            "host_ip":   get_lan_ip(),
-            "server_version": VERSION,
-            "update_available": update_available,
-            "latest_version": latest_version,
-            "update_apk_url": update_apk_url,
-            "update_notes": update_notes,
-        },
-    }
+
 
 
 async def _run_speedtest():

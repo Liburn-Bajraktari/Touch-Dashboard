@@ -361,20 +361,61 @@ def launch_desktop(
     # bring back Chromium via QWebEngineView, defeating the whole point.
     gui: str | None = "gtk" if sys.platform.startswith("linux") else None
     
-    # Monkey-patch GTK's easy_drag to ONLY trigger on the titlebar (top 60px)
-    # This keeps native drag perfectly smooth but prevents the whole window from being draggable.
+    # Monkey-patch GTK's easy_drag to use native window manager move drag
+    # (begin_move_drag) restricted to the top titlebar. This allows dragging across
+    # multi-monitor setups with different vertical offsets without KWin/XWayland
+    # clamping to _NET_WORKAREA, prevents pointer escape freezes, and leaves
+    # titlebar buttons fully interactive.
     if sys.platform.startswith("linux"):
         try:
             import webview.platforms.gtk as gtk_module
-            original_on_mouse_press = gtk_module.BrowserView.on_mouse_press
-            
+            from gi.repository import Gdk
+
             def patched_on_mouse_press(self, _, event):
-                # event.y is relative to the widget
-                if event.y > 60:
+                if event.button != 1:
                     return False
-                return original_on_mouse_press(self, _, event)
-                
+
+                win_width, win_height = self.window.get_size()
+
+                # Dynamic rem calculation matching CSS clamp(12px, min(1.5vw, 2.2vh), 22px)
+                vw = win_width * 0.015
+                vh = win_height * 0.022
+                rem = max(12.0, min(min(vw, vh), 22.0))
+                titlebar_height = 3.5 * rem
+
+                # Ignore clicks below titlebar
+                if event.y > titlebar_height:
+                    return False
+
+                # Let clicks on interactive buttons pass through to WebKit:
+                # - Left menu button: ~3.5rem (padding + button width) + safety margin
+                # - Right window controls (min, max, close): ~8.9rem + safety margin
+                left_btn_end = (1.0 + 2.5) * rem + 10
+                right_btns_start = win_width - ((1.0 + 3 * 2.5 + 2 * 0.2) * rem + 15)
+                if event.x < left_btn_end or event.x > right_btns_start:
+                    return False
+
+                # Double click toggles maximize
+                if getattr(event, "type", None) == getattr(Gdk.EventType, "_2BUTTON_PRESS", 5):
+                    if self.window.is_maximized():
+                        self.window.unmaximize()
+                    else:
+                        self.window.maximize()
+                    return True
+
+                # Native window manager move drag: handled directly by KWin/Wayland.
+                # Bypasses programmatic workarea clamping and captures cursor globally.
+                self.move_progress = False
+                self.window.begin_move_drag(
+                    event.button,
+                    int(event.x_root),
+                    int(event.y_root),
+                    event.time,
+                )
+                return True
+
             gtk_module.BrowserView.on_mouse_press = patched_on_mouse_press  # type: ignore[assignment]
+            gtk_module.BrowserView.on_mouse_move = lambda self, _, event: None  # type: ignore[assignment]
         except Exception as exc:
             logger.warning("Could not monkey-patch GTK easy_drag: %s", exc)
 

@@ -1,35 +1,38 @@
+# User data & runtime config
 config.json
+weather_cache.json
+.cache/
+*.log
+stderr.log
+error.log
+trace.log
+server.log
+
+# Python / Environment
 __pycache__/
 *.pyc
-server.log
-.cache/
-__pycache__/server.cpython-314.pyc
-.cache
-server.log
-weather_cache.json
-config.json
-discord_documentation_links.txt
-discord_documentation_links.md
-server_logic_performance_fixes.md
+.venv/
+.pytest_cache/
+
+# Build artifacts & packages
 build/
 dist/
+pkg/
+src/
 node_modules/
 www/
 android/
-pkg/
-src/
-touch-dashboard-*.tar.gz
-*.pkg.tar.*
-
 installers/
+touch-dashboard.spec
+*.pkg.tar.*
+*.tar.gz
+*.apk
+*.idsig
+
+# Windows build remnants
 Lib/
 Include/
 Scripts/
-touch-dashboard.spec
-error.log
-trace.log
+
+# Local agent notes
 AGENTS.md
-stderr.log
-*.apk
-*.idsig
-*.tar.gz

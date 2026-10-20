@@ -1405,6 +1405,10 @@
                 onclick="document.getElementById('win-menu').style.display='none'; document.getElementById('modal').classList.add('active');"><i
                     data-lucide="settings" style="margin-right: 0.5rem; width: 1.4rem; height: 1.4rem;"></i> Settings
                 Dashboard</button>
+            <button class="btn" id="win-check-update-btn"
+                style="background: rgba(14, 165, 233, 0.05); border: 1px solid rgba(125, 211, 252, 0.4); color: var(--text-main); font-weight: bold; width: 100%; height: 3rem; min-height: 0; font-size: 1rem;"
+                onclick="checkDesktopUpdateManual()"><i
+                    data-lucide="refresh-cw" style="margin-right: 0.5rem; width: 1.2rem; height: 1.2rem;"></i> Check for Updates</button>
             <label
                 style="display: flex; align-items: center; gap: 1rem; font-size: 1.1rem; cursor: pointer; color: var(--text-main);">
                 <input type="checkbox" id="win-min-tray" checked
@@ -2573,6 +2577,29 @@
                         };
                         document.getElementById('update-modal').classList.add('active');
                     }
+
+                    window.checkDesktopUpdateManual = function checkDesktopUpdateManual() {
+                        const btn = document.getElementById('win-check-update-btn');
+                        if (btn) btn.innerText = "Checking...";
+                        fetch('/api/check_update')
+                            .then(r => r.json())
+                            .then(d => {
+                                if (btn) {
+                                    btn.innerHTML = '<i data-lucide="refresh-cw" style="margin-right: 0.5rem; width: 1.2rem; height: 1.2rem;"></i> Check for Updates';
+                                    if (window.lucide) window.lucide.createIcons({ root: btn });
+                                }
+                                if (!d.update_available) {
+                                    alert("Touch Dashboard is up to date (" + (d.latest_version || "current") + ").");
+                                }
+                            })
+                            .catch(() => {
+                                if (btn) {
+                                    btn.innerHTML = '<i data-lucide="refresh-cw" style="margin-right: 0.5rem; width: 1.2rem; height: 1.2rem;"></i> Check for Updates';
+                                    if (window.lucide) window.lucide.createIcons({ root: btn });
+                                }
+                                alert("Could not reach update server.");
+                            });
+                    };
 
                     populateAudioTab(d.hw, globalCfg.audio_names);
 
