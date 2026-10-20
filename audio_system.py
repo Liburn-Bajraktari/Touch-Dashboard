@@ -413,6 +413,7 @@ class AudioSystem:
 
     _vol_targets: dict[str, int] = {}
     _vol_lock    = threading.Lock()
+    _vol_event   = threading.Event()   # set when _vol_targets has work
     _vol_thread: threading.Thread | None = None
 
     # Windows device list cache (5-second TTL — avoids hammering COM on every poll)
@@ -441,15 +442,17 @@ class AudioSystem:
         """
         Background thread that drains the vol-target queue.
         COM is initialized exactly once for this thread on Windows.
+        Sleeps on an Event between drags instead of polling, so it costs
+        nothing while idle; targets set during a drain coalesce per device.
         """
         _ensure_com()
         while True:
+            AudioSystem._vol_event.wait()
+            # Clear before draining: a set_vol() racing this loop re-sets it.
+            AudioSystem._vol_event.clear()
             with AudioSystem._vol_lock:
                 tasks = list(AudioSystem._vol_targets.items())
                 AudioSystem._vol_targets.clear()
-            if not tasks:
-                time.sleep(0.04)
-                continue
             for target, val in tasks:
                 if sys.platform.startswith("win"):
                     _windows_set_volume(target, val)
@@ -470,6 +473,7 @@ class AudioSystem:
         AudioSystem.start_worker()
         with AudioSystem._vol_lock:
             AudioSystem._vol_targets[target] = val
+        AudioSystem._vol_event.set()
 
     # ── state queries ──────────────────────────────────────────────────────────
 

@@ -15,7 +15,7 @@ elif command -v yay >/dev/null 2>&1; then
 fi
 
 cleanup() {
-  rm -rf "$TMP_DIR"
+  rm -rf "$TMP_DIR" "$ARCHIVE"
 }
 trap cleanup EXIT
 

@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -66,6 +67,19 @@ _mpris_burst_active = False
 _mpris_burst_start  = 0.0
 _last_art_url = ""
 
+# shutil.which() walks $PATH; this runs every second, so resolve it once and
+# only look again (once a minute) while playerctl is missing.
+PLAYERCTL_RECHECK = 60.0
+_playerctl: dict = {"path": None, "checked": float("-inf")}
+
+
+def _playerctl_path() -> str | None:
+    now = time.monotonic()
+    if _playerctl["path"] is None and now - _playerctl["checked"] >= PLAYERCTL_RECHECK:
+        _playerctl["path"] = shutil.which("playerctl")
+        _playerctl["checked"] = now
+    return _playerctl["path"]
+
 
 def get_local_mpris_meta() -> dict:
     """Query playerctl for the currently playing track (Linux only)."""
@@ -78,12 +92,12 @@ def get_local_mpris_meta() -> dict:
         return _STOPPED
 
     try:
-        import shutil
-        if not shutil.which("playerctl"):
+        playerctl = _playerctl_path()
+        if not playerctl:
             return _STOPPED
 
         out = subprocess.check_output(
-            ["playerctl", "--player=spotify,plasma-browser-integration,%any", "metadata", "--format",
+            [playerctl, "--player=spotify,plasma-browser-integration,%any", "metadata", "--format",
              "{{status}}|||{{artist}}|||{{title}}|||{{mpris:artUrl}}"],
             stderr=subprocess.DEVNULL, timeout=2,
         ).decode().strip()

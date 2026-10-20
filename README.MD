@@ -40,6 +40,7 @@ Once the backend is running on your PC, open a web browser on that same PC and n
 - **Discord:** Create a Discord Developer Application. Enter the Client ID and Secret. Set the Redirect URI to `http://127.0.0.1:8888/disc_callback`. Discord must be running locally for IPC to work.
 - **Weather:** Enter an OpenWeatherMap API key and your city name.
 - **Audio Routing:** The dashboard automatically pulls your active audio devices. You can assign them short display names here so they look clean on the dashboard.
+- **Themes:** Pick a look (Graphite, Daylight, Ember, Phosphor, High contrast or Classic). It applies instantly to every connected screen. To add your own preset, see [docs/DESIGN.md](docs/DESIGN.md).
 - *Click "Save & Apply" after entering your settings to apply them instantly.*
 
 ### 3. Connecting and Using the Android App

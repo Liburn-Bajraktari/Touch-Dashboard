@@ -40,6 +40,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import shutil
 import socket
 import sys
@@ -169,8 +170,10 @@ speedtest_lib.build_request = _patched_build_request
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 
@@ -272,7 +275,12 @@ DEFAULT_CONFIG: dict = {
     "local_buttons": [],
     "sounds_path": "",
     "macros": [],
+    "theme": "graphite",      # preset id from static/themes.js
+    "theme_ground": "#000000",  # that preset's ground, painted by the desktop window before load
 }
+
+THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
+HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 
 
 def _migrate_config():
@@ -377,16 +385,17 @@ speedtest_lock: asyncio.Lock | None = None
 sb_route_event: asyncio.Event | None = None
 
 # Template cache (mtime-based)
-_tmpl_cache = {"mtime": 0.0, "html": ""}
+_tmpl_cache = {"mtime": 0.0, "html": "", "etag": ""}
 
-def _load_template() -> str:
+def _load_template() -> tuple[str, str]:
     path  = os.path.join(RESOURCE_DIR, "templates", "index.html")
     mtime = os.path.getmtime(path)
     if _tmpl_cache["mtime"] != mtime:
         with open(path, encoding="utf-8") as f:
             _tmpl_cache["html"]  = f.read()
         _tmpl_cache["mtime"] = mtime
-    return _tmpl_cache["html"]
+        _tmpl_cache["etag"]  = f'"{int(mtime * 1000):x}-{len(_tmpl_cache["html"]):x}"'
+    return _tmpl_cache["html"], _tmpl_cache["etag"]
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -432,6 +441,20 @@ def get_lan_ip() -> str:
             valid.append(ip)
     private = [ip for ip in valid if ipaddress.ip_address(ip).is_private]
     return (private or valid or ["LAN unavailable"])[0]
+
+
+# get_lan_ip() opens sockets and may block on a hostname lookup, and config_sync
+# needs it on every save; the address rarely changes, so cache it briefly.
+LAN_IP_TTL = 30.0
+_lan_ip_cache: dict = {"ip": "", "ts": 0.0}
+
+
+def get_lan_ip_cached() -> str:
+    now = time.monotonic()
+    if not _lan_ip_cache["ip"] or now - _lan_ip_cache["ts"] > LAN_IP_TTL:
+        _lan_ip_cache["ip"] = get_lan_ip()
+        _lan_ip_cache["ts"] = now
+    return _lan_ip_cache["ip"]
 
 
 def get_sp_oauth() -> SpotifyOAuth | None:
@@ -606,6 +629,96 @@ sys_data_trigger: asyncio.Event | None            = None
 
 # ─── Background tasks ──────────────────────────────────────────────────────────
 
+AUDIO_POLL_INTERVAL   = 1.0   # wpctl status + get-volume (3 processes on Linux)
+SPOTIFY_POLL_INTERVAL = 3.0   # Spotify Web API round trip
+LOCAL_MEDIA_INTERVAL  = 1.0   # playerctl; Discord speaking events must not each spawn one
+BURST_INTERVAL        = 0.2   # while a track change is settling (MPRIS art)
+GPU_POLL_INTERVAL     = 2.0
+FORCED_MEDIA_DELAY    = 0.4   # let Spotify / the player apply a just-sent command
+
+
+def _read_batt_windows() -> dict:
+    """Windows fallback: read the legacy g502_battery.txt file."""
+    path = os.path.join(os.environ.get("TEMP", ""), "g502_battery.txt")
+    try:
+        with open(path) as f:
+            # File may contain just a number like "73" or "73%"
+            pct_str = f.read().strip().replace("%", "").strip()
+        return {"pct": float(pct_str), "state": "unknown", "model": "", "vendor": ""}
+    except (OSError, ValueError):
+        return {"pct": None, "state": "unknown", "model": "", "vendor": ""}
+
+
+def _snapshot_voice_channel(vc: dict | None) -> dict | None:
+    """Copy the IPC thread's live dict so payload comparison sees its changes.
+
+    The Discord thread mutates users[uid]["speaking"] in place; holding the live
+    object in last_sys_data_payload made every speaking/join/leave event compare
+    equal and wait for an unrelated field (CPU %) to change before broadcasting.
+    list() and dict() are single C calls, so this is safe against that thread.
+    """
+    if not vc:
+        return None
+    snap = dict(vc)
+    snap["users"] = {uid: dict(u) for uid, u in list(vc.get("users", {}).items())}
+    return snap
+
+
+async def _fetch_spotify(forced: bool) -> dict | None:
+    if forced:
+        await asyncio.sleep(FORCED_MEDIA_DELAY)
+    return await asyncio.to_thread(media_module.get_spotify_api_meta, get_sp_oauth(), REQ_SESSION)
+
+
+async def _fetch_local_media(forced: bool) -> dict | None:
+    if forced:
+        await asyncio.sleep(FORCED_MEDIA_DELAY)
+    if sys.platform.startswith("win"):
+        return await media_module.get_windows_media_meta_async()
+    return await asyncio.to_thread(media_module.get_local_mpris_meta)
+
+
+def _discord_state() -> dict:
+    disc_has_token = bool(config.get("disc_token", ""))
+    disc_has_creds = bool(config.get("disc_id")) and bool(config.get("disc_secret"))
+    state: dict = {
+        "mute": False, "deaf": False,
+        "auth_required": disc_has_creds and not disc_has_token,
+        "auth_url": "",
+        "connected": False,
+        "voice_supported": False,
+        "authorized": disc_has_token,
+    }
+    if disc_has_creds and not disc_has_token:
+        scopes = "rpc rpc.notifications.read rpc.voice.read rpc.video.read rpc.screenshare.read rpc.activities.write rpc.screenshare.write rpc.video.write rpc.voice.write"
+        params = urllib.parse.urlencode({
+            "client_id": config['disc_id'],
+            "response_type": "code",
+            "redirect_uri": "http://127.0.0.1:8888/disc_callback",
+            "scope": scopes
+        })
+        state["auth_url"] = f"https://discord.com/oauth2/authorize?{params}"
+    ipc = disc_ipc_instance
+    if ipc:
+        state.update({
+            "connected":       ipc.connected,
+            "voice_supported": ipc.voice_supported,
+            "auth_pending":    ipc.auth_pending,
+            "vesktop_ipc_warning": ipc.vesktop_ipc_warning,
+        })
+        if ipc.auth_pending:
+            state["authorized"] = False
+            state["auth_url"] = ipc.get_auth_url()
+        if ipc.connected:
+            voice = getattr(ipc, 'voice_state', {})
+            state["mute"] = voice.get('mute', False)
+            state["deaf"] = voice.get('deaf', False)
+            state["video"] = voice.get('video', False)
+            state["screenshare"] = voice.get('screenshare', False)
+            state["voice_channel"] = _snapshot_voice_channel(ipc.voice_channel)
+    return state
+
+
 async def hardware_loop():
     global last_spotify_check, spotify_cache, last_audio_devs
     global force_media_update, current_media_source, main_event_loop, sys_data_trigger
@@ -613,47 +726,63 @@ async def hardware_loop():
     main_event_loop  = asyncio.get_running_loop()
     sys_data_trigger = asyncio.Event()
 
-    last_gpu_check  = 0.0
-    gpu_cache       = ""
+    last_gpu_check   = 0.0
+    gpu_cache        = ""
     last_audio_check = 0.0
-    audio_cache     = {
+    last_local_check = 0.0
+    local_media: dict | None = None
+    audio_cache      = {
         "spk": {"vol": 0, "muted": False},
         "mic": {"vol": 0, "muted": False},
         "active_dev": "NONE",
     }
-    # mouse_batt is now a structured dict; None pct means no device found.
+    # mouse_batt is a structured dict; None pct means no device found.
     batt_cache: dict = {"pct": None, "state": "unknown", "model": "", "vendor": ""}
     last_sys_data_payload = {}
-
-    def _read_batt_windows() -> dict:
-        """Windows fallback: read the legacy g502_battery.txt file."""
-        candidates = [
-            os.path.join(os.environ.get("TEMP", ""), "g502_battery.txt"),
-        ]
-        for p in candidates:
-            try:
-                with open(p) as f:
-                    raw = f.read().strip()
-                # File may contain just a number like "73" or "73%"
-                pct_str = raw.replace("%", "").strip()
-                return {"pct": float(pct_str), "state": "unknown",
-                        "model": "", "vendor": ""}
-            except Exception:
-                pass
-        return {"pct": None, "state": "unknown", "model": "", "vendor": ""}
+    is_linux = sys.platform.startswith("linux")
 
     while True:
         if not ws_manager.has_clients():
             await asyncio.sleep(2.0)
             continue
 
-        curr = time.monotonic()
+        curr   = time.monotonic()
+        forced = force_media_update
+        burst  = is_linux and media_module.is_mpris_burst_active()
+        spotify_playing = bool(spotify_cache) and spotify_cache.get("status") == "Playing"
+        local_interval  = BURST_INTERVAL if burst else LOCAL_MEDIA_INTERVAL
 
-        # Audio (1 Hz)
-        if curr - last_audio_check >= 1.0:
-            audio_names  = config.get("audio_names", {})
-            audio_data   = await asyncio.to_thread(AudioSystem.poll_all, audio_names)
-            curr_sinks   = audio_data["sinks"]
+        # Everything due this tick runs concurrently; each is a subprocess,
+        # an HTTP call or a COM query, so the tick costs the slowest, not the sum.
+        jobs: dict = {}
+        if curr - last_audio_check >= AUDIO_POLL_INTERVAL:
+            jobs["audio"] = asyncio.to_thread(AudioSystem.poll_all, config.get("audio_names", {}))
+            if sys.platform.startswith("win"):
+                jobs["batt"] = asyncio.to_thread(_read_batt_windows)
+        if curr - last_spotify_check > SPOTIFY_POLL_INTERVAL or forced:
+            jobs["spotify"] = _fetch_spotify(forced)
+        if spotify_playing:
+            local_media = None   # never fall back to a reading taken before Spotify started
+        elif forced or curr - last_local_check >= local_interval:
+            jobs["local"] = _fetch_local_media(forced)
+        if has_nvml and nvml_handle and curr - last_gpu_check > GPU_POLL_INTERVAL:
+            assert pynvml is not None
+            jobs["gpu"] = asyncio.to_thread(pynvml.nvmlDeviceGetUtilizationRates, nvml_handle)
+        if is_linux and upower_monitor is not None:
+            # Event-driven: read every tick so a battery signal shows at once.
+            # Off the loop: with no UPower mouse it falls back to scanning sysfs.
+            jobs["batt"] = asyncio.to_thread(upower_monitor.get_state)
+
+        results = dict(zip(jobs, await asyncio.gather(*jobs.values(), return_exceptions=True)))
+        for name, value in results.items():
+            if isinstance(value, Exception):
+                logger.debug(f"hardware_loop {name} poll failed: {value}")
+
+        audio_data = results.get("audio")
+        if "audio" in jobs:
+            last_audio_check = curr
+        if isinstance(audio_data, dict):
+            curr_sinks = audio_data["sinks"]
             if [s["raw_name"] for s in curr_sinks] != [s["raw_name"] for s in last_audio_devs]:
                 last_audio_devs = curr_sinks
                 await ws_manager.broadcast({"type": "hw_scan_results", "data": curr_sinks})
@@ -662,32 +791,24 @@ async def hardware_loop():
                 "mic": audio_data["mic"],
                 "active_dev": audio_data["active_sink_name"],
             }
-            # Battery: on Linux, read from UPower monitor (event-driven, no file I/O).
-            # On Windows, fall back to the legacy g502_battery.txt file.
-            if sys.platform.startswith("linux") and upower_monitor is not None:
-                batt_cache = upower_monitor.get_state()
-            elif sys.platform.startswith("win"):
-                batt_cache = await asyncio.to_thread(_read_batt_windows)
-            last_audio_check = curr
-
-        # Spotify (3 Hz max, or on demand)
-        if time.monotonic() - last_spotify_check > 3.0 or force_media_update:
-            if force_media_update:
-                await asyncio.sleep(0.4)
-            sp_oauth        = get_sp_oauth()
-            spotify_cache   = await asyncio.to_thread(
-                media_module.get_spotify_api_meta, sp_oauth, REQ_SESSION
-            )
+        if isinstance(results.get("batt"), dict):
+            batt_cache = results["batt"]
+        if "spotify" in jobs:
+            if not isinstance(results["spotify"], Exception):
+                spotify_cache = results["spotify"]
             last_spotify_check = time.monotonic()
             force_media_update = False
+        if "local" in jobs:
+            local_media = None if isinstance(results["local"], Exception) else results["local"]
+            last_local_check = curr
+        if "gpu" in jobs:
+            gpu = results["gpu"]
+            gpu_cache = "" if isinstance(gpu, Exception) else str(gpu.gpu)
+            last_gpu_check = curr
 
         # Determine active media source
         media = spotify_cache
         if not media or media["status"] != "Playing":
-            if sys.platform.startswith("win"):
-                local_media = await media_module.get_windows_media_meta_async()
-            else:
-                local_media = await asyncio.to_thread(media_module.get_local_mpris_meta)
             if local_media and local_media.get("status") in ("Playing", "Paused"):
                 if not media or local_media["status"] == "Playing":
                     media, current_media_source = local_media, "local"
@@ -698,56 +819,6 @@ async def hardware_loop():
         else:
             current_media_source = "spotify"
 
-        # GPU (0.5 Hz)
-        if curr - last_gpu_check > 2.0:
-            if has_nvml and nvml_handle:
-                try:
-                    assert pynvml is not None
-                    util      = await asyncio.to_thread(
-                        pynvml.nvmlDeviceGetUtilizationRates, nvml_handle  
-                    )
-                    gpu_cache = str(util.gpu)
-                except Exception:
-                    gpu_cache = ""
-            last_gpu_check = curr
-
-        # Discord state snapshot
-        disc_has_token = bool(config.get("disc_token", ""))
-        disc_has_creds = bool(config.get("disc_id")) and bool(config.get("disc_secret"))
-        disc_state: dict = {
-            "mute": False, "deaf": False,
-            "auth_required": disc_has_creds and not disc_has_token,
-            "auth_url": "",
-            "connected": False,
-            "voice_supported": False,
-            "authorized": disc_has_token,
-        }
-        if disc_has_creds and not disc_has_token:
-            scopes = "rpc rpc.notifications.read rpc.voice.read rpc.video.read rpc.screenshare.read rpc.activities.write rpc.screenshare.write rpc.video.write rpc.voice.write"
-            params = urllib.parse.urlencode({
-                "client_id": config['disc_id'],
-                "response_type": "code",
-                "redirect_uri": "http://127.0.0.1:8888/disc_callback",
-                "scope": scopes
-            })
-            disc_state["auth_url"] = f"https://discord.com/oauth2/authorize?{params}"
-        if disc_ipc_instance:
-            disc_state.update({
-                "connected":       disc_ipc_instance.connected,
-                "voice_supported": disc_ipc_instance.voice_supported,
-                "auth_pending":    disc_ipc_instance.auth_pending,
-                "vesktop_ipc_warning": disc_ipc_instance.vesktop_ipc_warning,
-            })
-            if disc_ipc_instance.auth_pending:
-                disc_state["authorized"] = False
-                disc_state["auth_url"] = disc_ipc_instance.get_auth_url()
-            if disc_ipc_instance.connected:
-                disc_state["mute"] = getattr(disc_ipc_instance, 'voice_state', {}).get('mute', False)
-                disc_state["deaf"] = getattr(disc_ipc_instance, 'voice_state', {}).get('deaf', False)
-                disc_state["video"] = getattr(disc_ipc_instance, 'voice_state', {}).get('video', False)
-                disc_state["screenshare"] = getattr(disc_ipc_instance, 'voice_state', {}).get('screenshare', False)
-                disc_state["voice_channel"] = disc_ipc_instance.voice_channel
-
         new_payload = {
             "cpu":        psutil.cpu_percent(interval=None),
             "ram":        psutil.virtual_memory().percent,
@@ -757,7 +828,7 @@ async def hardware_loop():
             # pc_locked: True when the host session's lock screen is active.
             "pc_locked":  lock_monitor_instance.get_state() if lock_monitor_instance else False,
             "spotify":    media,
-            "discord":    disc_state,
+            "discord":    _discord_state(),
             "audio": {
                 "spk": audio_cache["spk"],
                 "mic": audio_cache["mic"],
@@ -772,9 +843,8 @@ async def hardware_loop():
                 "data": new_payload,
             })
 
-        burst = (sys.platform.startswith("linux")
-                 and media_module.is_mpris_burst_active())
-        sleep_time = 0.2 if burst else 1.0
+        burst = is_linux and media_module.is_mpris_burst_active()
+        sleep_time = BURST_INTERVAL if burst else 1.0
         try:
             await asyncio.wait_for(sys_data_trigger.wait(), timeout=sleep_time)
             sys_data_trigger.clear()
@@ -964,12 +1034,23 @@ async def pipewire_auto_router():
 
 
 
-def _make_config_sync(audio_data: dict, initial_disc: dict | None = None) -> dict:
+async def _current_sinks() -> list[dict]:
+    """The last sink list hardware_loop saw; poll only if it has none yet.
+
+    config_sync's "hw" only feeds the Audio routing tab (raw names), so a save
+    does not need three fresh wpctl processes to rebuild it.
+    """
+    if last_audio_devs:
+        return last_audio_devs
+    return await asyncio.to_thread(AudioSystem.get_hardware_sinks, config.get("audio_names", {}))
+
+
+async def _make_config_sync(sinks: list[dict], initial_disc: dict | None = None) -> dict:
     data = {
         "cfg":             config,
-        "hw":              audio_data.get("sinks", []) if isinstance(audio_data, dict) else audio_data,
+        "hw":              sinks,
         "os_target":       get_os_target(),
-        "host_ip":         get_lan_ip(),
+        "host_ip":         await asyncio.to_thread(get_lan_ip_cached),
         "server_version":  VERSION,
         "req_apk_version": REQUIRED_APK_VERSION,
         "update_available": update_available,
@@ -1041,8 +1122,7 @@ async def check_for_updates() -> dict:
                 if ws_manager.has_clients():
                     logger.info(f"Update available ({latest_version}) — broadcasting to connected clients.")
                     try:
-                        audio_data = await asyncio.to_thread(AudioSystem.poll_all, config.get("audio_names", {}))
-                        await ws_manager.broadcast(_make_config_sync(audio_data))
+                        await ws_manager.broadcast(await _make_config_sync(await _current_sinks()))
                     except Exception as b_err:
                         logger.error(f"Failed to broadcast update notification: {b_err}")
     except Exception as e:
@@ -1194,16 +1274,46 @@ def exit_endpoint():
     threading.Timer(0.5, lambda: os._exit(0)).start()
     return {"status": "shutting down"}
 
-@_app.middleware("http")
-async def _security_headers(request: Request, call_next):
-    resp = await call_next(request)
-    resp.headers["X-Frame-Options"]        = "DENY"
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["Content-Security-Policy"] = (
-        "default-src 'self' 'unsafe-inline' 'unsafe-eval' ws: wss:; "
-        "img-src 'self' data: https:;"
-    )
-    return resp
+_CSP = (
+    "default-src 'self' 'unsafe-inline' 'unsafe-eval' ws: wss:; "
+    "img-src 'self' data: https:;"
+)
+
+
+class _SecurityHeaders:
+    """Pure ASGI, so responses stream straight through (BaseHTTPMiddleware
+    wraps every request in an extra task and buffers the body).
+
+    Static assets get "no-cache": the browser revalidates with its ETag and
+    gets a 304, so a server update can never leave a stale themes.js paired
+    with a new index.html.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        is_static = scope.get("path", "").startswith("/static/")
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Frame-Options"]         = "DENY"
+                headers["X-Content-Type-Options"]  = "nosniff"
+                headers["Content-Security-Policy"] = _CSP
+                if is_static:
+                    headers["Cache-Control"] = "no-cache"
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+# Added last = outermost: headers are set on the already-compressed response.
+_app.add_middleware(GZipMiddleware, minimum_size=1024)
+_app.add_middleware(_SecurityHeaders)
 
 
 _app.mount("/static", StaticFiles(directory=os.path.join(RESOURCE_DIR, "static")), name="static")
@@ -1222,14 +1332,16 @@ async def serve_local_art():
 async def index(request: Request):
     global last_host_url
     last_host_url = request.url.netloc
-    html = _load_template()
+    html, etag = _load_template()
     # NOTE: Discord initial state is now delivered via WS config_sync,
     # so we no longer mutate the HTML here.
-    resp = HTMLResponse(content=html)
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    resp.headers["Pragma"]        = "no-cache"
-    resp.headers["Expires"]       = "0"
-    return resp
+    # "no-cache" + ETag: always revalidated (an update is seen at once), but a
+    # reload of an unchanged page is a 304 instead of the whole template.
+    headers = {"Cache-Control": "no-cache, must-revalidate", "Pragma": "no-cache",
+               "Expires": "0", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return HTMLResponse(content=html, headers=headers)
 
 
 @_app.get("/favicon.ico")
@@ -1243,7 +1355,7 @@ async def _manifest():
         "name": "Touch Dashboard", "short_name": "Dashboard",
         "start_url": "/?v=2.0", "display": "standalone",
         "orientation": "landscape",
-        "background_color": "#090e17", "theme_color": "#0ea5e9",
+        "background_color": "#000000", "theme_color": "#000000",
         "icons": [
             {"src": "/static/icon-192.png", "sizes": "192x192",
              "type": "image/png", "purpose": "any maskable"},
@@ -1404,7 +1516,7 @@ async def websocket_endpoint(ws: WebSocket):
             "deaf": (disc_ipc_instance.voice_state.get("deaf", False)
                      if disc_ipc_instance else False),
         }
-        await ws.send_text(_dumps(_make_config_sync({"sinks": hw}, initial_disc=initial_disc)))
+        await ws.send_text(_dumps(await _make_config_sync(hw, initial_disc=initial_disc)))
 
         if last_weather_data.get("temp") != "--":
             await ws.send_text(_dumps({"type": "weather_data", "data": last_weather_data}))
@@ -1430,9 +1542,7 @@ async def websocket_endpoint(ws: WebSocket):
                 with CONFIG_LOCK:
                     config["macros"] = data
                 await asyncio.to_thread(save_config)
-                audio_data = await asyncio.to_thread(AudioSystem.poll_all,
-                                                     config.get("audio_names", {}))
-                await ws_manager.broadcast(_make_config_sync(audio_data))
+                await ws_manager.broadcast(await _make_config_sync(await _current_sinks()))
 
             # ── macro exec ─────────────────────────────────────────────────────
             elif mtype == "macro_exec":
@@ -1461,9 +1571,7 @@ async def websocket_endpoint(ws: WebSocket):
                 if old_spot_id != config.get("spot_id"):
                     global_sp_oauth = None
 
-                audio_data = await asyncio.to_thread(AudioSystem.poll_all,
-                                                     config.get("audio_names", {}))
-                await ws_manager.broadcast(_make_config_sync(audio_data))
+                await ws_manager.broadcast(await _make_config_sync(await _current_sinks()))
 
                 if (old_disc != config.get("disc_enabled", True)
                         or old_disc_id  != config.get("disc_id")
@@ -1490,7 +1598,7 @@ async def websocket_endpoint(ws: WebSocket):
                 vol = max(0, min(200, int(data.get("val", 100))))
                 with CONFIG_LOCK:
                     config["soundboard_volume"] = vol
-                    save_config()
+                await asyncio.to_thread(save_config)
                 if get_os_target() == "linux":
                     await asyncio.to_thread(
                         subprocess.run,
@@ -1505,7 +1613,7 @@ async def websocket_endpoint(ws: WebSocket):
                         current = config.get("soundboard_feedback", True)
                         new_val = not current
                         config["soundboard_feedback"] = new_val
-                        save_config()
+                    await asyncio.to_thread(save_config)
                     
                     def _toggle_feedback(enable: bool):
                         try:
@@ -1529,6 +1637,21 @@ async def websocket_endpoint(ws: WebSocket):
                     await asyncio.to_thread(_toggle_feedback, new_val)
                     # Send a targeted update instead of a full config_sync to avoid UI resets
                     await ws_manager.broadcast({"type": "sb_feedback_state", "data": new_val})
+
+            # ── theme ──────────────────────────────────────────────────────────
+            # Targeted message rather than config_sync: a full sync would reset
+            # fields another client is still editing in its settings modal.
+            elif mtype == "set_theme":
+                payload  = data if isinstance(data, dict) else {}
+                theme_id = str(payload.get("id", ""))
+                ground   = str(payload.get("ground", ""))
+                if THEME_ID_RE.fullmatch(theme_id):
+                    with CONFIG_LOCK:
+                        config["theme"] = theme_id
+                        if HEX_COLOUR_RE.fullmatch(ground):
+                            config["theme_ground"] = ground
+                    await asyncio.to_thread(save_config)
+                    await ws_manager.broadcast({"type": "theme_state", "data": theme_id})
 
             # ── speedtest ──────────────────────────────────────────────────────
             elif mtype == "run_speedtest":
@@ -1660,7 +1783,7 @@ async def _handle_action(ws: WebSocket, action: str):
             global_sp_oauth = None
             with CONFIG_LOCK:
                 config["spot_token"] = ""
-                save_config()
+            await asyncio.to_thread(save_config)
             def _rm_spot_cache():
                 if os.path.exists(SPOTIFY_CACHE_FILE):
                     try: os.remove(SPOTIFY_CACHE_FILE)
@@ -1734,7 +1857,7 @@ async def _handle_action(ws: WebSocket, action: str):
     if action == "disc_clear_auth":
         with CONFIG_LOCK:
             config["disc_token"] = ""
-            save_config()
+        await asyncio.to_thread(save_config)
         restart_discord_ipc()
         return
 
@@ -1987,7 +2110,13 @@ def launch_desktop(host: str = "0.0.0.0", port: int = 8888) -> None:
         wait_server_fn=_wait_for_server,
         get_ip_fn=get_lan_ip,
         app_user_model_id=WINDOWS_APP_USER_MODEL_ID,
+        background_color=_theme_ground(),
     )
+
+
+def _theme_ground() -> str:
+    ground = str(config.get("theme_ground", ""))
+    return ground if HEX_COLOUR_RE.fullmatch(ground) else DEFAULT_CONFIG["theme_ground"]
 
 
 # ─── Entry point ───────────────────────────────────────────────────────────────

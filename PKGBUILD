@@ -1,6 +1,6 @@
 # Maintainer: Your Name <you@example.com>
 pkgname=touch-dashboard
-pkgver=0.1.2
+pkgver=0.8.8
 pkgrel=1
 pkgdesc="Touch-friendly FastAPI system dashboard with a PyWebView desktop wrapper"
 arch=('any')
@@ -31,7 +31,7 @@ optdepends=(
   'appmenu-gtk-module: suppress pywebview GTK menu warning'
 )
 source=("https://github.com/Liburn-Bajraktari/Touch-Dashboard/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('3687056be13f67a441834aa067c747a3a27c8bd7d3abdb07e6eab440a8bcc933')
+sha256sums=('e7df47811e101eb781f853a16e2ea215041d364764dc942a7d8de8d5f8acb8df')
 
 package() {
   # GitHub archives extract as Touch-Dashboard-<version>/

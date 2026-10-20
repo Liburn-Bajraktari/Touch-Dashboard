@@ -241,6 +241,7 @@ def launch_desktop(
     wait_server_fn: Callable[[int, float], bool],
     get_ip_fn: Callable[[], str],
     app_user_model_id: str = "TouchDashboard.TouchDashboard",
+    background_color: str = "#000000",
 ) -> None:
     """
     Start the pywebview desktop window + pystray tray icon.
@@ -256,6 +257,7 @@ def launch_desktop(
     wait_server_fn       : function(port, timeout) -> bool
     get_ip_fn            : function() -> LAN IP string
     app_user_model_id    : Windows AUMID for taskbar grouping
+    background_color     : window fill shown before the page paints (the theme's ground)
     """
     import webview
 
@@ -340,7 +342,7 @@ def launch_desktop(
         frameless=True,
         transparent=False,
         easy_drag=True,
-        background_color="#070b12",
+        background_color=background_color,
     )
     assert window is not None
     _active_window = window
