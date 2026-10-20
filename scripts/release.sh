@@ -82,6 +82,8 @@ echo -e "${CYAN}Committing and pushing changes...${NC}"
 git add -A
 git commit -m "Release: $VERSION" || true
 git push origin main || true
+git tag -f "$VERSION" -m "Release $VERSION" || true
+git push origin "$VERSION" || true
 
 echo -e "${CYAN}Creating Release $VERSION on GitHub...${NC}"
 
@@ -117,6 +119,20 @@ else
         rm -f "$TOKEN_FILE"
     fi
     exit 1
+fi
+
+# Mirror to Codeberg for legacy v0.8.2 and older installations
+CB_TOKEN_FILE="$HOME/.config/touch-dashboard/.codeberg_token"
+if [ -f "$CB_TOKEN_FILE" ]; then
+    CB_TOKEN=$(cat "$CB_TOKEN_FILE" | tr -d '\r\n')
+    if [ -n "$CB_TOKEN" ]; then
+        echo -e "${CYAN}Mirroring release $VERSION to Codeberg for legacy clients...${NC}"
+        CB_PAYLOAD=$(python3 -c "import sys, json; print(json.dumps({'tag_name': sys.argv[1], 'target_commitish': 'main', 'name': sys.argv[1], 'body': sys.argv[2]}))" "$VERSION" "$COMMENT")
+        curl -s -X POST "https://codeberg.org/api/v1/repos/liburnb/Touch-Dashboard/releases" \
+            -H "Authorization: token $CB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$CB_PAYLOAD" > /dev/null 2>&1 || true
+    fi
 fi
 
 if [ "$APK_BUILD" = true ]; then

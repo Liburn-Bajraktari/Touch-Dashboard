@@ -970,20 +970,33 @@ async def pipewire_auto_router():
 async def lifespan(app: FastAPI):
     os.makedirs(SOUNDS_DIR, exist_ok=True)
 
-    # Check for updates on GitHub
+    # Check for updates on GitHub (with Codeberg fallback)
     async def check_for_updates():
         global update_available, latest_version, update_apk_url, update_notes
         try:
             def fetch_releases():
-                url = "https://api.github.com/repos/Liburn-Bajraktari/Touch-Dashboard/releases"
-                req = urllib.request.Request(url, headers={"User-Agent": f"TouchDashboard/{VERSION}", "Accept": "application/vnd.github+json"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    return _loads(resp.read())
+                for api_url in [
+                    "https://api.github.com/repos/Liburn-Bajraktari/Touch-Dashboard/releases",
+                    "https://codeberg.org/api/v1/repos/liburnb/Touch-Dashboard/releases",
+                ]:
+                    try:
+                        req = urllib.request.Request(
+                            api_url,
+                            headers={"User-Agent": f"TouchDashboard/{VERSION}", "Accept": "application/vnd.github+json"}
+                        )
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            data = _loads(resp.read())
+                            if isinstance(data, list) and len(data) > 0:
+                                return data
+                    except Exception as err:
+                        logger.debug(f"Failed to fetch releases from {api_url}: {err}")
+                return []
             
             releases = await asyncio.to_thread(fetch_releases)
             if releases and isinstance(releases, list):
                 desktop_checked = False
                 apk_url_found = False
+                prev_available = update_available
                 
                 for release in releases:
                     tag = release.get("tag_name", "")
@@ -1008,10 +1021,26 @@ async def lifespan(app: FastAPI):
                         
                     if desktop_checked and apk_url_found:
                         break
+
+                if update_available and (not prev_available or latest_version):
+                    if ws_manager.has_clients():
+                        logger.info(f"Update available ({latest_version}) — broadcasting to connected clients.")
+                        try:
+                            audio_data = await asyncio.to_thread(AudioSystem.poll_all, config.get("audio_names", {}))
+                            await ws_manager.broadcast(_make_config_sync(audio_data))
+                        except Exception as b_err:
+                            logger.error(f"Failed to broadcast update notification: {b_err}")
         except Exception as e:
             logger.error(f"Update check failed: {e}")
 
-    asyncio.create_task(check_for_updates())
+    async def update_monitor_loop():
+        # Allow initial clients to connect before first check
+        await asyncio.sleep(2)
+        while True:
+            await check_for_updates()
+            await asyncio.sleep(1800)  # Recheck every 30 minutes
+
+    asyncio.create_task(update_monitor_loop())
 
     # Linux: create Dashboard-Soundboard virtual sink
     if get_os_target() == "linux":
