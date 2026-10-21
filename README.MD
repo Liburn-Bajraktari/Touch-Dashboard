@@ -40,7 +40,7 @@ The code itself is mostly AI-generated, but the logic is human-reviewed. It curr
 | **System** | CPU, RAM and GPU load with a live trace of the last minute, mouse battery, a network speed test and a power-off key. |
 | **Clock & weather** | Time, date and current weather from OpenWeatherMap. |
 | **Lock screen** | When the PC locks, the tablet shows a large clock with the weather; it shifts slightly every minute to protect OLED screens. |
-| **Themes** | Graphite, Daylight, Ember, Phosphor, High contrast and Classic. A choice applies to every connected screen. |
+| **Themes** | Graphite, Daylight, Ember, Phosphor, Amethyst and Midnight. A choice applies to every connected screen. |
 
 ## How it works
 
@@ -192,7 +192,7 @@ Arch users can build and install a local pacman package with `./scripts/build-ar
 python -m pytest tests -v
 ```
 
-The suite covers the HTTP and WebSocket API, media parsing, and every theme preset's completeness and contrast. The tests start the real server lifespan, which on Linux calls `pactl`. To keep a run off your live audio session, point `HOME` at a scratch folder and put stub `pactl`, `wpctl`, `pw-*` and `playerctl` scripts that exit 1 first on your `PATH`.
+The suite covers the HTTP and WebSocket API, media parsing, and every theme preset's completeness, contrast and colour balance. The tests start the real server lifespan, which on Linux calls `pactl`. To keep a run off your live audio session, point `HOME` at a scratch folder and put stub `pactl`, `wpctl`, `pw-*` and `playerctl` scripts that exit 1 first on your `PATH`.
 
 ### Project layout
 

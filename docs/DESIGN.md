@@ -39,22 +39,23 @@ One light, above the console. Every rule below follows from it, and nothing may 
 1. **Raised things are lit on their top edge** (`--rim`, an inset 1px highlight) **and cast a shadow below** (`--depth`). Modules use `--elev-1`, keys `--elev-2`, caps and knobs `--elev-cap`.
 2. **Keys have thickness**: a darker lip on the bottom edge (`--edge`). Pressing a key sinks it: the lip turns into an inner shadow (`--elev-press`) and the key drops 0.12rem.
 3. **Recessed things are shaded from the top** and catch light on their bottom edge (`--well-inset`). There are two kinds:
-   - **Wells** (`--well`): recessed containers such as key screens, the voice list, load tiles, fader slots and chips. A well is one gentle step from its plate: dark on dark consoles, light grey on Daylight.
-   - **Displays** (`--display`): small readouts, namely the fader values, the output device, the speed test and the battery. They are dark LCD windows on the dark consoles; Daylight keeps them light, the same soft grey as its wells, so nothing on it is darker than text. A readout gets the display palette through one CSS rule that remaps `--well*` to `--display*` inside it, so a theme can give its readouts their own look.
+   - **Wells** (`--well`): recessed containers such as key screens, the voice list, load tiles, fader slots and chips. A well is one gentle step from its plate, in the plate's own tint: walnut on Ember, navy on Midnight, light grey on Daylight. Never drop a tinted console's wells to near-black: below about 0.13 OKLCH lightness an 8-bit colour has too few steps to hold a hue, and the recess reads as a hole.
+   - **Displays** (`--display`): small readouts, namely the fader values, the output device, the speed test and the battery. They are dark LCD windows on the dark consoles, a step deeper than the wells and still tinted; Daylight keeps them light, the same soft grey as its wells, so nothing on it is darker than text. A readout gets the display palette through one CSS rule that remaps `--well*` to `--display*` inside it, so a theme can give its readouts their own look.
 4. **Gradients only model light on an object**: a module plate (`--surface-top` → `--surface`), a keycap (`--key-top` → `--surface-2`), a fader cap or knob (`--cap-hi` → `--cap` → `--cap-lo`). Never a decorative colour-to-colour gradient, never on text.
 5. **Glow only comes from something that is lit**: an LED, a lit fader slot, a lit key, the cover's colour. A glow never decorates a resting object.
 6. **No glass.** No `backdrop-filter`: it is meaningless over a dark plate and ruinous on the desktop window (§8).
 
 ## 3. Principles
 
-1. **Colour belongs to data, state and light.** Plates, keys and text are neutral. One accent per theme carries the levels; status hues carry meaning (red muted, green live/speaking, amber attention); the cover's colour carries the music.
+1. **Colour belongs to data, state and light.** Plates, keys and text are neutral. One accent per theme carries the levels; status hues carry meaning (red muted, green live/speaking, amber attention); the cover's colour carries the music. The accent and the three status hues stay at least 0.11 apart in OKLab (tested), so a lit key, an LED and a load trace never look alike. When the accent takes a status hue's colour family (Phosphor's green, Ember's amber), the status hue moves, not the accent.
 2. **Displays hold the numbers.** Values that change live (levels, battery, load, device names) sit in recessed display windows in tabular figures. Static labels sit on the plate.
 3. **Sentence case.** "Now playing", "Output device", "Save & apply". Proper names keep their capitals ("Command Center").
-4. **Value balance.** Large neighbouring surfaces stay within about 1.5:1 of each other; the extreme values belong to text and small details. On a light theme, near-black is for text and icons only, never containers or readouts (Daylight: under 1 % of the screen).
-5. **Honest data.** Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
-6. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted"; Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
-7. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
-8. **Touch first.** Targets of at least 44 CSS px on a tablet; hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps.
+4. **Value balance.** Large neighbouring surfaces (ground, plates, keys, wells, displays) stay within 1.5:1 of each other (tested); the extreme values belong to text and small details. On a light theme, near-black is for text and icons only, never containers or readouts (Daylight: under 1 % of the screen).
+5. **Lit keys share one recipe.** A key that is on (live, muted, screen share) is a bright status fill with dark ink, like a backlit cap. Mute is no exception: it is a lit red key, not a dark red one with white ink.
+6. **Honest data. Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
+7. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted"; Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
+8. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
+9. **Touch first.** Targets of at least 44 CSS px on a tablet; hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps.
 
 ## 4. What machine-made looks like, and what replaces it
 
@@ -86,7 +87,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `surface-2`, `key-top` | Keycaps (bottom, lit top), grouped settings rows | text 7:1 on both |
 | `surface-3` | Pressed keys, meter tracks, unlit LEDs | — |
 | `line`, `line-strong` | Faint dividers; field borders, scale ticks, dashed slots | — |
-| `panel-line`, `key-line` | Outlines, drawn only when the width token is > 0 | — |
+| `panel-line`, `key-line` | Outlines, drawn only when the width token is > 0 (Daylight's keys) | — |
 | `text`, `text-2`, `text-3` | Ink on plates and keys | 7 / 4.5 / 4.5 :1 |
 | `well`, `well-ink`, `well-ink-2`, `well-accent` | Recessed containers: background, text, labels, lit values | 7 / 4.5 / 4.5 :1 on `well`; accent, status hues 3:1 |
 | `display`, `display-ink`, `display-ink-2`, `display-accent` | Small readouts (dark LCD windows on dark consoles, light on Daylight) | 7 / 4.5 / 4.5 :1 on `display`; status hues 3:1 |
@@ -109,9 +110,9 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `fs-xs` … `fs-xl`, `fs-clock` | 1 / 1.15 / 1.35 / 1.75 / 2.6 / 6.4 rem | Nothing below `fs-xs` (≈ 11 px on a 1280×800 tablet) |
 | `radius-panel`, `radius-key`, `radius-media`, `radius-pill` | 1.6, 1.1, 0.9 rem, 999px | Multiplied by `--sq` (§6) |
 | `elev-1`, `elev-2`, `elev-press`, `elev-cap`, `well-inset` | Composite shadows | Built from `rim`, `edge`, `depth`, so presets only set those three |
-| `weight-clock`, `weight-strong` | 300, 600 | Phosphor 400; High contrast 700 |
+| `weight-clock`, `weight-strong` | 300, 600 | Phosphor 400 |
 | `cap-h` | 3.4rem | Fader cap height; the travel ends at cap centres |
-| `backdrop-opacity` | 0.5 | Daylight 0.32; High contrast 0 (no cover behind text) |
+| `backdrop-opacity` | 0.5 | Daylight 0.32 |
 | `on-bright`, `on-deep` | near-black, white | Ink chosen for the cover-coloured play key |
 | `spring`, `spring-bounce` | CSS `linear()` curves | §7 |
 | `dur-fast`, `dur`, `dur-spring`, `ease` | 110, 180, 460 ms; ease-out | |
@@ -120,7 +121,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 
 | Variable | Set by | Meaning |
 |---|---|---|
-| `--dyn`, `--dyn-ink`, `--dyn-glow`, `--dyn-shadow` | `applyDyn()` from the cover | The music's colour, fitted per scheme so `--dyn-ink` keeps ≥ 4.5:1; unset when nothing plays or in High contrast |
+| `--dyn`, `--dyn-ink`, `--dyn-glow`, `--dyn-shadow` | `applyDyn()` from the cover | The music's colour, fitted per scheme so `--dyn-ink` keeps ≥ 4.5:1; unset when nothing plays |
 | `--ambient` | CSS (`@property`, cross-fades 1.4 s) | `--dyn-glow` if set, else `--glow` |
 | `--v` | the fader | 0–1, drives the lit slot and the cap by transform |
 | `--angle` | the encoder | Where the knob points |
@@ -169,20 +170,23 @@ Always, on both tiers:
 
 | Preset | Why it exists |
 |---|---|
-| **Graphite** (default) | True-black hardware for OLED and night use; brand cyan on the levels. |
+| **Graphite** (default) | True-black hardware for OLED and night use; untinted greys, brand cyan on the levels. |
 | **Daylight** | A satin-white console with soft grey recesses and silver caps, all light, for a bright room. |
-| **Ember** | Warm walnut-black and amber: low blue light late at night. |
-| **Phosphor** | Monitor green with monospaced figures. |
-| **High contrast** | Pure black and white, outlined plates and keys, no cover tint or backdrop, heavier weights. |
-| **Classic** | The original midnight blue and cyan. |
+| **Ember** | Warm walnut-black and amber: low blue light late at night. Warnings are pumpkin orange and mute a deep red, so neither is mistaken for the amber. |
+| **Phosphor** | A monitor's P1 green on the levels, with monospaced figures. Live states take a cooler sea green and warnings the amber of a P3 screen, so the green levels keep their own meaning. |
+| **Amethyst** | Plum-black plates with orchid lights, mint for live and coral for mute. The purple sits in the material and the accent, never as a gradient wash. |
+| **Midnight** | Deep navy plates with cyan lights (the original look, formerly "Classic"). |
+
+Retired ids still resolve: `aliases` in the registry maps `classic` to `midnight` and `contrast` (the former High contrast preset) to `graphite`, so a saved config never falls through to an unexpected theme.
 
 ### Adding a preset
 
 1. Copy a preset object inside the `TD-THEMES` JSON block in `static/themes.js`.
 2. Give it a unique lowercase `id`, a `name`, a one-sentence `note` and a `scheme` (`dark` or `light`).
 3. Define **every** colour and material role (§5). Base tokens are optional overrides.
-4. Run `python -m pytest tests/test_themes.py -v`: it fails on a missing role, an unknown token, or any contrast pair below its minimum.
-5. The Themes tab lists it automatically and previews it as a miniature console from its own tokens.
+4. Run `python -m pytest tests/test_themes.py -v`: it fails on a missing role, an unknown token, any contrast pair below its minimum, an accent and status hue closer than 0.11 in OKLab, or neighbouring surfaces further apart than 1.5:1.
+5. Renaming or removing a preset: add its old id to `aliases`, pointing at the preset that replaces it.
+6. The Themes tab lists it automatically and previews it as a miniature console from its own tokens.
 
 ## 10. Type
 
@@ -194,7 +198,7 @@ Always, on both tiers:
 
 - [ ] No colour literal in `templates/index.html` (`pytest tests/test_themes.py` passes).
 - [ ] It obeys the light model (§2): lit top, shadow below, wells shaded from the top.
-- [ ] Looked at it in Graphite, Daylight and High contrast, and with `data-fx="lite"`.
+- [ ] Looked at it in Graphite, Daylight and a tinted dark preset (Ember or Amethyst), with something muted, and with `data-fx="lite"`.
 - [ ] Every new icon-only control has an `aria-label`; every new state reads without colour.
 - [ ] Anything that moves uses transform/opacity and a token curve; nothing new animates forever.
 - [ ] Any user, media or device string reaching `innerHTML` goes through `escapeHtml()`.

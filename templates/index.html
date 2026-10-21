@@ -171,7 +171,7 @@
 
         /* ── Modules ──────────────────────────────────────────────────────── */
         /* A module is a machined plate: lit from above (rim), casting a soft
-           shadow below (depth). High contrast swaps both for a 2px outline. */
+           shadow below (depth). */
         .card {
             background: linear-gradient(180deg, var(--surface-top), var(--surface) 42%);
             border-radius: calc(var(--radius-panel) * var(--sq));
@@ -4334,8 +4334,7 @@
         function applyDyn() {
             const st = document.documentElement.style;
             const theme = window.TDTheme ? TDTheme.current() : '';
-            // High contrast keeps its fixed palette.
-            if (!dynRgb || theme === 'contrast') {
+            if (!dynRgb) {
                 ['--dyn', '--dyn-ink', '--dyn-glow', '--dyn-shadow'].forEach(prop => st.removeProperty(prop));
                 return;
             }
