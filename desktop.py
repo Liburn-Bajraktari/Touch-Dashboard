@@ -216,14 +216,22 @@ def _acquire_linux_lock(data_dir: str, port: int) -> bool:
         return False
 
 
-def _wake_existing_instance(port: int) -> None:
-    """Ask an already-running instance to show its window via HTTP."""
+def _wake_existing_instance(port: int, data_dir: str) -> None:
+    """Ask an already-running instance to show its window via HTTP.
+
+    /api/wakeup takes the running instance's local control token, which it
+    writes to data_dir at startup (it may not have written it yet: retry).
+    """
     import urllib.request
+    import security
     for _ in range(10):
         try:
-            urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/api/wakeup", timeout=0.5
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/wakeup", data=b"{}", method="POST",
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {security.read_local_token(data_dir)}"},
             )
+            urllib.request.urlopen(req, timeout=0.5)
             return
         except Exception:
             time.sleep(0.5)
@@ -273,7 +281,7 @@ def launch_desktop(
             _mutex = kernel32.CreateMutexW(None, False, mutex_name)
             last_err = kernel32.GetLastError()
             if last_err in (ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED) or not _mutex:
-                _wake_existing_instance(port)
+                _wake_existing_instance(port, data_dir)
                 os._exit(0)
         except Exception as exc:
             logger.warning("Mutex creation failed: %s. Assuming duplicate.", exc)
@@ -288,7 +296,7 @@ def launch_desktop(
         os.environ["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
         os.environ["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
         if not _acquire_linux_lock(data_dir, port):
-            _wake_existing_instance(port)
+            _wake_existing_instance(port, data_dir)
             os._exit(0)
 
     configure_windows_app_identity(app_user_model_id)

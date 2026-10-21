@@ -410,11 +410,16 @@ class AudioSystem:
     """
 
     _last_state: dict[str, dict] = {}
+    _state_at: dict[str, float] = {}   # monotonic time each reading was taken
 
     _vol_targets: dict[str, int] = {}
     _vol_lock    = threading.Lock()
     _vol_event   = threading.Event()   # set when _vol_targets has work
     _vol_thread: threading.Thread | None = None
+    # Called (from the worker thread) once a burst of set_vol() has been applied
+    # and read back, so the server can push the confirmed level at once.
+    on_volume_applied = None
+    VOL_SETTLE_S = 0.12   # a drag sends every 80 ms: read back only once it pauses
 
     # Windows device list cache (5-second TTL — avoids hammering COM on every poll)
     _win_sinks_cache: list[dict] = []
@@ -446,8 +451,20 @@ class AudioSystem:
         nothing while idle; targets set during a drain coalesce per device.
         """
         _ensure_com()
+        touched: set[str] = set()
         while True:
-            AudioSystem._vol_event.wait()
+            # Idle: sleep until work. Mid-burst: wait VOL_SETTLE_S for the next
+            # level, and read back what the system applied once none comes.
+            if not AudioSystem._vol_event.wait(AudioSystem.VOL_SETTLE_S if touched else None):
+                for target in touched:
+                    AudioSystem.get_state(target)
+                touched.clear()
+                if AudioSystem.on_volume_applied:
+                    try:
+                        AudioSystem.on_volume_applied()
+                    except Exception as e:
+                        logger.debug(f"on_volume_applied: {e}")
+                continue
             # Clear before draining: a set_vol() racing this loop re-sets it.
             AudioSystem._vol_event.clear()
             with AudioSystem._vol_lock:
@@ -458,7 +475,12 @@ class AudioSystem:
                     _windows_set_volume(target, val)
                 else:
                     AudioSystem.run(["wpctl", "set-volume", target, f"{val}%"])
-                    AudioSystem.run(["wpctl", "set-mute", target, "0"])
+                    # Moving a fader unmutes; skip the second process when it is not muted.
+                    if AudioSystem._last_state.get(target, {}).get("muted", True):
+                        AudioSystem.run(["wpctl", "set-mute", target, "0"])
+                prev = AudioSystem._last_state.get(target, {})
+                AudioSystem.remember(target, {**prev, "vol": val, "muted": False})
+                touched.add(target)
 
     @staticmethod
     def start_worker() -> None:
@@ -478,7 +500,20 @@ class AudioSystem:
     # ── state queries ──────────────────────────────────────────────────────────
 
     @staticmethod
+    def remember(target: str, state: dict, at: float | None = None) -> None:
+        """Keep the newest reading per endpoint; at = when it was taken.
+
+        A 1 s poll can start before a fader's set and finish after it, so
+        readings are ordered by when they were taken, not when they arrived.
+        """
+        at = time.monotonic() if at is None else at
+        if at >= AudioSystem._state_at.get(target, 0.0):
+            AudioSystem._last_state[target] = state
+            AudioSystem._state_at[target] = at
+
+    @staticmethod
     def get_state(target: str) -> dict:
+        started = time.monotonic()
         if sys.platform.startswith("win"):
             state = _windows_get_volume(target)
         else:
@@ -487,12 +522,18 @@ class AudioSystem:
                 return AudioSystem._last_state.get(target, {"vol": 0, "muted": False})
             try:
                 parts = out.split()
-                vol = int(float(parts[1]) * 100) if len(parts) > 1 else 0
-            except Exception:
+                # round(), not int(): "Volume: 0.57" is 56.99999999999999 after * 100.
+                vol = round(float(parts[1]) * 100) if len(parts) > 1 else 0
+            except (IndexError, ValueError):
                 vol = 0
             state = {"vol": vol, "muted": "[MUTED]" in out}
-        AudioSystem._last_state[target] = state
+        AudioSystem.remember(target, state, started)
         return state
+
+    @staticmethod
+    def latest(target: str, default: dict) -> dict:
+        """The last level read or applied for target, without a new process."""
+        return AudioSystem._last_state.get(target, default)
 
     @staticmethod
     def is_muted(target: str) -> bool:
@@ -685,18 +726,19 @@ class AudioSystem:
     # ── cycle output device ────────────────────────────────────────────────────
 
     @staticmethod
-    def cycle_device(audio_names: dict | None = None) -> None:
+    def cycle_device(audio_names: dict | None = None, hidden: list[str] | None = None) -> None:
+        """Make the next output the default, skipping the ones hidden in Audio routing."""
         sinks = AudioSystem.poll_all(audio_names).get("sinks", [])
-        if not sinks:
+        skip = set(hidden or ())
+        if not any(s["raw_name"] not in skip for s in sinks):
             return
 
+        # Walk on from the active sink in list order (also when the active one is
+        # hidden), so a turn always lands on the next visible output.
         active_id = AudioSystem.get_active_sink_id(sinks)
-        next_sink = sinks[0]
-        if active_id:
-            for i, s in enumerate(sinks):
-                if s["id"] == active_id:
-                    next_sink = sinks[(i + 1) % len(sinks)]
-                    break
+        start = next((i for i, s in enumerate(sinks) if s["id"] == active_id), -1)
+        next_sink = next(sinks[(start + k) % len(sinks)] for k in range(1, len(sinks) + 1)
+                         if sinks[(start + k) % len(sinks)]["raw_name"] not in skip)
 
         if sys.platform.startswith("win"):
             if _windows_set_default_audio_device(str(next_sink["id"])):

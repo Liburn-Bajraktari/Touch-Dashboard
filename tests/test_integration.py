@@ -50,10 +50,26 @@ def mock_hardware():
             stack.enter_context(patch("server._mouse_battery_mod.UPowerMouseMonitor", _StubMonitor))
         yield
 
+# The Host check only answers to this PC's own names, and the admin role is
+# loopback + the dashboard's origin: test as the desktop window does.
+BASE_URL = "http://127.0.0.1:8888"
+WS_URL = "ws://127.0.0.1:8888/ws"   # websocket_connect does not use base_url
+ADMIN_ORIGIN = {"origin": BASE_URL}
+
+
 @pytest.fixture
 def client(mock_hardware):
-    with TestClient(_app) as c:
+    with TestClient(_app, base_url=BASE_URL, client=("127.0.0.1", 50000)) as c:
         yield c
+
+
+@contextlib.contextmanager
+def _admin_ws(client):
+    """A WebSocket past the auth handshake; config_sync is the next message."""
+    with client.websocket_connect(WS_URL, headers=ADMIN_ORIGIN) as websocket:
+        websocket.send_json({"type": "auth"})
+        assert websocket.receive_json() == {"type": "auth_ok", "data": {"role": "admin", "device_id": "", "name": ""}}
+        yield websocket
 
 def test_index(client):
     response = client.get("/")
@@ -68,15 +84,14 @@ def test_manifest(client):
 
 @pytest.mark.asyncio
 async def test_websocket_flow(client):
-    with client.websocket_connect("/ws") as websocket:
+    with _admin_ws(client) as websocket:
         # First message is config_sync
         config_sync = websocket.receive_json()
         assert config_sync["type"] == "config_sync"
         assert "cfg" in config_sync["data"]
         
-        # Subsequent messages are sys_data (from hardware_loop)
-        sys_data = websocket.receive_json()
-        assert sys_data["type"] == "sys_data"
+        # Then sys_data from hardware_loop (an admin also gets the paired device list)
+        sys_data = _receive_until(websocket, "sys_data")
         payload = sys_data["data"]
         assert "cpu" in payload
         assert "ram" in payload
@@ -95,7 +110,7 @@ def test_set_theme_broadcasts_and_persists(client):
     import server
     original = dict(server.config)
     with patch("server.save_config") as save:
-        with client.websocket_connect("/ws") as websocket:
+        with _admin_ws(client) as websocket:
             assert websocket.receive_json()["type"] == "config_sync"
             websocket.send_json({"type": "set_theme", "data": {"id": "daylight", "ground": "#e8eaed"}})
             assert _receive_until(websocket, "theme_state")["data"] == "daylight"
@@ -110,7 +125,7 @@ def test_set_theme_rejects_bad_values(client):
     import server
     original = dict(server.config)
     with patch("server.save_config"):
-        with client.websocket_connect("/ws") as websocket:
+        with _admin_ws(client) as websocket:
             assert websocket.receive_json()["type"] == "config_sync"
             websocket.send_json({"type": "set_theme", "data": "not-an-object"})
             websocket.send_json({"type": "set_theme", "data": {"id": "../../etc", "ground": "red"}})
@@ -150,3 +165,69 @@ def test_voice_channel_snapshot_is_detached():
     live["users"]["2"] = {"name": "b", "speaking": False}
     assert snap["users"] == {"1": {"name": "a", "speaking": False}}
     assert server._snapshot_voice_channel(None) is None
+
+
+def _restore_config(original):
+    import server
+    server.config.clear()
+    server.config.update(original)
+
+
+def test_config_sync_advertises_features(client):
+    with _admin_ws(client) as websocket:
+        sync = websocket.receive_json()
+        assert "disc_voice" in sync["data"]["features"]
+
+
+def test_sys_data_carries_load_sample_seq(client):
+    with _admin_ws(client) as websocket:
+        payload = _receive_until(websocket, "sys_data")["data"]
+        assert isinstance(payload["load_seq"], int) and payload["load_seq"] >= 1
+
+
+def test_set_volume_is_clamped(client):
+    import server
+    from unittest.mock import call
+    original = dict(server.config)
+    with patch("server.AudioSystem.set_vol") as set_vol, patch("server.save_config"):
+        with _admin_ws(client) as websocket:
+            assert websocket.receive_json()["type"] == "config_sync"
+            websocket.send_json({"type": "set_volume", "data": {"type": "speaker", "val": 150}})
+            websocket.send_json({"type": "set_volume", "data": {"type": "mic", "val": -5}})
+            # Messages are handled in order: once this answers, both levels went through.
+            websocket.send_json({"type": "set_theme", "data": {"id": "ember", "ground": "#0e0d0c"}})
+            _receive_until(websocket, "theme_state")
+    assert set_vol.call_args_list == [call("@DEFAULT_AUDIO_SINK@", 100), call("@DEFAULT_AUDIO_SOURCE@", 0)]
+    _restore_config(original)
+
+
+def test_disc_voice_sets_the_requested_state(client):
+    import server
+    original = dict(server.config)
+    # A real client (it only connects when its loop runs), so config_sync and
+    # sys_data still serialise; only the command is mocked.
+    ipc = server.DiscordIPC("1", "secret")
+    ipc.connected = True
+    ipc.set_voice = MagicMock()
+    with patch("server.disc_ipc_instance", ipc), patch("server.save_config"):
+        with _admin_ws(client) as websocket:
+            assert websocket.receive_json()["type"] == "config_sync"
+            websocket.send_json({"type": "disc_voice", "data": {"mute": 1, "deaf": 0}})
+            websocket.send_json({"type": "set_theme", "data": {"id": "ember", "ground": "#0e0d0c"}})
+            _receive_until(websocket, "theme_state")
+    ipc.set_voice.assert_called_once_with(mute=True, deaf=False)
+    _restore_config(original)
+
+
+def test_save_config_cleans_hidden_audio_devices(client):
+    import server
+    original = dict(server.config)
+    with patch("server.save_config"):
+        with _admin_ws(client) as websocket:
+            assert websocket.receive_json()["type"] == "config_sync"
+            websocket.send_json({"type": "save_config",
+                                 "data": {"hidden_audio_devices": ["HDMI", "HDMI", 5, "", "x" * 300, "Headset"]}})
+            sync = _receive_until(websocket, "config_sync")
+    assert sync["data"]["cfg"]["hidden_audio_devices"] == ["HDMI", "Headset"]
+    assert server._clean_hidden_devices("HDMI") == []
+    _restore_config(original)

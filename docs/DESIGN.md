@@ -114,6 +114,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `cap-h` | 3.4rem | Fader cap height; the travel ends at cap centres |
 | `backdrop-opacity` | 0.5 | Daylight 0.32 |
 | `on-bright`, `on-deep` | near-black, white | Ink chosen for the cover-coloured play key |
+| `mask` | opaque black | The solid part of a `mask-image` gradient (only its alpha counts): the marquee's edge fade |
 | `spring`, `spring-bounce` | CSS `linear()` curves | §7 |
 | `dur-fast`, `dur`, `dur-spring`, `ease` | 110, 180, 460 ms; ease-out | |
 
@@ -141,11 +142,12 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Fader settle, modal open, Now Playing scale, clock digits | `spring` (ζ ≈ 0.75, 3 %) | 280–560 ms |
 | Press-in, colour changes | `ease`, `dur-fast` | 110 ms |
 | Progress bar | linear, 1 s, leading the true position by 1 s so it glides | — |
+| Now playing marquee | rests 2.5 s, then 32 px/s: linear on rich, whole-pixel steps on lite (§8) | one lap per copy width |
 | First load | modules rise and fade in once (GSAP stagger 60 ms) | 700 ms |
 
 - The springs are generated from a damped oscillator and written as `linear()`; engines without `linear()` fall back to `ease`.
 - While a fader is held its transitions switch off, so the cap is glued to the finger.
-- **Reduced motion**: CSS durations collapse to 1 ms and GSAP runs 40× faster through `gsap.matchMedia()`. The first-load entrance is skipped.
+- **Reduced motion**: CSS durations collapse to 1 ms and GSAP runs 40× faster through `gsap.matchMedia()`. The first-load entrance is skipped. The marquee runs one lap per track, then rests.
 - **Haptics** (Android, coarse pointers): 8 ms on any key, 5 ms per 10 % fader detent, 14 ms at 0 %, 100 % and the mute pull.
 
 ## 8. Performance and effects tiers
@@ -155,13 +157,25 @@ The desktop window on Linux is WebKitGTK with GPU compositing disabled (NVIDIA/X
 | Tier | Where | What changes |
 |---|---|---|
 | `rich` | Android app, browsers, Windows WebView2 | Everything in this file |
-| `lite` | Linux desktop window (WebKitGTK) | No light spill (slot, LED, key glows), no speaking pulse, no ambient cross-fade, no first-load entrance, progress steps instead of gliding |
+| `lite` | Linux desktop window (WebKitGTK) | No light spill (slot, LED, key glows), no speaking pulse, no ambient cross-fade, no first-load entrance, progress steps instead of gliding; keys press and light without changing their shadow; the marquee steps a whole pixel every few frames and has no edge fade |
+
+### What costs a full repaint in the Linux window
+
+Measured in a headless copy of the desktop window. Before these rules, the window idled at 27 % of a core, a fader drag took 97 % and three fast Discord taps 40 %. After them, idle is 1–4 %, the drag 15 % and the taps 4 %. With the console's shadows and gradients, a full-page repaint costs about 30 ms of CPU, and WebKitGTK does one for:
+
+1. **A layout that reaches the page root.** Changing in-flow text does this: a figure, a time, a label. `contain` does not stop it here. **Live figures** (anything that changes every second, or on every frame of a drag) sit in a `.live` box: a fixed height `--live-h`, with the text in an absolutely positioned `.live-v` child. That box is a layout boundary, so a new figure repaints only itself. The fader readouts, track times, load figures and speed test figures use it.
+2. **Any change to an element's `box-shadow`**, even a colour on an inset shadow. So on the lite tier a key presses by transform and lights by fill only. The press shade and the lit-key glow change shadows on the rich tier only, under `:where([data-fx="rich"])`, which keeps the specificity unchanged. A state that must show a ring uses a pseudo-element that is shown and hidden (the speaking ring), not a shadow.
+3. **An `opacity` crossing 1**, which gives the element a layer of its own. Toggle `visibility` instead (the mute slash).
+
+Background, ink colour, corner radius, `visibility` and `transform` changes are cheap.
 
 Always, on both tiers:
 
-- Anything that moves uses `transform` or `opacity`. The fader and encoder are driven by one custom property each; a drag never triggers layout.
+- Anything that moves uses `transform`; a fade uses `opacity` only where it animates anyway (entrances, GSAP), never as an on/off toggle. The fader and encoder are driven by one custom property each; a drag never triggers layout.
+- Each live figure sits in a `.live` box (above).
+- One sparkline point per server sample (`load_seq`): event-driven `sys_data` (Discord, volume read-backs) never adds history.
 - No `backdrop-filter`, no 3D transforms at rest, no `will-change` at rest.
-- No infinite animation except the speaking pulse (rich only, small) and the charging battery (4 steps per 2 s).
+- No infinite animation except the speaking pulse (rich only, small), the charging battery (4 steps per 2 s) and the Now playing marquee, which only runs while a title overflows and pauses under the lock screen.
 - Never CSS-transition a property GSAP also tweens (key opacity during the soundboard transition).
 - The cover backdrop is the cover drawn into an 8×8 canvas and stretched: a blur with no filter cost.
 - Write text with `textContent`; never read `innerText` in an update path.
@@ -201,5 +215,6 @@ Retired ids still resolve: `aliases` in the registry maps `classic` to `midnight
 - [ ] Looked at it in Graphite, Daylight and a tinted dark preset (Ember or Amethyst), with something muted, and with `data-fx="lite"`.
 - [ ] Every new icon-only control has an `aria-label`; every new state reads without colour.
 - [ ] Anything that moves uses transform/opacity and a token curve; nothing new animates forever.
+- [ ] Nothing that changes every second sits in the text flow (use `.live`), and no state toggle changes a `box-shadow` or crosses `opacity: 1` on the lite tier (§8).
 - [ ] Any user, media or device string reaching `innerHTML` goes through `escapeHtml()`.
 - [ ] UI changes reach tablets only through a new APK: `./scripts/release.sh <tag> --apk`.

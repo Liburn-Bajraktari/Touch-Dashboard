@@ -192,22 +192,47 @@ if [ "$APK_BUILD" = true ]; then
     APK_FILE="$NEW_APK"
 fi
 
-if [ -n "$APK_FILE" ]; then
-    echo -e "${CYAN}Uploading $APK_FILE to release...${NC}"
-    
-    UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${UPLOAD_URL}?name=$(basename "$APK_FILE")" \
+upload_asset() {
+    local file="$1" content_type="$2"
+    echo -e "${CYAN}Uploading $(basename "$file") to release...${NC}"
+
+    UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${UPLOAD_URL}?name=$(basename "$file")" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Accept: application/vnd.github+json" \
-        -H "Content-Type: application/vnd.android.package-archive" \
-        --data-binary "@$APK_FILE")
-    
+        -H "Content-Type: $content_type" \
+        --data-binary "@$file")
+
     U_HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
     if [ "$U_HTTP_CODE" == "201" ]; then
-        echo -e "${GREEN}Successfully uploaded $APK_FILE!${NC}"
+        echo -e "${GREEN}Successfully uploaded $(basename "$file")!${NC}"
     else
-        echo -e "${RED}Failed to upload APK (HTTP $U_HTTP_CODE)${NC}"
+        echo -e "${RED}Failed to upload $(basename "$file") (HTTP $U_HTTP_CODE)${NC}"
         echo "$UPLOAD_RESPONSE"
     fi
-fi
+}
+
+# The installers, the app's source archives (what the installers and the
+# self-update download) and the APK, with SHA256SUMS so every download is
+# checked before it is used (README: Install). Archives come from the tag, so
+# they hold exactly the released commit.
+ASSET_DIR=$(mktemp -d)
+cp scripts/install.ps1 scripts/setup.sh "$ASSET_DIR/"
+for format in tar.gz zip; do
+    if ! git archive --format="$format" --prefix="Touch-Dashboard-${VERSION#v}/" \
+            -o "$ASSET_DIR/touch-dashboard-$VERSION.$format" "refs/tags/$VERSION"; then
+        echo -e "${RED}Error: could not archive tag $VERSION; nothing was uploaded.${NC}"
+        exit 1
+    fi
+done
+[ -n "$APK_FILE" ] && cp "$APK_FILE" "$ASSET_DIR/"
+(cd "$ASSET_DIR" && sha256sum -- * > SHA256SUMS)
+
+upload_asset "$ASSET_DIR/install.ps1" "text/plain"
+upload_asset "$ASSET_DIR/setup.sh" "text/plain"
+upload_asset "$ASSET_DIR/touch-dashboard-$VERSION.tar.gz" "application/gzip"
+upload_asset "$ASSET_DIR/touch-dashboard-$VERSION.zip" "application/zip"
+[ -n "$APK_FILE" ] && upload_asset "$ASSET_DIR/$(basename "$APK_FILE")" "application/vnd.android.package-archive"
+upload_asset "$ASSET_DIR/SHA256SUMS" "text/plain"
+rm -rf "$ASSET_DIR"
 
 echo -e "${GREEN}Done! Your desktop clients will automatically detect this update.${NC}"

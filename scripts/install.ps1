@@ -11,8 +11,8 @@ if ($env:TARGET_DIR) {
     $InstallDir = "$env:LOCALAPPDATA\$RepoName"
 }
 $VbsLauncher = "$InstallDir\TouchDashboard.vbs"
-$ZipUrl = "https://github.com/$RepoOwner/$RepoName/archive/refs/heads/main.zip"
 $ApiUrl = "https://api.github.com/repos/$RepoOwner/$RepoName"
+$ReleasesUrl = "https://github.com/$RepoOwner/$RepoName/releases/download"
 $DesktopPath = [Environment]::GetFolderPath("Desktop")
 $StartMenuPath = [Environment]::GetFolderPath("Programs")
 
@@ -20,6 +20,52 @@ $StartMenuPath = [Environment]::GetFolderPath("Programs")
 function Write-Color {
     param([string]$text, [string]$color="White")
     Write-Host $text -ForegroundColor $color
+}
+
+# The release to install: $env:TD_RELEASE_TAG (set by the app's self-update),
+# otherwise the newest stable vX.Y.Z (not a draft or pre-release).
+function Get-ReleaseTag {
+    $tag = $env:TD_RELEASE_TAG
+    if (-not $tag) {
+        # Assigned first: piping Invoke-RestMethod straight on would not unroll the array in PowerShell 5.1.
+        $releases = Invoke-RestMethod -Uri "$ApiUrl/releases" -Headers @{ Accept = "application/vnd.github+json" }
+        $tag = ($releases | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+$' -and -not $_.draft -and -not $_.prerelease } |
+            Select-Object -First 1).tag_name
+    }
+    if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "No Touch Dashboard release to install was found on GitHub." }
+    return $tag
+}
+
+# Download release $tag's source archive and check it against the SHA256SUMS
+# published with it. Returns the archive's path; throws on any mismatch.
+function Get-VerifiedReleaseArchive {
+    param([string]$tag)
+    $archive = "touch-dashboard-$tag.zip"
+    $zipPath = Join-Path $env:TEMP $archive
+    $sumsPath = Join-Path $env:TEMP "TouchDashboard_SHA256SUMS"
+    Invoke-WebRequest -Uri "$ReleasesUrl/$tag/SHA256SUMS" -OutFile $sumsPath -UseBasicParsing
+    Invoke-WebRequest -Uri "$ReleasesUrl/$tag/$archive" -OutFile $zipPath -UseBasicParsing
+    $line = Select-String -Path $sumsPath -Pattern (" \*?" + [regex]::Escape($archive) + '$') | Select-Object -First 1
+    $expected = if ($line) { ($line.Line -split '\s+')[0] } else { "" }
+    $actual = (Get-FileHash $zipPath -Algorithm SHA256).Hash
+    Remove-Item $sumsPath -Force -ErrorAction SilentlyContinue
+    if (-not $expected -or $actual -ne $expected) {
+        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        throw "The download does not match the checksum published with $tag. Nothing was installed."
+    }
+    return $zipPath
+}
+
+# Ask a running app to quit. /api/exit takes the token the app writes to its
+# data folder at startup; callers still stop whatever is left.
+function Request-AppExit {
+    $tokenFile = Join-Path $env:APPDATA "touch-dashboard\local_control.token"
+    if (-not (Test-Path $tokenFile)) { return }
+    $token = (Get-Content -Raw $tokenFile).Trim()
+    try {
+        Invoke-RestMethod -Uri "http://127.0.0.1:8888/api/exit" -Method Post -ContentType "application/json" `
+            -Body "{}" -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 3 -ErrorAction SilentlyContinue | Out-Null
+    } catch {}
 }
 
 function Find-Python {
@@ -62,7 +108,7 @@ function Install-Update {
         
         if ($ans -match "^[Yy]$") {
             Write-Color "  [*] Stopping processes..." "Cyan"
-            try { Invoke-RestMethod -Uri "http://127.0.0.1:8888/api/exit" -Method Post -ErrorAction SilentlyContinue | Out-Null } catch {}
+            Request-AppExit
             Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match "server.py.*Touch-Dashboard"} | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
             Start-Sleep -Seconds 1
         } else {
@@ -74,9 +120,16 @@ function Install-Update {
 
     Find-Python
 
-    Write-Color "[*] Downloading latest source code from GitHub..." "Cyan"
-    $tempZip = "$env:TEMP\TouchDashboard_main.zip"
-    Invoke-WebRequest -Uri $ZipUrl -OutFile $tempZip
+    try {
+        $releaseTag = Get-ReleaseTag
+        Write-Color "[*] Downloading Touch Dashboard $releaseTag from GitHub and checking it against SHA256SUMS..." "Cyan"
+        $tempZip = Get-VerifiedReleaseArchive $releaseTag
+    } catch {
+        Write-Color "  [-] $($_.Exception.Message)" "Red"
+        if ($env:AUTO_UPDATE -eq "1") { exit 1 }
+        Read-Host "Press Enter to return to menu..."
+        return
+    }
     
     Write-Color "[*] Extracting files..." "Cyan"
     if (Test-Path $InstallDir) {
@@ -159,15 +212,24 @@ objShell.Run """$InstallDir\.venv\Scripts\pythonw.exe"" ""$InstallDir\server.py"
     $ShortcutSM.WindowStyle = 7
     $ShortcutSM.Save()
 
-    # Firewall Rule
-    Write-Color "[*] Configuring Windows Firewall for port 8888..." "Cyan"
+    # Firewall Rule: port 8888 on private networks only, and only from the local subnet.
+    # On a network Windows classes as Public (cafés, hotels) the dashboard stays closed.
+    Write-Color "[*] Configuring Windows Firewall for port 8888 (private networks only)..." "Cyan"
     $ruleName = "Touch Dashboard Backend"
     $ruleExists = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-    if (-not $ruleExists) {
-        try {
-            New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -LocalPort 8888 -Protocol TCP -Action Allow -Profile Any -ErrorAction Stop | Out-Null
-        } catch {
-            Write-Color "  [!] Could not create firewall rule (requires admin). You may get a prompt when running the app." "Yellow"
+    try {
+        if ($ruleExists) {
+            # Older installers opened the port on every network profile, to any address.
+            Set-NetFirewallRule -DisplayName $ruleName -Profile Private -RemoteAddress LocalSubnet -ErrorAction Stop
+        } else {
+            New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -LocalPort 8888 -Protocol TCP -Action Allow -Profile Private -RemoteAddress LocalSubnet -ErrorAction Stop | Out-Null
+        }
+        Write-Color "  [+] If the tablet cannot connect, set your home network to Private in Windows Settings > Network." "Green"
+    } catch {
+        if ($ruleExists) {
+            Write-Color "  [!] Could not limit the existing firewall rule to private networks (requires admin). Run this installer as administrator once to fix it." "Yellow"
+        } else {
+            Write-Color "  [!] Could not create firewall rule (requires admin). You may get a prompt when running the app: allow it on private networks only." "Yellow"
         }
     }
 
@@ -237,7 +299,7 @@ function Uninstall-App {
         
         # Kill running processes
         Write-Color "[*] Stopping backend processes..." "Cyan"
-        try { Invoke-RestMethod -Uri "http://127.0.0.1:8888/api/exit" -Method Post -ErrorAction SilentlyContinue | Out-Null } catch {}
+        Request-AppExit
         Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match "server.py.*Touch-Dashboard"} | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 
         Start-Sleep -Seconds 2

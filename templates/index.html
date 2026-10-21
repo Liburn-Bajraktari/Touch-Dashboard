@@ -149,6 +149,28 @@
             font-variant-numeric: tabular-nums;
         }
 
+        /* Live figures change every second, or on every frame of a fader drag.
+           Their text sits in a fixed-size box out of the flow, so a new figure
+           never re-lays out the page: in the Linux window (WebKitGTK painting on
+           the CPU) a layout that reaches the page root repaints the whole page,
+           ~30 ms with the console's shadows and gradients. */
+        .live {
+            position: relative;
+            display: block;
+            height: var(--live-h);
+        }
+
+        .live > .live-v {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: var(--live-h);
+            line-height: var(--live-h);
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
         .unit {
             color: var(--well-ink-2);
             font-size: 0.78em;
@@ -304,9 +326,17 @@
         .btn:active,
         .btn.active-btn {
             transform: translateY(0.12rem) scale(0.97);
-            box-shadow: var(--elev-press);
             transition-duration: var(--dur-fast);
             transition-timing-function: var(--ease);
+        }
+
+        /* Shadows only change on the rich tier. WebKitGTK re-lays out the page
+           for any box-shadow change (~30 ms per press in the CPU-painted Linux
+           window), so there a key sinks by transform and lights by fill alone.
+           :where() keeps the specificity these rules had without the tier. */
+        :where([data-fx="rich"]) .btn:active,
+        :where([data-fx="rich"]) .btn.active-btn {
+            box-shadow: var(--elev-press);
         }
 
         .btn.round {
@@ -321,7 +351,7 @@
             box-shadow: inset 0 1px 0 var(--rim), 0 0.5rem 1.1rem -0.5rem var(--depth);
         }
 
-        .btn-primary:active {
+        :where([data-fx="rich"]) .btn-primary:active {
             box-shadow: none;
         }
 
@@ -355,31 +385,34 @@
             background: var(--surface-2);
         }
 
-        /* States are lit keys: a filled cap plus, on rich displays, the light spilling around it. */
+        /* States are lit keys: a filled cap plus, on rich displays, the light
+           spilling around it. On the lite tier the key keeps its resting shadow
+           and only its fill changes (see .btn:active). */
         .btn.muted {
             background: var(--negative);
             color: var(--negative-ink);
-            box-shadow: inset 0 1px 0 var(--rim), inset 0 -0.2rem 0 var(--edge);
         }
 
         .btn.vid-active {
             background: var(--positive);
             color: var(--positive-ink);
-            box-shadow: inset 0 1px 0 var(--rim), inset 0 -0.2rem 0 var(--edge);
         }
 
         [data-fx="rich"] .btn.muted {
-            box-shadow: inset 0 1px 0 var(--rim), inset 0 -0.2rem 0 var(--edge), 0 0 1.6rem -0.3rem var(--negative);
+            box-shadow: var(--elev-lit), 0 0 1.6rem -0.3rem var(--negative);
         }
 
         [data-fx="rich"] .btn.vid-active {
-            box-shadow: inset 0 1px 0 var(--rim), inset 0 -0.2rem 0 var(--edge), 0 0 1.6rem -0.3rem var(--positive);
+            box-shadow: var(--elev-lit), 0 0 1.6rem -0.3rem var(--positive);
         }
 
-        /* Slash through the icon so mute reads without colour as well. */
-        #btn-disc-mute.muted::after,
-        #btn-disc-deaf.muted::after {
+        /* Slash through the icon so mute reads without colour as well. It always
+           exists and is only shown: creating it on toggle would re-lay out the page,
+           and an opacity below 1 would give it a layer of its own. */
+        #btn-disc-mute::after,
+        #btn-disc-deaf::after {
             content: '';
+            visibility: hidden;
             position: absolute;
             top: 50%;
             left: 50%;
@@ -391,6 +424,11 @@
             box-shadow: 0 0 0 0.14rem var(--negative);
             transform: translate(-50%, -50%) rotate(-45deg);
             pointer-events: none;
+        }
+
+        #btn-disc-mute.muted::after,
+        #btn-disc-deaf.muted::after {
+            visibility: visible;
         }
 
         .btn-add {
@@ -700,6 +738,12 @@
             white-space: nowrap;
         }
 
+        .speed-v {
+            --live-h: 1.3rem;
+            width: 3.8rem;
+            text-align: right;
+        }
+
         .speed-line svg.lucide {
             width: 1.1rem;
             height: 1.1rem;
@@ -983,8 +1027,23 @@
             white-space: nowrap;
         }
 
-        .marquee-content span span {
+        /* An overflowing line is two copies of the text; the marquee script sizes
+           each to a whole number of device pixels, gap included. */
+        .marquee-copy {
             display: inline-block;
+            text-align: start;
+        }
+
+        /* Rich displays: the scrolling line fades out at the panel's edges. The
+           track starts one fade-width in, so the first letter rests fully lit. */
+        [data-fx="rich"] .marquee-wrapper.is-scrolling {
+            --mq-fade: 1.25rem;
+            -webkit-mask-image: linear-gradient(90deg, transparent, var(--mask) var(--mq-fade), var(--mask) calc(100% - var(--mq-fade)), transparent);
+            mask-image: linear-gradient(90deg, transparent, var(--mask) var(--mq-fade), var(--mask) calc(100% - var(--mq-fade)), transparent);
+        }
+
+        [data-fx="rich"] .marquee-wrapper.is-scrolling .marquee-content {
+            padding-inline-start: var(--mq-fade);
         }
 
         .np-progress {
@@ -1018,6 +1077,15 @@
             margin-top: 0.45rem;
             font-size: var(--fs-xs);
             color: var(--text-3);
+        }
+
+        .np-t {
+            --live-h: 1.25rem;
+            width: 5rem;
+        }
+
+        .np-t-end {
+            text-align: right;
         }
 
         .spot-ctrl {
@@ -1165,8 +1233,19 @@
             border-radius: 50%;
             flex-shrink: 0;
             background: var(--surface-3);
-            box-shadow: 0 0 0 0.16rem transparent;
-            transition: box-shadow var(--dur-fast) var(--ease);
+        }
+
+        /* The speaking ring is a pseudo-element that is only shown and hidden:
+           speaking toggles many times a second in a call, and a box-shadow
+           change would re-lay out the page each time in the Linux window. */
+        .vc-avatar::before {
+            content: '';
+            position: absolute;
+            inset: -0.16rem;
+            border-radius: 50%;
+            border: 0.16rem solid var(--positive);
+            visibility: hidden;
+            pointer-events: none;
         }
 
         .vc-avatar img {
@@ -1176,8 +1255,8 @@
             object-fit: cover;
         }
 
-        .vc-avatar.speaking {
-            box-shadow: 0 0 0 0.16rem var(--positive);
+        .vc-avatar.speaking::before {
+            visibility: visible;
         }
 
         /* Speaking pulse: a ring that grows and fades, transform + opacity only. */
@@ -1208,6 +1287,8 @@
             align-items: center;
             justify-content: center;
             color: var(--negative-text);
+            /* Fixed size + clipped: a layout boundary, so swapping the glyph stays local. */
+            overflow: hidden;
         }
 
         .vc-status-icon svg.lucide {
@@ -1393,13 +1474,15 @@
         }
 
         .fader-val {
+            --live-h: 1.9rem;
+            width: 100%;
+            text-align: center;
             font-size: var(--fs-lg);
             font-weight: var(--weight-strong);
             color: var(--well-accent);
-            line-height: 1.05;
         }
 
-        .fader-val.is-muted {
+        .fader-val > .is-muted {
             color: var(--well-ink);
             font-size: var(--fs-md);
             line-height: 1.3;
@@ -1824,12 +1907,11 @@
         }
 
         .stat-val {
-            position: relative;
+            --live-h: 1.95rem;
             z-index: 1;
             font-size: var(--fs-lg);
             font-weight: var(--weight-strong);
             color: var(--well-ink);
-            line-height: 1.1;
         }
 
         .spark {
@@ -2179,6 +2261,117 @@
             height: 4.4rem;
         }
 
+        /* Pairing: the same six digits on the tablet and on the PC. */
+        .pair-code {
+            margin: 0.5rem 0 0;
+            padding: 1.2rem 1rem;
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            border-radius: var(--radius-key);
+            color: var(--well-ink);
+            font-size: 3.4rem;
+            font-weight: var(--weight-strong);
+            letter-spacing: 0.32em;
+            text-align: center;
+            /* letter-spacing trails the last digit; pull it back so the code centres */
+            text-indent: 0.32em;
+        }
+
+        .pair-status {
+            min-height: 1.6rem;
+            color: var(--text-2);
+            font-size: var(--fs-sm);
+            font-weight: 500;
+            text-align: center;
+        }
+
+        .pair-status.is-error {
+            color: var(--negative-text);
+        }
+
+        .pair-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .pair-actions .btn {
+            width: 100%;
+            height: 4.4rem;
+        }
+
+        #pair-modal[data-step="form"] .pair-step-wait,
+        #pair-modal[data-step="wait"] .pair-step-form {
+            display: none;
+        }
+
+        /* Paired devices (Settings) */
+        #paired-devices-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .device-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            gap: 1rem;
+            align-items: center;
+            padding: 0.6rem 0.6rem 0.6rem 1.1rem;
+            background: var(--surface-2);
+            border-radius: calc(var(--radius-key) * var(--sq));
+        }
+
+        .device-row input {
+            height: 3.2rem;
+            background: var(--surface);
+        }
+
+        .device-meta {
+            color: var(--text-2);
+            font-size: var(--fs-xs);
+            line-height: 1.4;
+            white-space: nowrap;
+        }
+
+        .device-meta .is-online {
+            color: var(--text);
+            font-weight: var(--weight-strong);
+        }
+
+        .device-meta .is-online::before {
+            content: '';
+            display: inline-block;
+            width: 0.5rem;
+            height: 0.5rem;
+            margin-right: 0.4rem;
+            border-radius: 50%;
+            background: var(--positive);
+            vertical-align: 0.1em;
+        }
+
+        .device-row .btn {
+            width: auto;
+            height: 3.2rem;
+            min-height: 0;
+            padding: 0 1.1rem;
+        }
+
+        .devices-empty {
+            color: var(--text-3);
+            font-size: var(--fs-sm);
+        }
+
+        /* A paired tablet opens its connection menu from the title. */
+        html[data-role="device"] .bar-title {
+            cursor: pointer;
+        }
+
+        .btn:disabled {
+            color: var(--text-3);
+            cursor: not-allowed;
+        }
+
         /* Update */
         #update-notes-container {
             margin-top: 0.5rem;
@@ -2350,7 +2543,8 @@
             margin-bottom: 0.25rem;
         }
 
-        #modal-card[data-tab="tab-themes"] .settings-save {
+        #modal-card[data-tab="tab-themes"] .settings-save,
+        #modal-card[data-tab="tab-devices"] .settings-save {
             display: none;
         }
 
@@ -2444,9 +2638,24 @@
         }
 
         .audio-dev-row {
+            grid-template-columns: 1fr 1fr auto;
             padding: 0.6rem 0.6rem 0.6rem 1.1rem;
             background: var(--surface-2);
             border-radius: calc(var(--radius-key) * var(--sq));
+        }
+
+        /* Hidden from the output switch: struck through, not just dimmed, and the
+           key shows a crossed-out eye, so the state reads without colour. */
+        .audio-dev-row.is-hidden .raw {
+            color: var(--text-3);
+            text-decoration: line-through;
+        }
+
+        .dev-hide {
+            width: 3.2rem;
+            height: 3.2rem;
+            min-height: 0;
+            padding: 0;
         }
 
         .audio-dev-row .raw {
@@ -3094,6 +3303,65 @@
         </div>
     </div>
 
+    <!-- --- Pairing (tablet / browser on another device) --- -->
+    <div id="pair-modal" class="modal-overlay" data-step="form">
+        <div class="modal-card is-compact ip-card" role="dialog" aria-modal="true" aria-labelledby="pair-title">
+            <svg class="brand-mark" aria-hidden="true"><use href="#icon-brand" /></svg>
+            <h3 class="modal-title" id="pair-title">Pair with this PC</h3>
+            <div class="pair-step-form">
+                <p class="modal-text">This device is not paired yet. Send a request, then allow it in Touch Dashboard on
+                    the PC.</p>
+                <div class="form-group">
+                    <label for="pair-name-input"><i data-lucide="tablet-smartphone"></i> Device name</label>
+                    <input type="text" id="pair-name-input" maxlength="40" autocomplete="off" spellcheck="false">
+                </div>
+            </div>
+            <div class="pair-step-wait">
+                <p class="modal-text">Allow this device on the PC. Check that the PC shows the same code.</p>
+                <div class="pair-code num" id="pair-code" aria-label="Pairing code"></div>
+            </div>
+            <div class="pair-status" id="pair-status" role="status" aria-live="polite"></div>
+            <div class="pair-actions">
+                <button class="btn btn-primary btn-pill pair-step-form" id="pair-request-btn">
+                    <span>Request access</span>
+                    <i data-lucide="arrow-right"></i>
+                </button>
+                <button class="btn btn-ghost btn-pill pair-step-wait" id="pair-cancel-btn">Cancel</button>
+                <button class="btn btn-ghost btn-pill pair-step-form" id="pair-change-pc-btn" style="display: none;">
+                    Use another PC</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- Pairing approval (PC) --- -->
+    <div id="pair-approve-modal" class="modal-overlay">
+        <div class="modal-card is-compact" role="alertdialog" aria-modal="true" aria-labelledby="pair-approve-title"
+            aria-describedby="pair-approve-text">
+            <h3 class="modal-title" id="pair-approve-title">Pairing request</h3>
+            <p class="modal-text" id="pair-approve-text"></p>
+            <div class="pair-code num" id="pair-approve-code" aria-label="Pairing code"></div>
+            <p class="modal-text">Allow it only if the device shows the same code. A paired device can run your
+                macros and soundboard and control media, volume and Discord.</p>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" id="pair-deny-btn">Deny</button>
+                <button class="btn btn-primary" id="pair-allow-btn">Allow</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- Connection menu (paired tablet) --- -->
+    <div id="device-modal" class="modal-overlay">
+        <div class="modal-card is-compact ip-card" role="dialog" aria-modal="true" aria-labelledby="device-modal-title">
+            <h3 class="modal-title" id="device-modal-title">This device</h3>
+            <p class="modal-text" id="device-modal-text"></p>
+            <div class="pair-actions">
+                <button class="btn btn-danger btn-pill" id="device-forget-btn"><i data-lucide="unlink"></i> Forget this
+                    PC</button>
+                <button class="btn btn-ghost btn-pill" id="device-close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- --- Update Modal --- -->
     <div id="update-modal" class="modal-overlay">
         <div class="modal-card is-compact">
@@ -3137,6 +3405,7 @@
                 <button class="tab" id="btn-tab-aud" data-tab="tab-aud" onclick="switchTab('tab-aud')">Audio routing</button>
                 <button class="tab" id="tab-btn-sb" data-tab="tab-sb" onclick="switchTab('tab-sb')"
                     style="display: none;">Soundboard</button>
+                <button class="tab" data-tab="tab-devices" onclick="switchTab('tab-devices')">Paired devices</button>
             </nav>
 
             <div class="settings-content-wrapper">
@@ -3279,6 +3548,17 @@
                                     <span class="slider"></span>
                                 </label>
                             </div>
+                            <div class="setting-row">
+                                <div>
+                                    <label class="title" for="cfg-device-av">Camera and screen share from tablets</label>
+                                    <label class="desc" for="cfg-device-av">Let paired devices turn your Discord
+                                        camera and screen share on or off</label>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="cfg-device-av">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
                         </div>
 
                         <div class="form-group"><label for="cfg-disc-id">Client ID</label><input type="text"
@@ -3293,8 +3573,7 @@
                                 <p class="notice-title">Warning: Voice Control Unavailable</p>
                                 <p id="disc-warning-detail" class="muted-text">Voice control requires RPC voice API
                                     access which is not available in this mode.</p>
-                                <p id="disc-warning-hint">The dashboard is using keyboard shortcuts (Ctrl+Shift+M /
-                                    Ctrl+Shift+D) as a fallback.</p>
+                                <p id="disc-warning-hint">Use the official Discord app or Vencord instead.</p>
                             </div>
                         </div>
 
@@ -3320,7 +3599,7 @@
                 <div id="tab-aud" class="tab-content">
                     <h3 class="settings-h">Audio routing</h3>
                     <p class="settings-sub">Output devices found on this PC. Give one a short name (up to 10
-                        characters) to show on the output switch.</p>
+                        characters) to show on the output switch, or hide it so the switch skips it.</p>
                     <div id="audio-devices-list"></div>
                 </div>
 
@@ -3350,6 +3629,18 @@
                         <input type="number" id="cfg-sb-norm-db" class="num" placeholder="89.0" step="0.1">
                     </div>
                     <p class="settings-sub">89.0 dB is the standard ReplayGain target, the same as Soundpad.</p>
+                </div>
+
+                <div id="tab-devices" class="tab-content">
+                    <h3 class="settings-h">Paired devices</h3>
+                    <p class="settings-sub">Tablets and browsers you allowed to use this dashboard. Removing one
+                        disconnects it at once; it has to be paired and allowed again to come back.</p>
+                    <div id="paired-devices-list"></div>
+                    <div class="notice">
+                        <i data-lucide="shield-check"></i>
+                        <p>Settings, macros, soundboard pads, pairing and updates can only be changed here on the
+                            PC. Keep Touch Dashboard on a private network; its traffic is not encrypted.</p>
+                    </div>
                 </div>
 
                 <button class="btn btn-primary btn-pill settings-save" onclick="saveConfig()">Save &amp; apply</button>
@@ -3465,9 +3756,9 @@
                     </span>
                     <span class="speed-lines num">
                         <span class="speed-line"><i data-lucide="arrow-down" class="speed-dl-icon"></i><span
-                                id="s-dl">&mdash;</span><span class="unit">Mbps</span></span>
+                                class="live speed-v"><span class="live-v" id="s-dl">&mdash;</span></span><span class="unit">Mbps</span></span>
                         <span class="speed-line"><i data-lucide="arrow-up" class="speed-ul-icon"></i><span
-                                id="s-ul">&mdash;</span><span class="unit">Mbps</span></span>
+                                class="live speed-v"><span class="live-v" id="s-ul">&mdash;</span></span><span class="unit">Mbps</span></span>
                     </span>
                 </button>
                 <button class="btn btn-top" id="btn-shutdown" title="Turn off PC" aria-label="Turn off PC"
@@ -3528,8 +3819,8 @@
 
                         <div class="np-progress" id="np-progress" hidden>
                             <div class="np-bar"><div class="np-fill" id="np-fill"></div></div>
-                            <div class="np-times num"><span id="np-elapsed">0:00</span><span
-                                    id="np-remaining">0:00</span></div>
+                            <div class="np-times num"><span class="live np-t"><span class="live-v" id="np-elapsed">0:00</span></span><span
+                                    class="live np-t np-t-end"><span class="live-v" id="np-remaining">0:00</span></span></div>
                         </div>
                     </div>
 
@@ -3601,7 +3892,7 @@
                     <div class="pro-slider">
                         <div class="scribble">
                             <span class="ch-name">Output</span>
-                            <span class="fader-val num" id="val-spk">0%</span>
+                            <span class="fader-val num live"><span class="live-v" id="val-spk">0%</span></span>
                         </div>
                         <div class="slider-track-area" id="slide-spk" aria-label="Speaker volume">
                             <div class="fader-scale"></div>
@@ -3627,7 +3918,7 @@
                     <div class="pro-slider">
                         <div class="scribble">
                             <span class="ch-name">Mic</span>
-                            <span class="fader-val num" id="val-mic">0%</span>
+                            <span class="fader-val num live"><span class="live-v" id="val-mic">0%</span></span>
                         </div>
                         <div class="slider-track-area" id="slide-mic" aria-label="Microphone volume">
                             <div class="fader-scale"></div>
@@ -3654,7 +3945,7 @@
                     <div class="stats">
                         <div class="stat" id="sys-cpu-tile">
                             <div class="stat-head"><i data-lucide="cpu"></i>CPU</div>
-                            <div class="stat-val num" id="sys-cpu">0%</div>
+                            <div class="stat-val num live"><span class="live-v" id="sys-cpu">0%</span></div>
                             <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
                                 <defs><linearGradient id="spark-g-cpu" x1="0" y1="0" x2="0" y2="1"><stop
                                             offset="0" class="spark-a" /><stop offset="1" class="spark-b" /></linearGradient></defs>
@@ -3664,7 +3955,7 @@
                         </div>
                         <div class="stat" id="sys-ram-tile">
                             <div class="stat-head"><i data-lucide="memory-stick"></i>RAM</div>
-                            <div class="stat-val num" id="sys-ram">0%</div>
+                            <div class="stat-val num live"><span class="live-v" id="sys-ram">0%</span></div>
                             <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
                                 <defs><linearGradient id="spark-g-ram" x1="0" y1="0" x2="0" y2="1"><stop
                                             offset="0" class="spark-a" /><stop offset="1" class="spark-b" /></linearGradient></defs>
@@ -3674,7 +3965,7 @@
                         </div>
                         <div class="stat" id="sys-gpu-row" style="display: none;">
                             <div class="stat-head"><i data-lucide="monitor"></i>GPU</div>
-                            <div class="stat-val num" id="sys-gpu">0%</div>
+                            <div class="stat-val num live"><span class="live-v" id="sys-gpu">0%</span></div>
                             <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
                                 <defs><linearGradient id="spark-g-gpu" x1="0" y1="0" x2="0" y2="1"><stop
                                             offset="0" class="spark-a" /><stop offset="1" class="spark-b" /></linearGradient></defs>
@@ -3868,6 +4159,25 @@
         let hasDisconnected = false;
         let reconnectTimer = null;
 
+        // Pairing: every socket proves itself before the server sends anything.
+        // The desktop window and a browser on the PC are "admin" by address;
+        // everything else sends the token it got when the PC allowed it, kept per PC.
+        const WS_UNAUTHORIZED = 4401;
+        const TOKEN_KEY_PREFIX = 'td_token@';
+        const DEVICE_NAME_KEY = 'td_device_name';
+        let authState = 'idle';     // 'auth' | 'pair' | 'authed'
+        let myRole = '';            // 'admin' | 'device' | 'legacy' (a server from before pairing)
+        let myDeviceName = '';
+        let currentServerIp = '';
+        let pairingOpen = false;
+        let pairResultShown = false;
+
+        function tokenKey() { return TOKEN_KEY_PREFIX + dashboardServerHost; }
+        function storedToken() { return localStorage.getItem(tokenKey()) || ''; }
+        function forgetToken() { localStorage.removeItem(tokenKey()); }
+        // UI only: the server enforces every role check itself.
+        function isAdmin() { return myRole === 'admin' || myRole === 'legacy'; }
+
         // The runtime cannot change during a page's life, and this is called per art update.
         let _isCapacitor = null;
         function isCapacitorRuntime() {
@@ -3965,10 +4275,13 @@
             }
         }
 
-        function connectDashboardSocket(serverIp = '') {
+        // pairName: open a pairing request under that name instead of authenticating.
+        function connectDashboardSocket(serverIp = '', pairName = null) {
             closePendingSocket();
             const attemptId = ++socketAttemptId;
             const normalizedIp = normalizeServerIp(serverIp);
+            currentServerIp = normalizedIp;
+            authState = 'idle';
             dashboardServerHost = getSocketHost(normalizedIp);
 
             // If we are in the native app (Capacitor/WebViewAssetLoader), we are connecting to a local IP without SSL, so force 'ws'.
@@ -3988,32 +4301,173 @@
 
             nextSocket.onopen = () => {
                 if (attemptId !== socketAttemptId) return;
-                setLinkState(true);
                 if (socketConnectTimer) {
                     clearTimeout(socketConnectTimer);
                     socketConnectTimer = null;
                 }
                 socket = nextSocket;
                 if (isCapacitorRuntime()) {
-                    localStorage.setItem(SERVER_IP_KEY, normalizedIp);
                     hideIpModal();
                 } else if (hasDisconnected) {
                     window.location.reload();
+                    return;
+                }
+                // The server closes a socket that says nothing within 5 s.
+                if (pairName !== null) {
+                    authState = 'pair';
+                    nextSocket.send(JSON.stringify({ type: 'pair_request', device_name: pairName }));
+                } else {
+                    authState = 'auth';
+                    nextSocket.send(JSON.stringify({ type: 'auth', token: storedToken() }));
                 }
             };
 
-            nextSocket.onclose = () => {
+            // An error is always followed by close; close handles both.
+            nextSocket.onclose = (event) => {
                 if (attemptId !== socketAttemptId) return;
-                handleSocketFailure(normalizedIp);
-            };
-
-            nextSocket.onerror = () => {
-                if (attemptId !== socketAttemptId) return;
+                const wasAuthed = authState === 'authed';
+                authState = 'idle';
+                if (event.code === WS_UNAUTHORIZED) {
+                    // Not paired, or removed on the PC: pair (again).
+                    forgetToken();
+                    myRole = '';
+                    delete document.documentElement.dataset.role;
+                    closePendingSocket();
+                    setLinkState(false);
+                    showPairModal(wasAuthed ? 'This device was removed on the PC. Pair it again to reconnect.' : '', true);
+                    return;
+                }
+                if (pairingOpen) {
+                    // A pairing request ended; pair_result already said why, unless the link dropped.
+                    closePendingSocket();
+                    setLinkState(false);
+                    setPairStep('form');
+                    if (!pairResultShown) setPairStatus('Lost the connection to the PC. Try again.', true);
+                    return;
+                }
                 handleSocketFailure(normalizedIp);
             };
 
             attachSocketMessageHandler(nextSocket);
         }
+
+        function onAuthenticated(d) {
+            authState = 'authed';
+            myRole = d.role;
+            myDeviceName = d.name || '';
+            document.documentElement.dataset.role = myRole;
+            hidePairModal();
+            setLinkState(true);
+            // Remember only a PC that let us in.
+            if (isCapacitorRuntime()) localStorage.setItem(SERVER_IP_KEY, currentServerIp);
+        }
+
+        // --- Pairing (tablet / another device's browser) ---
+        const PAIR_MESSAGES = {
+            denied: 'The PC denied the request.',
+            expired: 'The request expired. Send it again and allow it on the PC within a minute.',
+            busy: 'This device already has a request waiting on the PC.',
+            rate_limited: 'Too many requests. Wait a minute, then try again.',
+            error: 'The PC could not save the pairing. Try again.',
+        };
+
+        function defaultDeviceName() {
+            const saved = localStorage.getItem(DEVICE_NAME_KEY);
+            if (saved) return saved;
+            const ua = navigator.userAgent;
+            if (isCapacitorRuntime() || /Android/.test(ua)) return 'Android tablet';
+            if (/iPad|iPhone/.test(ua)) return 'iPad';
+            const os = /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '';
+            return os ? `Browser on ${os}` : 'Browser';
+        }
+
+        function setPairStep(step) { document.getElementById('pair-modal').dataset.step = step; }
+
+        function setPairStatus(text, isError = false) {
+            const el = document.getElementById('pair-status');
+            el.textContent = text;
+            el.classList.toggle('is-error', isError);
+        }
+
+        function showPairModal(message = '', isError = true) {
+            pairingOpen = true;
+            hideIpModal();
+            setPairStep('form');
+            setPairStatus(message, isError);
+            const input = document.getElementById('pair-name-input');
+            if (!input.value) input.value = defaultDeviceName();
+            document.getElementById('pair-change-pc-btn').style.display = isCapacitorRuntime() ? '' : 'none';
+            document.getElementById('pair-modal').classList.add('active');
+        }
+
+        function hidePairModal() {
+            pairingOpen = false;
+            document.getElementById('pair-modal').classList.remove('active');
+        }
+
+        function requestPairing() {
+            const input = document.getElementById('pair-name-input');
+            const name = input.value.trim().slice(0, 40) || defaultDeviceName();
+            input.value = name;
+            localStorage.setItem(DEVICE_NAME_KEY, name);
+            pairResultShown = false;
+            setPairStatus('Sending the request…');
+            connectDashboardSocket(currentServerIp, name);
+        }
+
+        function cancelPairing() {
+            if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'pair_cancel' }));
+            closePendingSocket();
+            setPairStep('form');
+            setPairStatus('');
+        }
+
+        document.getElementById('pair-request-btn').addEventListener('click', requestPairing);
+        document.getElementById('pair-name-input').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') requestPairing();
+        });
+        document.getElementById('pair-cancel-btn').addEventListener('click', cancelPairing);
+        document.getElementById('pair-change-pc-btn').addEventListener('click', () => {
+            closePendingSocket();
+            hidePairModal();
+            localStorage.removeItem(SERVER_IP_KEY);
+            showIpModal('', '');
+        });
+
+        // --- Connection menu (paired tablet): tap the title ---
+        function openDeviceMenu() {
+            if (myRole !== 'device') return;
+            const pc = dashboardServerHost.replace(/:\d+$/, '');
+            document.getElementById('device-modal-text').textContent =
+                `Paired as “${myDeviceName || 'this device'}” with the PC at ${pc}.`;
+            document.getElementById('device-modal').classList.add('active');
+        }
+
+        function closeDeviceMenu() { document.getElementById('device-modal').classList.remove('active'); }
+
+        function forgetThisPc() {
+            if (!confirm('Forget this PC? This device will have to be paired and allowed again to reconnect.')) return;
+            // The server deletes the pairing too; queued before close(), so it is sent first.
+            if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'unpair_self' }));
+            forgetToken();
+            closeDeviceMenu();
+            closePendingSocket();
+            authState = 'idle';
+            myRole = '';
+            delete document.documentElement.dataset.role;
+            setLinkState(false);
+            if (isCapacitorRuntime()) {
+                localStorage.removeItem(SERVER_IP_KEY);
+                showIpModal('', '');
+            } else {
+                showPairModal('', false);
+            }
+        }
+
+        document.querySelector('.bar-title').addEventListener('click', openDeviceMenu);
+        document.getElementById('device-forget-btn').addEventListener('click', forgetThisPc);
+        document.getElementById('device-close-btn').addEventListener('click', closeDeviceMenu);
+        document.getElementById('device-modal').addEventListener('click', (e) => { if (e.target.id === 'device-modal') closeDeviceMenu(); });
 
         function connectFromIpModal() {
             const input = document.getElementById('ip-input');
@@ -4027,8 +4481,13 @@
         }
 
         function sendSocket(type, data = null) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({ type: type, data: data }));
+            sendMessage({ type: type, data: data });
+        }
+
+        // Newer messages carry their fields at the top level, e.g. {type: 'run_macro', id}.
+        function sendMessage(msg) {
+            if (socket && socket.readyState === WebSocket.OPEN && authState === 'authed') {
+                socket.send(JSON.stringify(msg));
             }
         }
 
@@ -4045,29 +4504,124 @@
         }
 
         // Defined up front so the titlebar button works before the first config_sync.
+        // Over the admin socket: the server answers with update_check.
+        const UPDATE_CHECK_TIMEOUT_MS = 15000;
+        let updateCheckTimer = null;
         function checkDesktopUpdateManual() {
             const btn = document.getElementById('win-check-update-btn');
-            const restore = () => {
-                if (!btn) return;
-                btn.innerHTML = '<i data-lucide="refresh-cw"></i> Check for updates';
-                renderIcons(btn);
-            };
+            if (updateCheckTimer) return;
+            if (authState !== 'authed') {
+                alert("Not connected to Touch Dashboard yet.");
+                return;
+            }
             if (btn) btn.textContent = "Checking…";
-            fetch('/api/check_update')
-                .then(r => r.json())
-                .then(d => {
-                    restore();
-                    if (!d.update_available) {
-                        alert("Touch Dashboard is up to date (" + (d.latest_version || "current") + ").");
-                    }
-                })
-                .catch(() => {
-                    restore();
-                    alert("Could not reach the update server.");
-                });
+            updateCheckTimer = setTimeout(() => finishUpdateCheck(null), UPDATE_CHECK_TIMEOUT_MS);
+            sendSocket('check_update');
         }
 
+        function finishUpdateCheck(d) {
+            if (!updateCheckTimer) return;
+            clearTimeout(updateCheckTimer);
+            updateCheckTimer = null;
+            const btn = document.getElementById('win-check-update-btn');
+            if (btn) {
+                btn.innerHTML = '<i data-lucide="refresh-cw"></i> Check for updates';
+                renderIcons(btn);
+            }
+            if (!d) alert("Could not reach the update server.");
+            else if (!d.update_available) alert("Touch Dashboard is up to date (" + (d.latest_version || "current") + ").");
+        }
+
+        // --- Pairing approval (PC) ---
+        const pairQueue = [];   // pending requests, oldest first
+        function showNextPairRequest() {
+            const modal = document.getElementById('pair-approve-modal');
+            const req = pairQueue[0];
+            if (!req) {
+                modal.classList.remove('active');
+                delete modal.dataset.id;
+                return;
+            }
+            document.getElementById('pair-approve-text').textContent = `“${req.name}” wants to connect from ${req.ip}.`;
+            document.getElementById('pair-approve-code').textContent = req.code;
+            modal.dataset.id = req.id;
+            modal.classList.add('active');
+        }
+
+        function removePairRequest(id) {
+            const i = pairQueue.findIndex(r => r.id === id);
+            if (i >= 0) pairQueue.splice(i, 1);
+            showNextPairRequest();
+        }
+
+        function decidePairing(allow) {
+            const id = document.getElementById('pair-approve-modal').dataset.id;
+            if (!id) return;
+            sendSocket('pair_decision', { id: id, allow: allow });
+            removePairRequest(id);
+        }
+
+        document.getElementById('pair-allow-btn').addEventListener('click', () => decidePairing(true));
+        document.getElementById('pair-deny-btn').addEventListener('click', () => decidePairing(false));
+
+        // --- Paired devices (Settings) ---
+        let pairedDevices = [];
+        let pairedDevicesStale = false;
+        const fmtPairedAt = new Intl.DateTimeFormat([], { dateStyle: 'medium', timeStyle: 'short' });
+        function formatPairedAt(iso) {
+            const t = Date.parse(iso);
+            return Number.isNaN(t) ? '—' : fmtPairedAt.format(new Date(t));
+        }
+
+        function renderPairedDevices() {
+            const list = document.getElementById('paired-devices-list');
+            // A device coming online must not wipe a name being typed.
+            if (list.contains(document.activeElement)) {
+                pairedDevicesStale = true;
+                return;
+            }
+            pairedDevicesStale = false;
+            if (!pairedDevices.length) {
+                list.innerHTML = '<p class="devices-empty">No devices are paired.</p>';
+                return;
+            }
+            list.innerHTML = pairedDevices.map(dev => {
+                const name = escapeHtml(dev.name);
+                const seen = dev.online ? '<span class="is-online">Connected</span>'
+                    : `Last seen ${escapeHtml(formatPairedAt(dev.last_seen))}`;
+                return `
+                    <div class="device-row" data-id="${escapeHtml(dev.id)}">
+                        <input type="text" class="device-name-input" value="${name}" maxlength="40"
+                            aria-label="Name of ${name}" autocomplete="off" spellcheck="false">
+                        <div class="device-meta">${seen}<br>Paired ${escapeHtml(formatPairedAt(dev.created))}</div>
+                        <button type="button" class="btn btn-danger device-revoke" aria-label="Remove ${name}">Remove</button>
+                    </div>`;
+            }).join('');
+        }
+
+        const pairedList = document.getElementById('paired-devices-list');
+        pairedList.addEventListener('change', (e) => {
+            const input = e.target.closest('.device-name-input');
+            if (!input) return;
+            const name = input.value.trim();
+            const id = input.closest('.device-row').dataset.id;
+            if (name) sendSocket('rename_device', { id: id, name: name });
+        });
+        pairedList.addEventListener('click', (e) => {
+            const key = e.target.closest('.device-revoke');
+            if (!key) return;
+            const row = key.closest('.device-row');
+            const dev = pairedDevices.find(x => x.id === row.dataset.id);
+            if (!dev) return;
+            if (!confirm(`Remove “${dev.name}”? It is disconnected now and has to be paired and allowed again.`)) return;
+            sendSocket('revoke_device', { id: dev.id });
+        });
+        pairedList.addEventListener('focusout', () => {
+            setTimeout(() => { if (pairedDevicesStale) renderPairedDevices(); }, 0);
+        });
+
         function openSettings() {
+            if (!isAdmin()) return;   // settings are changed on the PC only
             renderThemeGrid();
             document.getElementById('modal').classList.add('active');
         }
@@ -4120,11 +4674,62 @@
         let isAnimating = false;
         let pendingSysData = null;
         let spotifyLock = 0;
-        let discordLock = 0;
         let discordVidLock = 0;
-        let audioLockSpk = 0;
-        let audioLockMic = 0;
+        let serverFeatures = new Set();   // from config_sync; older servers send none
+
+        // Discord voice keys: the keys show the asked-for state at once and hold
+        // it until Discord reports it (or DISC_CONFIRM_MS passes). A burst of taps
+        // sends the first state at once and the last one after DISC_COALESCE_MS,
+        // so Discord gets at most two commands, never a backlog of toggles.
+        const DISC_CONFIRM_MS = 2000, DISC_COALESCE_MS = 250, DISC_TOGGLE_GAP_MS = 700;
+        let discPending = null;           // {mute, deaf, until}
+        let discLastSent = null, discSentAt = 0, discSendTimer = null;
+        let discToggleAt = { disc_cam: 0, disc_screen: 0 };
+        function sendDiscordVoice() {
+            discSendTimer = null;
+            if (!discPending) return;
+            const want = { mute: discPending.mute, deaf: discPending.deaf };
+            if (discLastSent && discLastSent.mute === want.mute && discLastSent.deaf === want.deaf) return;
+            discLastSent = want;
+            discSentAt = Date.now();
+            sendSocket('disc_voice', want);
+        }
+        function queueDiscordVoice(mute, deaf) {
+            discPending = { mute, deaf, until: Date.now() + DISC_CONFIRM_MS };
+            if (discSendTimer) return;    // the trailing send picks up the latest state
+            const wait = DISC_COALESCE_MS - (Date.now() - discSentAt);
+            if (wait <= 0) sendDiscordVoice();
+            else discSendTimer = setTimeout(sendDiscordVoice, wait);
+        }
         let lastAudioState = { spk: { vol: 0, muted: false }, mic: { vol: 0, muted: false } };
+
+        // Optimistic audio: a fader or mute key shows what was asked for at once
+        // and holds it until the system's reading agrees (±1 for the mixer's
+        // rounding). A reading that never agrees (a clamp, a refused change, a lost
+        // message) wins after AUDIO_CONFIRM_MS, so the controls always end on the truth.
+        const AUDIO_CONFIRM_MS = 2500;
+        const audioPending = { spk: null, mic: null };
+        function expectAudio(ch, patch) {
+            audioPending[ch] = { ...(audioPending[ch] || {}), ...patch, until: Date.now() + AUDIO_CONFIRM_MS };
+        }
+        function reconcileAudio(ch, actual) {
+            const p = audioPending[ch];
+            if (!p) return actual;
+            const volOk = p.vol === undefined || Math.abs(actual.vol - p.vol) <= 1;
+            const muteOk = p.muted === undefined || actual.muted === p.muted;
+            if ((volOk && muteOk) || Date.now() > p.until) {
+                audioPending[ch] = null;
+                return actual;
+            }
+            return {
+                vol: p.vol !== undefined ? p.vol : actual.vol,
+                muted: p.muted !== undefined ? p.muted : actual.muted,
+            };
+        }
+
+        // One sparkline sample per server sample: Discord events and fader
+        // read-backs also send sys_data, and must not squeeze the minute of history.
+        let lastLoadSeq = null, lastLoadAt = 0;
         let preDeafenMute = false;
         let osTarget = 'windows';
         let isDiscordConnected = false;
@@ -4461,6 +5066,212 @@
             else if (npClock) { dom.npFill.classList.remove('is-ticking'); renderProgress(false); startProgressTimer(); }
         });
 
+        // --- Now playing marquee ---
+        // A line too long for the panel scrolls as a loop of two copies. Both
+        // lines share one lap: they rest at the start, move left together by a
+        // copy's width, and the shorter one waits for the longer.
+        // Rich: one WAAPI transform per line, glided by the compositor.
+        // Lite (WebKitGTK, CPU-painted at a fixed 62.5 Hz; every move repaints
+        // the gradients under the line too): one rAF loop moves both lines by a
+        // whole device pixel every few frames. A time-based glide there drew the
+        // text at a new fraction of a pixel on every frame (shimmer) and moved
+        // on most frames but not all (judder); this repaints only when the text
+        // moves, always by the same step, and a busy frame delays the text
+        // instead of making it jump.
+        const MQ_SPEED_PX = 32;             // CSS px per second; lite rounds it to whole frames per step
+        const MQ_HOLD_MS = 2500;            // rest at the start of every lap
+        const MQ_GAP_EM = 2;                // space between the copies
+
+        const npMarquee = (() => {
+            const lite = document.documentElement.dataset.fx === 'lite';
+            const lines = [[dom.wrapTitle, dom.spotTitle], [dom.wrapArtist, dom.spotArtist]]
+                .map(([track, label]) => ({ track, label, outer: track.parentElement, text: '', copies: false }));
+            let scrolling = [];                 // the lines that overflow, with their lap geometry
+            let anims = [];                     // rich: one animation per scrolling line
+            let lap = null;                     // lite: { frame, every, hold, length, once, done }
+            let stepPx = 1;                     // lite: CSS px per step, a whole number of device pixels
+            let raf = 0, lastFrame = 0, frameMs = 16;
+            let built = '', builtText = null;   // what the running lap was made for
+            let paused = false;
+
+            function plain(line) {
+                if (line.copies || line.label.textContent !== line.text) line.label.textContent = line.text;
+                line.copies = false;
+                line.outer.classList.remove('is-scrolling');
+                if (line.track.style.transform) line.track.style.transform = '';
+            }
+
+            function halt() {
+                anims.forEach(a => a.cancel());
+                anims = [];
+                cancelAnimationFrame(raf);
+                raf = 0;
+                lap = null;
+            }
+
+            function stop() {
+                halt();
+                scrolling = [];
+                built = '';
+                builtText = null;
+                lines.forEach(plain);
+            }
+
+            // Lite: steps and rest follow the measured frame rate, fixed for the whole lap.
+            function liteLap(frame) {
+                const every = Math.max(1, Math.round(1000 * stepPx / MQ_SPEED_PX / frameMs));
+                const hold = Math.round(MQ_HOLD_MS / frameMs);
+                const length = hold + every * Math.max(...scrolling.map(l => l.steps));
+                return { frame: Math.min(frame, length - 1), every, hold, length, once: reducedMotion.matches, done: false };
+            }
+
+            function place() {
+                const n = Math.floor((lap.frame - lap.hold) / lap.every);   // negative while resting
+                for (const l of scrolling) {
+                    const k = n > 0 && n < l.steps ? n : 0;   // at l.steps the twin sits where the text began
+                    if (k !== l.at) {
+                        l.at = k;
+                        l.track.style.transform = k ? `translateX(${-k * stepPx}px)` : '';
+                    }
+                }
+            }
+
+            function tick(now) {
+                raf = 0;
+                if (lastFrame && now - lastFrame < 50) frameMs += (now - lastFrame - frameMs) * 0.1;
+                lastFrame = now;
+                if (++lap.frame >= lap.length) {
+                    if (lap.once) { lap.frame = 0; lap.done = true; place(); return; }   // reduced motion: one lap
+                    lap = liteLap(0);
+                }
+                place();
+                raf = requestAnimationFrame(tick);
+            }
+
+            function run() {
+                if (!lap || lap.done || paused || raf) return;
+                lastFrame = 0;
+                raf = requestAnimationFrame(tick);
+            }
+
+            // mode: none (only if text or geometry changed), 'measure' (text metrics may
+            // have changed: rebuild, keep the lap's place) or 'restart'.
+            function fit(mode) {
+                const widths = lines.map(l => parseFloat(getComputedStyle(l.outer).width) || 0);
+                // Hidden (soundboard open, nothing playing): fit again once shown.
+                if (widths.some(w => w < 1)) { stop(); return; }
+                // Painted size: Now playing grows 6 % while the Discord panel is hidden.
+                const scale = lines[0].outer.getBoundingClientRect().width / widths[0];
+                const devPx = Math.round(devicePixelRatio * scale * 1000) / 1000;
+                const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+                const text = lines.map(l => l.text).join('\u0000');
+                const key = [text, ...widths, devPx, remPx].join('|');
+                if (!mode && key === built) return;
+
+                // Measure every line as one plain copy, then double the ones that overflow.
+                lines.forEach(plain);
+                const natural = lines.map(l => l.label.getBoundingClientRect().width / scale);
+                const gaps = lines.map(l => MQ_GAP_EM * parseFloat(getComputedStyle(l.label).fontSize));
+                stepPx = (lite ? Math.max(1, Math.round(devPx)) : 1) / devPx;
+                const next = lines.filter((l, i) => l.text && natural[i] > widths[i] + 0.5);
+                next.forEach(l => {
+                    const i = lines.indexOf(l);
+                    l.steps = Math.ceil((natural[i] + gaps[i]) / stepPx);   // one lap, in whole steps
+                    l.width = l.steps * stepPx;
+                    l.at = 0;
+                    // Text nodes only: titles come from any media player (browser tabs included).
+                    const copy = document.createElement('span');
+                    copy.className = 'marquee-copy';
+                    copy.textContent = l.text;
+                    copy.style.width = l.width + 'px';
+                    const twin = copy.cloneNode(true);
+                    twin.setAttribute('aria-hidden', 'true');
+                    l.label.replaceChildren(copy, twin);
+                    l.copies = true;
+                    l.outer.classList.add('is-scrolling');
+                });
+
+                // Same text on the same lines, new geometry (resize, panel scale, theme): keep the lap's place.
+                const keep = mode !== 'restart' && text === builtText
+                    && next.length === scrolling.length && next.every((l, i) => l === scrolling[i]);
+                scrolling = next;
+                built = key;
+                builtText = text;
+
+                if (lite) {
+                    if (keep && lap) {
+                        const done = lap.done;
+                        lap = liteLap(lap.frame);
+                        lap.done = done;
+                        place();
+                    } else {
+                        halt();
+                        if (scrolling.length) { lap = liteLap(0); place(); run(); }
+                    }
+                    return;
+                }
+
+                const length = MQ_HOLD_MS + Math.max(0, ...scrolling.map(l => l.width)) / MQ_SPEED_PX * 1000;
+                const frames = scrolling.map(l => {
+                    const end = Math.min(1, (MQ_HOLD_MS + l.width / MQ_SPEED_PX * 1000) / length);
+                    const kf = [
+                        { offset: 0, transform: 'translateX(0)' },
+                        { offset: MQ_HOLD_MS / length, transform: 'translateX(0)' },
+                        { offset: end, transform: `translateX(${-l.width}px)` }
+                    ];
+                    if (end < 1) kf.push({ offset: 1, transform: `translateX(${-l.width}px)` });
+                    return kf;
+                });
+                if (keep && anims.length === scrolling.length) {
+                    anims.forEach((a, i) => {
+                        a.effect.setKeyframes(frames[i]);
+                        a.effect.updateTiming({ duration: length });
+                    });
+                    return;
+                }
+                halt();
+                const start = document.timeline.currentTime;
+                const iterations = reducedMotion.matches ? 1 : Infinity;   // reduced motion: one lap per track
+                anims = scrolling.map((l, i) => {
+                    const a = l.track.animate(frames[i], { duration: length, iterations });
+                    if (start !== null) a.startTime = start;   // one clock: the lines rest and move together
+                    if (paused) a.pause();
+                    return a;
+                });
+            }
+
+            function set(title, artist) {
+                if (title === lines[0].text && artist === lines[1].text) return;
+                lines[0].text = title;
+                lines[1].text = artist;
+                fit();
+            }
+
+            // Under the lock screen nothing shows, but the lite tier would still repaint every step.
+            function pause(on) {
+                if (paused === on) return;
+                paused = on;
+                if (lite) {
+                    if (on) { cancelAnimationFrame(raf); raf = 0; } else run();
+                    return;
+                }
+                anims.forEach(a => {
+                    if (on && a.playState === 'running') a.pause();
+                    else if (!on && a.playState === 'paused') a.play();
+                });
+            }
+
+            const ro = new ResizeObserver(() => fit());
+            lines.forEach(l => ro.observe(l.outer));
+            window.addEventListener('resize', () => fit());                 // the rem follows the window
+            dom.spotInfo.addEventListener('transitionend', (e) => {
+                if (e.target === dom.spotInfo && e.propertyName === 'transform') fit();
+            });
+            document.addEventListener('td-theme-change', () => fit('measure')); // a preset may set its own font or weight
+            reducedMotion.addEventListener('change', () => fit('restart'));
+            return { set, pause };
+        })();
+
         if (dom.spotArt) {
             dom.spotArt.onload = function () { drawBackdrop(this); };
         }
@@ -4485,9 +5296,16 @@
             if (i >= 0) dom.encoderKnob.style.setProperty('--angle', angles[i] + 'deg');
         }
 
+        // Outputs hidden in Audio routing (by raw name) get no LED and are skipped
+        // by a turn; the server's audio_cycle skips the same ones.
+        function hiddenOutputs() {
+            return new Set((globalCfg && globalCfg.hidden_audio_devices) || []);
+        }
+
         function renderEncoder(sinks) {
             if (!dom.encLeds) return;
-            encoderSinks = Array.isArray(sinks) ? sinks : [];
+            const hidden = hiddenOutputs();
+            encoderSinks = (Array.isArray(sinks) ? sinks : []).filter(sk => !hidden.has(sk.raw_name));
             const angles = encoderAngles(encoderSinks.length);
             dom.encLeds.innerHTML = encoderSinks.map((_, i) =>
                 `<span class="enc-led-wrap" style="transform: rotate(${angles[i]}deg)"><span class="enc-led"></span></span>`).join('');
@@ -4598,13 +5416,90 @@
             ['cfg-sounds-path', 'sounds_path'],
             ['cfg-sb-norm-db', 'sb_normalization_db']
         ];
+        // An app older than this server needs is told to update. Tablets from
+        // before pairing get only this (auth_required): they cannot connect otherwise.
+        function showApkUpdateIfNeeded(d) {
+            const urlParams = new URLSearchParams(window.location.search);
+            let apkVersion = urlParams.get('apk_version');
+            if (!apkVersion) {
+                const uaMatch = navigator.userAgent.match(/TouchDashboard\/v?([\d.]+)/);
+                if (uaMatch) apkVersion = uaMatch[1];
+                else if (APK_VERSION !== 'dev') apkVersion = APK_VERSION.replace('v', '');
+            }
+
+            function isVersionOutdated(clientVer, requiredVer) {
+                if (!clientVer || !requiredVer) return false;
+                const c = clientVer.replace(/^v/, '').split('.').map(Number);
+                const r = requiredVer.replace(/^v/, '').split('.').map(Number);
+                for (let i = 0; i < 3; i++) {
+                    if ((c[i] || 0) < (r[i] || 0)) return true;
+                    if ((c[i] || 0) > (r[i] || 0)) return false;
+                }
+                return false;
+            }
+
+            if (!(d.req_apk_version && apkVersion && isVersionOutdated(apkVersion, d.req_apk_version))) return false;
+            document.getElementById('update-title').innerText = "App update required";
+            const url = d.update_apk_url || "https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases";
+            const safeUrl = escapeHtml(url);
+            document.getElementById('update-message').innerHTML = `This desktop version needs Android app ${escapeHtml(d.req_apk_version)} or newer. You are on ${escapeHtml(apkVersion)}.<br><br>If the button below does not open your browser, copy this link:<br><br><a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a>`;
+            document.getElementById('update-dismiss-btn').innerText = "Dismiss";
+            document.getElementById('update-dismiss-btn').style.display = 'block';
+
+            const btn = document.getElementById('update-download-btn');
+            btn.innerText = "Download via Browser";
+            btn.onclick = () => {
+                // Try the standard way to open an external browser
+                window.open(url, '_blank');
+
+                // As a fallback, we also update the text to let them copy
+                setTimeout(() => {
+                    btn.innerText = "Copy Link Instead";
+                    btn.onclick = () => {
+                        const copyFallback = () => {
+                            const textArea = document.createElement("textarea");
+                            textArea.value = url;
+                            textArea.style.position = "fixed";
+                            textArea.style.opacity = "0";
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            try {
+                                document.execCommand("copy");
+                                btn.innerText = "Copied! Paste in Chrome.";
+                            } catch (err) {
+                                btn.innerText = "Copy Failed - Manually select link";
+                            }
+                            document.body.removeChild(textArea);
+                        };
+
+                        if (navigator.clipboard && window.isSecureContext) {
+                            navigator.clipboard.writeText(url).then(() => {
+                                btn.innerText = "Copied! Paste in Chrome.";
+                            }).catch(() => copyFallback());
+                        } else {
+                            copyFallback();
+                        }
+                    };
+                }, 1000);
+            };
+            document.getElementById('update-modal').classList.add('active');
+            return true;
+        }
+
         function attachSocketMessageHandler(targetSocket) {
             targetSocket.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 const d = msg.data;
 
                 if (msg.type === 'config_sync') {
+                    if (d.auth_required) {
+                        showApkUpdateIfNeeded(d);
+                        return;
+                    }
+                    // A server from before pairing sends its state without auth_ok.
+                    if (authState !== 'authed') onAuthenticated({ role: 'legacy' });
                     globalCfg = d.cfg;
+                    serverFeatures = new Set(d.features || []);
                     currentHwDevices = d.hw;
                     osTarget = d.os_target || 'windows';
 
@@ -4613,72 +5508,7 @@
                         if (verEl) verEl.innerText = "Version: " + d.server_version;
                     }
 
-                    // Update checks
-                    const urlParams = new URLSearchParams(window.location.search);
-                    let apkVersion = urlParams.get('apk_version');
-                    if (!apkVersion) {
-                        const uaMatch = navigator.userAgent.match(/TouchDashboard\/v?([\d.]+)/);
-                        if (uaMatch) apkVersion = uaMatch[1];
-                        else if (APK_VERSION !== 'dev') apkVersion = APK_VERSION.replace('v', '');
-                    }
-
-                    function isVersionOutdated(clientVer, requiredVer) {
-                        if (!clientVer || !requiredVer) return false;
-                        const c = clientVer.replace(/^v/, '').split('.').map(Number);
-                        const r = requiredVer.replace(/^v/, '').split('.').map(Number);
-                        for (let i = 0; i < 3; i++) {
-                            if ((c[i] || 0) < (r[i] || 0)) return true;
-                            if ((c[i] || 0) > (r[i] || 0)) return false;
-                        }
-                        return false;
-                    }
-
-                    if (d.req_apk_version && apkVersion && isVersionOutdated(apkVersion, d.req_apk_version)) {
-                        document.getElementById('update-title').innerText = "App update required";
-                        const url = d.update_apk_url || "https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases";
-                        const safeUrl = escapeHtml(url);
-                        document.getElementById('update-message').innerHTML = `This desktop version needs Android app ${escapeHtml(d.req_apk_version)} or newer. You are on ${escapeHtml(apkVersion)}.<br><br>If the button below does not open your browser, copy this link:<br><br><a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a>`;
-                        document.getElementById('update-dismiss-btn').innerText = "Dismiss";
-                        document.getElementById('update-dismiss-btn').style.display = 'block';
-
-                        const btn = document.getElementById('update-download-btn');
-                        btn.innerText = "Download via Browser";
-                        btn.onclick = () => {
-                            // Try the standard way to open an external browser
-                            window.open(url, '_blank');
-
-                            // As a fallback, we also update the text to let them copy
-                            setTimeout(() => {
-                                btn.innerText = "Copy Link Instead";
-                                btn.onclick = () => {
-                                    const copyFallback = () => {
-                                        const textArea = document.createElement("textarea");
-                                        textArea.value = url;
-                                        textArea.style.position = "fixed";
-                                        textArea.style.opacity = "0";
-                                        document.body.appendChild(textArea);
-                                        textArea.select();
-                                        try {
-                                            document.execCommand("copy");
-                                            btn.innerText = "Copied! Paste in Chrome.";
-                                        } catch (err) {
-                                            btn.innerText = "Copy Failed - Manually select link";
-                                        }
-                                        document.body.removeChild(textArea);
-                                    };
-
-                                    if (navigator.clipboard && window.isSecureContext) {
-                                        navigator.clipboard.writeText(url).then(() => {
-                                            btn.innerText = "Copied! Paste in Chrome.";
-                                        }).catch(() => copyFallback());
-                                    } else {
-                                        copyFallback();
-                                    }
-                                };
-                            }, 1000);
-                        };
-                        document.getElementById('update-modal').classList.add('active');
-                    } else if (!isCapacitorRuntime() && d.update_available && !document.getElementById('update-modal').classList.contains('active')) {
+                    if (!showApkUpdateIfNeeded(d) && isAdmin() && !isCapacitorRuntime() && d.update_available && !document.getElementById('update-modal').classList.contains('active')) {
                         document.getElementById('update-title').innerText = "Desktop update available";
                         document.getElementById('update-message').innerText = `Version ${d.latest_version} is available. Update now?`;
                         
@@ -4694,7 +5524,7 @@
                         document.getElementById('update-dismiss-btn').style.display = 'block';
                         document.getElementById('update-download-btn').onclick = () => {
                             isUpdating = true;
-                            fetch('/api/update', { method: 'POST' });
+                            sendSocket('run_update');
                             document.getElementById('update-message').innerText = "Updating... The server will restart shortly.";
                             document.getElementById('update-download-btn').style.display = 'none';
                             document.getElementById('update-dismiss-btn').innerText = "Close";
@@ -4717,13 +5547,17 @@
                             { type: 'app', action_data: 'browser', display_name: 'BROWSER', icon_url: 'lucide-globe' },
                             { type: 'app', action_data: 'taskmgr', display_name: 'TASK MGR', icon_url: 'lucide-cpu' }
                         ];
-                        setTimeout(() => sendSocket('save_macros', macros), 1000);
+                        if (isAdmin()) setTimeout(() => sendSocket('save_macros', macros), 1000);
                     }
                     renderMacros();
-                    sendSocket('req_apps_list');
+                    if (isAdmin()) sendSocket('req_apps_list');
                     CONFIG_FIELDS.forEach(([elId, key]) => document.getElementById(elId).value = c[key] || '');
                     document.getElementById('cfg-disc-vc').checked = c.disc_vc_enabled !== false;
                     document.getElementById('cfg-disc-sort-speakers').checked = c.disc_sort_speakers !== false;
+                    document.getElementById('cfg-device-av').checked = c.device_av_controls !== false;
+                    // The PC can keep tablets off the camera and screen share keys.
+                    const avAllowed = isAdmin() || c.device_av_controls !== false;
+                    [dom.btnDiscCam, dom.btnDiscScreen].forEach(key => { if (key) key.disabled = !avAllowed; });
                     
                     const normEnabled = document.getElementById('cfg-sb-norm-enable');
                     if (normEnabled) normEnabled.checked = c.sb_normalization_enabled === true;
@@ -4777,11 +5611,13 @@
                     }
 
                     const spLabel = document.getElementById('label-macro-sp');
+                    // The server says which pad list plays (a device never sees sounds_path).
+                    clipSource = d.clip_source || ((osTarget === 'linux' || c.sounds_path) ? 'local' : 'soundpad');
+                    spBtns = (clipSource === 'local' ? c.local_buttons : c.soundpad_buttons) || [];
                     if (osTarget === 'linux') {
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
-                        spBtns = c.local_buttons || [];
                         if (spLabel) spLabel.innerText = 'SOUNDBOARD';
-                        sendSocket('req_local_sounds');
+                        if (isAdmin()) sendSocket('req_local_sounds');
                         // Show volume row and sync value from config
                         const volRow = document.getElementById('sb-vol-row');
                         if (volRow) volRow.style.display = 'flex';
@@ -4789,18 +5625,58 @@
                         updateSbVolVisuals(sbVol);
                         
                         setFeedbackButton(c.soundboard_feedback !== false);
-                    } else if (osTarget === 'windows' && c.sounds_path) {
+                    } else if (clipSource === 'local') {
                         // Windows local soundboard: show tab when a sounds path is configured
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
-                        spBtns = c.local_buttons || [];
                         if (spLabel) spLabel.innerText = 'SOUNDBOARD';
-                        sendSocket('req_local_sounds');
+                        if (isAdmin()) sendSocket('req_local_sounds');
                     } else {
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
-                        spBtns = c.soundpad_buttons || [];
                         if (spLabel) spLabel.innerText = 'SOUNDPAD';
                     }
                     renderSpGrid();
+                }
+                else if (msg.type === 'auth_ok') {
+                    onAuthenticated(d);
+                }
+                else if (msg.type === 'pair_code') {
+                    setPairStep('wait');
+                    document.getElementById('pair-code').textContent = d.code;
+                    setPairStatus('Waiting for approval on the PC…');
+                }
+                else if (msg.type === 'pair_result') {
+                    pairResultShown = true;
+                    if (d.status === 'approved') {
+                        // auth_ok and the dashboard state follow on this socket.
+                        localStorage.setItem(tokenKey(), d.token);
+                        setPairStatus('Allowed. Connecting…');
+                    } else {
+                        setPairStep('form');
+                        setPairStatus(PAIR_MESSAGES[d.status] || 'Pairing failed. Try again.', true);
+                    }
+                }
+                else if (msg.type === 'pair_pending') {
+                    if (!pairQueue.some(r => r.id === d.id)) pairQueue.push(d);
+                    showNextPairRequest();
+                }
+                else if (msg.type === 'pair_resolved') {
+                    removePairRequest(d.id);
+                }
+                else if (msg.type === 'paired_devices') {
+                    pairedDevices = d;
+                    renderPairedDevices();
+                }
+                else if (msg.type === 'update_check') {
+                    finishUpdateCheck(d);
+                }
+                else if (msg.type === 'refused') {
+                    console.warn('Server refused', d.action, d.reason);
+                    if (d.action === 'run_update') {
+                        isUpdating = false;
+                        document.getElementById('update-message').textContent = d.reason === 'busy'
+                            ? 'An update is already running.'
+                            : 'There is no published update to install right now.';
+                    }
                 }
                 else if (msg.type === 'sb_feedback_state') {
                     if (globalCfg) globalCfg.soundboard_feedback = d;
@@ -5031,6 +5907,7 @@
             window.setLockOverlay = function setLockOverlay(locked) {
                 if (locked === _isLocked) return;
                 _isLocked = locked;
+                npMarquee.pause(locked);
 
                 const overlay = document.getElementById('lock-overlay');
                 if (!overlay) return;
@@ -5090,11 +5967,19 @@
                     window.setLockOverlay(!!d.pc_locked);
                 }
 
-                // Whole percentages: steadier to read at a glance than 12.3 / 5 / 12.4.
-                setText(dom.sysCpu, Math.round(d.cpu) + '%');
-                setText(dom.sysRam, Math.round(d.ram) + '%');
-                setLoad(dom.sysCpuTile, 'cpu', d.cpu);
-                setLoad(dom.sysRamTile, 'ram', d.ram);
+                // Servers before load_seq: fall back to at most one sample per ~second.
+                const freshLoad = d.load_seq !== undefined
+                    ? d.load_seq !== lastLoadSeq
+                    : performance.now() - lastLoadAt >= 900;
+                if (freshLoad) {
+                    lastLoadSeq = d.load_seq;
+                    lastLoadAt = performance.now();
+                    // Whole percentages: steadier to read at a glance than 12.3 / 5 / 12.4.
+                    setText(dom.sysCpu, Math.round(d.cpu) + '%');
+                    setText(dom.sysRam, Math.round(d.ram) + '%');
+                    setLoad(dom.sysCpuTile, 'cpu', d.cpu);
+                    setLoad(dom.sysRamTile, 'ram', d.ram);
+                }
 
                 // Battery widget (handles both new dict and legacy string)
                 if (d.mouse_batt !== undefined) {
@@ -5104,8 +5989,10 @@
                 const gpuRow = dom.gpuRow;
                 if (d.gpu !== null && d.gpu !== "") {
                     setDisplay(gpuRow, 'flex');
-                    setText(dom.sysGpu, Math.round(d.gpu) + '%');
-                    setLoad(gpuRow, 'gpu', d.gpu);
+                    if (freshLoad) {
+                        setText(dom.sysGpu, Math.round(d.gpu) + '%');
+                        setLoad(gpuRow, 'gpu', d.gpu);
+                    }
                 } else {
                     setDisplay(gpuRow, 'none');
                 }
@@ -5147,64 +6034,8 @@
                     setSource(d.spotify.player);
                     updateProgress(d.spotify);
 
-                    // Restart marquee only when the rendered text changes.
-                    [{ el: dom.spotTitle, text: d.spotify.title || '', wrapNode: dom.wrapTitle },
-                    { el: dom.spotArtist, text: d.spotify.artist || '', wrapNode: dom.wrapArtist }].forEach(item => {
-
-                        const el = item.el;
-                        const wrapNode = item.wrapNode;
-                        const outer = wrapNode.parentElement;
-
-                        if (el.getAttribute('data-last-text') !== item.text) {
-                            if (wrapNode._marqueeAnim) {
-                                if (wrapNode._marqueeAnim.kill) wrapNode._marqueeAnim.kill();
-                                else if (wrapNode._marqueeAnim.cancel) wrapNode._marqueeAnim.cancel();
-                                wrapNode._marqueeAnim = null;
-                            }
-
-                            el.textContent = item.text;
-                            el.setAttribute('data-last-text', item.text);
-
-                            requestAnimationFrame(() => {
-                                setTimeout(() => {
-                                    if (el.getAttribute('data-last-text') !== item.text) return;
-                                    if (wrapNode.scrollWidth > outer.clientWidth) {
-                                        const spacer = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0';
-                                        const fullText = item.text + spacer;
-
-                                        // Built from text nodes: titles come from any media player
-                                        // (browser tabs included) and must never be parsed as HTML.
-                                        const probe = document.createElement('span');
-                                        probe.textContent = fullText;
-                                        el.replaceChildren(probe);
-                                        const intWidth = Math.ceil(probe.getBoundingClientRect().width);
-
-                                        const copyA = document.createElement('span');
-                                        copyA.textContent = fullText;
-                                        copyA.style.width = intWidth + 'px';
-                                        const copyB = copyA.cloneNode(true);
-                                        el.replaceChildren(copyA, copyB);
-
-                                        // We want the text to scroll at 50px/sec during the active movement phase.
-                                        // The animation pauses for the first 20% (offset 0 to 0.2).
-                                        // So active movement is 80% of the total duration.
-                                        const activeDuration = intWidth / 50; 
-                                        const totalDurationMs = (activeDuration / 0.8) * 1000;
-                                        
-                                        wrapNode._marqueeAnim = wrapNode.animate([
-                                            { transform: 'translateX(0px)', offset: 0 },
-                                            { transform: 'translateX(0px)', offset: 0.2 },
-                                            { transform: `translateX(-${intWidth}px)`, offset: 1 }
-                                        ], {
-                                            duration: totalDurationMs,
-                                            iterations: Infinity,
-                                            easing: 'linear'
-                                        });
-                                    }
-                                }, 100);
-                            });
-                        }
-                    });
+                    // Rebuilds only when the text changes.
+                    npMarquee.set(d.spotify.title || '', d.spotify.artist || '');
                 } else {
                     setDisplay(dom.spotEmpty, 'flex');
                     setDisplay(dom.spotInfo, 'none');
@@ -5229,29 +6060,21 @@
                     }
                 }
 
-                lastAudioState.spk = d.audio.spk;
-                lastAudioState.mic = d.audio.mic;
+                const spk = reconcileAudio('spk', d.audio.spk);
+                const mic = reconcileAudio('mic', d.audio.mic);
+                lastAudioState.spk = spk;
+                lastAudioState.mic = mic;
 
-                if (Date.now() > audioLockSpk) {
-                    upSpk(d.audio.spk.vol, d.audio.spk.muted);
-                    if (dom.iconSpk) {
-                        const isMuted = d.audio.spk.muted;
-                        if (dom.iconSpk.classList.contains('muted') !== isMuted) {
-                            dom.iconSpk.classList.toggle('muted', isMuted);
-                            setIcon(dom.iconSpk, isMuted ? 'volume-x' : 'volume-2');
-                        }
-                    }
+                upSpk(spk.vol, spk.muted);
+                if (dom.iconSpk && dom.iconSpk.classList.contains('muted') !== spk.muted) {
+                    dom.iconSpk.classList.toggle('muted', spk.muted);
+                    setIcon(dom.iconSpk, spk.muted ? 'volume-x' : 'volume-2');
                 }
 
-                if (Date.now() > audioLockMic) {
-                    upMic(d.audio.mic.vol, d.audio.mic.muted);
-                    if (dom.iconMic) {
-                        const isMuted = d.audio.mic.muted;
-                        if (dom.iconMic.classList.contains('muted') !== isMuted) {
-                            dom.iconMic.classList.toggle('muted', isMuted);
-                            setIcon(dom.iconMic, isMuted ? 'mic-off' : 'mic');
-                        }
-                    }
+                upMic(mic.vol, mic.muted);
+                if (dom.iconMic && dom.iconMic.classList.contains('muted') !== mic.muted) {
+                    dom.iconMic.classList.toggle('muted', mic.muted);
+                    setIcon(dom.iconMic, mic.muted ? 'mic-off' : 'mic');
                 }
 
                 setText(dom.btnAudioCycle, d.audio.active_dev);
@@ -5267,11 +6090,17 @@
                             discordDisconnectCount = 0;
                             setDiscordPanelVisible(true);
 
-                            if (Date.now() > discordLock) {
-                                if (!d.discord.deaf) preDeafenMute = d.discord.mute;
-                                const visuallyMuted = d.discord.mute || d.discord.deaf;
+                            const visuallyMuted = !!(d.discord.mute || d.discord.deaf);
+                            const deaf = !!d.discord.deaf;
+                            if (discPending && ((visuallyMuted === discPending.mute && deaf === discPending.deaf)
+                                    || Date.now() > discPending.until)) {
+                                discPending = null;   // confirmed, or Discord never applied it
+                                discLastSent = null;
+                            }
+                            if (!discPending) {
+                                if (!deaf) preDeafenMute = visuallyMuted;
                                 if (dom.btnDiscMute) dom.btnDiscMute.classList.toggle('muted', visuallyMuted);
-                                if (dom.btnDiscDeaf) dom.btnDiscDeaf.classList.toggle('muted', d.discord.deaf);
+                                if (dom.btnDiscDeaf) dom.btnDiscDeaf.classList.toggle('muted', deaf);
                             }
                             if (Date.now() > discordVidLock) {
                                 if (dom.btnDiscCam)    dom.btnDiscCam.classList.toggle('vid-active',    !!d.discord.video);
@@ -5373,7 +6202,7 @@
                                     el.innerHTML = `
                                     <div class="vc-avatar">
                                         <img alt="">
-                                        <div class="vc-status-icon" style="display: none;"></div>
+                                        <div class="vc-status-icon" style="visibility: hidden;"></div>
                                     </div>
                                     <span class="vc-name"></span>
                                 `;
@@ -5400,12 +6229,10 @@
 
                                 // Mute/Deaf state: re-render the glyph only when it changes.
                                 const statusName = u.deaf ? 'headphones' : (u.mute ? 'mic-off' : '');
-                                if (statusName) {
-                                    setDisplay(statusIcon, 'flex');
-                                    setIcon(statusIcon, statusName);
-                                } else {
-                                    setDisplay(statusIcon, 'none');
-                                }
+                                // visibility, not display: showing it must not re-lay out the list.
+                                if (statusName) setIcon(statusIcon, statusName);
+                                const statusVis = statusName ? 'visible' : 'hidden';
+                                if (statusIcon.style.visibility !== statusVis) statusIcon.style.visibility = statusVis;
 
                                 // Set Order (if > 4 people on call, put speakers on top based on who spoke first)
                                 if (userIds.length > 4 && (!globalCfg || globalCfg.disc_sort_speakers !== false)) {
@@ -5621,7 +6448,7 @@
                 renderCount++;
             });
 
-            if (renderCount < maxSlots) {
+            if (renderCount < maxSlots && isAdmin()) {
                 const slot = document.createElement('div');
                 slot.className = 'macro-slot';
                 const btn = document.createElement('button');
@@ -5658,7 +6485,8 @@
             clearMacroTimer();
             macroPressTimer = setTimeout(() => {
                 macroPressTimer = null;
-                openMacroModal(idx);
+                // A long press never runs the macro; only the PC can edit it.
+                if (isAdmin()) openMacroModal(idx);
             }, 600);
         }
 
@@ -5671,10 +6499,13 @@
         }
 
         function executeMacro(m, btnElement) {
-            if (m.type === 'plugin') {
-                if (m.action_data === 'app_soundpad') toggleSoundpad(true, btnElement);
-            } else {
-                sendSocket('macro_exec', m);
+            if (m.type === 'plugin' && m.action_data === 'app_soundpad') {
+                toggleSoundpad(true, btnElement);
+            } else if (serverFeatures.has('pairing')) {
+                // By id only: the server looks up what the macro does in its own config.
+                sendMessage({ type: 'run_macro', id: m.id });
+            } else if (m.type !== 'plugin') {
+                sendSocket('macro_exec', m);   // a server from before pairing
             }
         }
 
@@ -5895,23 +6726,40 @@
         }
 
         let spBtns = [];
+        let clipSource = 'local';   // 'local' files or 'soundpad' indices, from config_sync
         let currentHwDevices = [];
         let globalCfg = {};
 
         function populateAudioTab(devices, configNames) {
             const container = document.getElementById('audio-devices-list');
+            const hidden = hiddenOutputs();
             // Device names are escaped: a quote in a sink name used to corrupt data-raw and its saved alias.
             container.innerHTML = devices.map(d => {
                 const val = configNames ? (configNames[d.raw_name] || '') : (d.custom_name || '');
                 const raw = escapeHtml(d.raw_name);
+                const isHidden = hidden.has(d.raw_name);
                 return `
-                    <div class="hw-row audio-dev-row">
+                    <div class="hw-row audio-dev-row${isHidden ? ' is-hidden' : ''}">
                         <div class="raw" title="${raw}">${raw}</div>
                         <input type="text" class="audio-name-input" data-raw="${raw}" placeholder="Short name" value="${escapeHtml(val)}" maxlength="10" aria-label="Short name for ${raw}" autocomplete="off">
+                        <button type="button" class="btn dev-hide" data-raw="${raw}" aria-pressed="${isHidden}"
+                            aria-label="Hide ${raw} from the output switch" title="${isHidden ? 'Hidden from the output switch' : 'Shown on the output switch'}"><i data-lucide="${isHidden ? 'eye-off' : 'eye'}"></i></button>
                     </div>
                 `;
             }).join('');
+            renderIcons(container);
         }
+
+        // Hide / show a device in Audio routing; saved with the rest on "Save & apply".
+        document.getElementById('audio-devices-list').addEventListener('click', e => {
+            const key = e.target.closest('.dev-hide');
+            if (!key) return;
+            const hide = key.getAttribute('aria-pressed') !== 'true';
+            key.setAttribute('aria-pressed', String(hide));
+            key.title = hide ? 'Hidden from the output switch' : 'Shown on the output switch';
+            key.closest('.audio-dev-row').classList.toggle('is-hidden', hide);
+            setIcon(key, hide ? 'eye-off' : 'eye');
+        });
 
         function saveConfig() {
             const audio_names = {};
@@ -5921,10 +6769,16 @@
                 }
             });
 
-            const data = { audio_names: audio_names };
+            // Devices hidden while unplugged stay hidden: they are not in the list to untick.
+            const present = new Set(currentHwDevices.map(d => d.raw_name));
+            const hidden_audio_devices = (globalCfg.hidden_audio_devices || []).filter(raw => !present.has(raw));
+            document.querySelectorAll('.dev-hide[aria-pressed="true"]').forEach(key => hidden_audio_devices.push(key.dataset.raw));
+
+            const data = { audio_names: audio_names, hidden_audio_devices: hidden_audio_devices };
             CONFIG_FIELDS.forEach(([elId, key]) => data[key] = document.getElementById(elId).value);
             data.disc_vc_enabled = document.getElementById('cfg-disc-vc').checked;
             data.disc_sort_speakers = document.getElementById('cfg-disc-sort-speakers').checked;
+            data.device_av_controls = document.getElementById('cfg-device-av').checked;
             
             const normEnabled = document.getElementById('cfg-sb-norm-enable');
             if (normEnabled) data.sb_normalization_enabled = normEnabled.checked;
@@ -5936,11 +6790,7 @@
             data.audio_enabled = document.getElementById('cfg-audio-enabled').checked;
             data.sb_enabled = document.getElementById('cfg-sb-enabled').checked;
 
-            if (osTarget === 'linux') {
-                data.local_buttons = spBtns;
-            } else {
-                data.soundpad_buttons = spBtns;
-            }
+            data[clipSource === 'local' ? 'local_buttons' : 'soundpad_buttons'] = spBtns;
             sendSocket('save_config', data);
             document.getElementById('modal').classList.remove('active');
         }
@@ -5963,7 +6813,7 @@
                     </button>
                 `;
             });
-            htmlStr += `
+            if (isAdmin()) htmlStr += `
                 <button class="btn btn-add sp-btn" onclick="openSpModal(-1)" aria-label="Add sound">
                     <i data-lucide="plus"></i>
                 </button>
@@ -5973,15 +6823,18 @@
         }
 
         function spLeave(btn, idx) { btn.classList.remove('active-btn'); if (spTimer) { clearTimeout(spTimer); spTimer = null; } spCancel = true; }
-        function spDown(btn, idx) { btn.classList.add('active-btn'); spCancel = false; spTimer = setTimeout(() => { spTimer = null; spCancel = true; btn.classList.remove('active-btn'); openSpModal(idx); }, 600); }
+        function spDown(btn, idx) { btn.classList.add('active-btn'); spCancel = false; spTimer = setTimeout(() => { spTimer = null; spCancel = true; btn.classList.remove('active-btn'); if (isAdmin()) openSpModal(idx); }, 600); }
         function spUp(btn, idx) { setTimeout(() => btn.classList.remove('active-btn'), 100); if (spTimer) { clearTimeout(spTimer); spTimer = null; } }
         function spClick(btn, idx) {
-            if (!spCancel) {
-                if (osTarget === 'linux') {
-                    sendSocket('action', 'local_play_' + spBtns[idx].id);
-                } else {
-                    sendSocket('action', 'sp_play_' + spBtns[idx].id);
-                }
+            if (spCancel) return;
+            const pad = spBtns[idx];
+            if (serverFeatures.has('pairing')) {
+                // By the pad's id: the server resolves the file inside the sounds folder.
+                sendMessage({ type: 'play_clip', id: pad.uid });
+            } else if (osTarget === 'linux') {
+                sendSocket('action', 'local_play_' + pad.id);   // a server from before pairing
+            } else {
+                sendSocket('action', 'sp_play_' + pad.id);
             }
         }
 
@@ -6164,7 +7017,8 @@
                 if (!confirm(msg)) return;
             }
 
-            if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = { id, name };
+            // Keep the pad's uid: devices play it by that id.
+            if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = { ...spBtns[editingSpIdx], id, name };
             else spBtns.push({ id, name });
 
             localStorage.removeItem('sp_draft_id');
@@ -6189,6 +7043,7 @@
             const isOpen = id => document.getElementById(id).classList.contains('active');
             const winMenu = document.getElementById('win-menu');
             if (isOpen('macro-modal')) closeMacroModal();
+            else if (isOpen('device-modal')) closeDeviceMenu();
             else if (isOpen('sp-modal')) closeSpModal();
             else if (isOpen('update-modal')) document.getElementById('update-modal').classList.remove('active');
             else if (isOpen('modal')) document.getElementById('modal').classList.remove('active');
@@ -6208,8 +7063,7 @@
 
             if (currentlyMuted === newMuted) return;
 
-            if (target === 'spk') audioLockSpk = Date.now() + 1000;
-            else audioLockMic = Date.now() + 1000;
+            expectAudio(target, { muted: newMuted });
 
             elIcon.classList.toggle('muted', newMuted);
             setIcon(elIcon, target === 'mic' ? (newMuted ? 'mic-off' : 'mic') : (newMuted ? 'volume-x' : 'volume-2'));
@@ -6243,6 +7097,7 @@
             const s = document.getElementById(sId), f = document.getElementById(fId), v = document.getElementById(vId);
             const cap = s.querySelector('.fader-cap');
             let lastEmit = 0; let currentPct = 0;
+            let targetPct = 0;     // where the finger is now; currentPct trails it by up to a frame
             let rAF = null;
             let dragRect = null;   // measured once per drag, not on every move event
             let capHalf = 0;       // half the cap height in px: the travel ends at cap centres
@@ -6272,8 +7127,12 @@
                     if (target === 'spk') lastAudioState.spk.muted = false;
                     else lastAudioState.mic.muted = false;
                 }
-                if (target === 'spk') audioLockSpk = Date.now() + 1000;
-                else audioLockMic = Date.now() + 1000;
+            }
+
+            // Every level sent is the new expectation; the server unmutes with it.
+            function sendLevel(pct) {
+                expectAudio(type === 'speaker' ? 'spk' : 'mic', { vol: pct, muted: false });
+                sendSocket('set_volume', { type: type, val: pct });
             }
 
             s.setAttribute('role', 'slider');
@@ -6315,13 +7174,14 @@
 
                 let pct = Math.max(0, Math.min(100, Math.round(rawPct)));
                 if (!isMutedSnap) detent(pct);
+                targetPct = pct;
 
                 if (rAF) cancelAnimationFrame(rAF);
                 rAF = requestAnimationFrame(() => set(pct, isMutedSnap));
 
                 const now = Date.now();
                 if (now - lastEmit > 80 && !isMutedSnap) {
-                    sendSocket('set_volume', { type: type, val: pct });
+                    sendLevel(pct);
                     lastEmit = now;
                 }
             }
@@ -6348,6 +7208,10 @@
             }
             function endDrag() {
                 if (dCheck()) {
+                    // A release can land before the last move's frame: settle on where
+                    // the finger let go, and send that, not the previous frame's value.
+                    if (rAF) { cancelAnimationFrame(rAF); rAF = null; }
+                    if (!s.dataset.snappedMute) set(targetPct);
                     dCheck(false);
                     dragRect = null;
                     grabOffset = 0;
@@ -6360,7 +7224,7 @@
                     document.removeEventListener('touchcancel', endDrag);
                     if (!s.dataset.snappedMute) {
                         applyOptimisticUnmute();
-                        sendSocket('set_volume', { type: type, val: currentPct });
+                        sendLevel(currentPct);
                     }
                 }
             }
@@ -6448,7 +7312,6 @@
             }
 
             else if (a === 'disc_mute') {
-                discordLock = Date.now() + 1000;
                 const bMute = document.getElementById('btn-disc-mute');
                 const bDeaf = document.getElementById('btn-disc-deaf');
                 if (bMute && bDeaf) {
@@ -6458,10 +7321,16 @@
                     } else {
                         bMute.classList.toggle('muted');
                     }
+                    const wantMute = bMute.classList.contains('muted'), wantDeaf = bDeaf.classList.contains('muted');
+                    if (serverFeatures.has('disc_voice')) {
+                        queueDiscordVoice(wantMute, wantDeaf);
+                        return;
+                    }
+                    // Older server: it toggles, so only hold the keys while it answers.
+                    discPending = { mute: wantMute, deaf: wantDeaf, until: Date.now() + DISC_CONFIRM_MS };
                 }
             }
             else if (a === 'disc_deaf') {
-                discordLock = Date.now() + 1000;
                 const bMute = document.getElementById('btn-disc-mute');
                 const bDeaf = document.getElementById('btn-disc-deaf');
                 if (bMute && bDeaf) {
@@ -6475,15 +7344,24 @@
                             bMute.classList.remove('muted');
                         }
                     }
+                    const wantMute = bMute.classList.contains('muted'), wantDeaf = bDeaf.classList.contains('muted');
+                    if (serverFeatures.has('disc_voice')) {
+                        queueDiscordVoice(wantMute, wantDeaf);
+                        return;
+                    }
+                    // Older server: it toggles, so only hold the keys while it answers.
+                    discPending = { mute: wantMute, deaf: wantDeaf, until: Date.now() + DISC_CONFIRM_MS };
                 }
             }
-            else if (a === 'disc_cam') {
-                discordVidLock = Date.now() + 1500;
-                if (dom.btnDiscCam) dom.btnDiscCam.classList.toggle('vid-active');
-            }
-            else if (a === 'disc_screen') {
-                discordVidLock = Date.now() + 1500;
-                if (dom.btnDiscScreen) dom.btnDiscScreen.classList.toggle('vid-active');
+            else if (a === 'disc_cam' || a === 'disc_screen') {
+                // Discord only offers toggles here: a second tap while the first is
+                // in flight would just undo it (or reopen the screen picker).
+                const now = Date.now();
+                if (now - discToggleAt[a] < DISC_TOGGLE_GAP_MS) return;
+                discToggleAt[a] = now;
+                discordVidLock = now + 1500;
+                const key = a === 'disc_cam' ? dom.btnDiscCam : dom.btnDiscScreen;
+                if (key) key.classList.toggle('vid-active');
             }
 
             sendSocket('action', a);

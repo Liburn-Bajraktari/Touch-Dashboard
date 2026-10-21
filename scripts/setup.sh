@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Touch Dashboard Linux Installer
-# Run via: bash -c "$(curl -fsSL https://raw.githubusercontent.com/liburnb/Touch-Dashboard/main/scripts/setup.sh)" < /dev/tty
+# Run via: bash -c "$(curl -fsSL https://raw.githubusercontent.com/Liburn-Bajraktari/Touch-Dashboard/main/scripts/setup.sh)" < /dev/tty
 
 set -e
 
@@ -9,8 +9,10 @@ REPO_OWNER="Liburn-Bajraktari"
 REPO_NAME="Touch-Dashboard"
 INSTALL_DIR="${TARGET_DIR:-$HOME/.local/share/$REPO_NAME}"
 DESKTOP_ENTRY_DIR="$HOME/.local/share/applications"
-ZIP_URL="https://github.com/$REPO_OWNER/$REPO_NAME/archive/refs/heads/main.tar.gz"
 API_URL="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME"
+RELEASES_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download"
+# The release to install: set by the app's self-update, otherwise the newest one.
+RELEASE_TAG="${TD_RELEASE_TAG:-}"
 
 # Colors
 CYAN='\033[0;36m'
@@ -24,6 +26,43 @@ write_color() {
     local text="$1"
     local color="$2"
     echo -e "${color}${text}${NC}"
+}
+
+# The newest stable release (vX.Y.Z, not a draft or pre-release) unless
+# RELEASE_TAG is set already. Fails when there is none.
+resolve_release_tag() {
+    if [ -z "$RELEASE_TAG" ]; then
+        RELEASE_TAG=$(curl -fsSL -H "Accept: application/vnd.github+json" "$API_URL/releases" | python3 -c '
+import json, re, sys
+for r in json.load(sys.stdin):
+    if re.fullmatch(r"v\d+\.\d+\.\d+", r.get("tag_name", "")) and not r.get("draft") and not r.get("prerelease"):
+        print(r["tag_name"])
+        break
+') || true
+    fi
+    [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+# Download release $RELEASE_TAG's source archive into $1 and check it against
+# the SHA256SUMS published with it. Prints the archive's path.
+fetch_release_archive() {
+    local dir="$1" archive="touch-dashboard-$RELEASE_TAG.tar.gz"
+    curl -fsSL "$RELEASES_URL/$RELEASE_TAG/SHA256SUMS" -o "$dir/SHA256SUMS" || return 1
+    curl -fL -# "$RELEASES_URL/$RELEASE_TAG/$archive" -o "$dir/$archive" || return 1
+    # No line for the archive means no checked lines, which sha256sum -c fails.
+    (cd "$dir" && awk -v f="$archive" '$2 == f' SHA256SUMS | sha256sum -c --status -) || return 2
+    echo "$dir/$archive"
+}
+
+# Ask a running app to quit. /api/exit takes the token the app writes to its
+# data folder at startup; the header goes in on stdin so the token never shows
+# up in the process list. Callers still kill whatever is left.
+request_app_exit() {
+    local token_file="$HOME/.config/touch-dashboard/local_control.token"
+    [ -r "$token_file" ] || return 0
+    printf 'Authorization: Bearer %s\n' "$(cat "$token_file")" | \
+        curl -s -m 3 -X POST -H @- -H "Content-Type: application/json" -d '{}' \
+            http://127.0.0.1:8888/api/exit > /dev/null 2>&1 || true
 }
 
 get_distro() {
@@ -77,7 +116,7 @@ install_update() {
             
             if [[ "$ans" =~ ^[Yy]$ ]]; then
                 write_color "  [*] Stopping processes..." "$CYAN"
-                curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
+                request_app_exit
                 for pid in $running_pids; do
                     kill -9 "$pid" 2>/dev/null || true
                 done
@@ -98,10 +137,23 @@ install_update() {
         install_deps
     fi
 
-    write_color "[*] Downloading latest source code from GitHub..." "$CYAN"
+    if ! resolve_release_tag; then
+        write_color "[-] Could not find a Touch Dashboard release to install on GitHub." "$RED"
+        exit 1
+    fi
+    write_color "[*] Downloading Touch Dashboard $RELEASE_TAG from GitHub and checking it against SHA256SUMS..." "$CYAN"
     TEMP_DIR=$(mktemp -d)
-    TEMP_TAR="$TEMP_DIR/TouchDashboard_main.tar.gz"
-    curl -L -# "$ZIP_URL" -o "$TEMP_TAR"
+    fetch_status=0
+    TEMP_TAR=$(fetch_release_archive "$TEMP_DIR") || fetch_status=$?
+    if [ "$fetch_status" -eq 2 ]; then
+        write_color "[-] The download does not match the checksum published with $RELEASE_TAG. Nothing was installed." "$RED"
+        rm -rf "$TEMP_DIR"
+        exit 1
+    elif [ "$fetch_status" -ne 0 ]; then
+        write_color "[-] Could not download $RELEASE_TAG. If it was published in the last few minutes, its files may still be uploading: try again shortly." "$RED"
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
     
     write_color "[*] Extracting files..." "$CYAN"
     mkdir -p "$INSTALL_DIR"
@@ -168,7 +220,7 @@ EOF
 
     if [ -n "$running_pids" ]; then
         write_color "  [*] Stopping old processes..." "$CYAN"
-        curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
+        request_app_exit
         for pid in $running_pids; do
             kill -9 "$pid" 2>/dev/null || true
         done
@@ -228,7 +280,7 @@ uninstall() {
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
         
         write_color "[*] Stopping backend processes..." "$CYAN"
-        curl -s -X POST http://127.0.0.1:8888/api/exit > /dev/null || true
+        request_app_exit
         pkill -f "server.py.*Touch-Dashboard" || true
         sleep 2
 

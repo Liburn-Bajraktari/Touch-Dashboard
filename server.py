@@ -35,12 +35,16 @@ if sys.stdout is None: sys.stdout = open(os.devnull, 'w')
 if sys.stderr is None: sys.stderr = open(os.devnull, 'w')
 if sys.stdin is None:  sys.stdin = open(os.devnull, 'r')
 import asyncio
+import contextlib
 import urllib.request
+import hashlib
+import hmac
 import ipaddress
 import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import socket
 import sys
@@ -52,7 +56,9 @@ import argparse
 import importlib.util
 import site
 import subprocess
+import tempfile
 import webbrowser
+from dataclasses import dataclass
 try:
     from pydub import AudioSegment as _AudioSegment
     _PYDUB_AVAILABLE = True
@@ -169,10 +175,11 @@ def _patched_build_request(*args, **kwargs):
 speedtest_lib.build_request = _patched_build_request
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import MutableHeaders
+from starlette.websockets import WebSocketState
 from starlette.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
@@ -223,6 +230,7 @@ from audio_system import AudioSystem
 from discord_ipc import DiscordIPC
 from macro_system import MacroSystem, AppEnumerator
 import media as media_module
+import security
 
 import lock_monitor as _lock_monitor_mod
 
@@ -271,16 +279,45 @@ DEFAULT_CONFIG: dict = {
     "sb_normalization_db": 89.0,
     "soundboard_volume": 100,
     "audio_names": {},
+    "hidden_audio_devices": [],   # raw sink names the output switch skips
     "soundpad_buttons": [],
     "local_buttons": [],
     "sounds_path": "",
     "macros": [],
     "theme": "graphite",      # preset id from static/themes.js
     "theme_ground": "#000000",  # that preset's ground, painted by the desktop window before load
+    "device_av_controls": True,  # paired tablets may toggle Discord camera / screen share
 }
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
+SERVER_FEATURES = ["disc_voice", "pairing"]   # see _make_config_sync
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
+ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
+
+
+def _with_ids(items, key: str) -> list:
+    """Give every dict item a unique, well-formed `key`; everything else is kept.
+
+    Devices run macros and pads by this id, never by their command or path.
+    """
+    if not isinstance(items, list):
+        return []
+    seen: set[str] = set()
+    out = []
+    for item in items:
+        if isinstance(item, dict):
+            value = item.get(key)
+            if not (isinstance(value, str) and ITEM_ID_RE.fullmatch(value)) or value in seen:
+                item = {**item, key: secrets.token_hex(8)}
+            seen.add(item[key])
+        out.append(item)
+    return out
+
+
+def _with_item_ids(cfg: dict) -> dict:
+    return {**cfg, "macros": _with_ids(cfg.get("macros"), "id"),
+            "local_buttons": _with_ids(cfg.get("local_buttons"), "uid"),
+            "soundpad_buttons": _with_ids(cfg.get("soundpad_buttons"), "uid")}
 
 
 def _migrate_config():
@@ -323,6 +360,9 @@ def save_config():
 
 _migrate_config()
 config = load_config()
+if (_cfg_with_ids := _with_item_ids(config)) != config:
+    config = _cfg_with_ids
+    save_config()
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 
@@ -343,6 +383,26 @@ try:
     logger.info("faulthandler enabled → %s", _log_file)
 except Exception as _fh_err:
     logger.warning("faulthandler could not be enabled: %s", _fh_err)
+
+
+# ─── Access control (see security.py) ──────────────────────────────────────────
+
+AUTH_TIMEOUT_S          = 5.0    # the first message must be auth or pair_request
+WS_CLOSE_POLICY         = 1008
+WS_CLOSE_UNAUTHORIZED   = 4401   # token missing, invalid or revoked: the client pairs again
+WS_CLOSE_TRY_LATER      = 1013   # too many unauthenticated sockets open
+# Largest WebSocket message uvicorn accepts (its default is 16 MiB). The biggest
+# real one, a save_config with every macro and pad, is a few kilobytes.
+WS_MAX_MESSAGE_BYTES    = 1 << 20
+# --reload re-imports this module in a child process; the port reaches it through the environment.
+SERVER_PORT = int(os.environ.get("TD_PORT", "8888"))
+
+paired_devices = security.PairedDevices(os.path.join(DATA_DIR, security.PAIRED_DEVICES_FILE))
+pairing        = security.PairingRequests()
+pending_sockets = security.PendingSockets()
+local_token    = security.LocalControlToken(os.path.join(DATA_DIR, security.LOCAL_TOKEN_FILE))
+# The LAN addresses are filled in by lifespan(); get_lan_ips is defined below.
+origin_policy  = security.OriginPolicy(SERVER_PORT, lambda: get_lan_ips())
 
 
 # ─── Shared state ──────────────────────────────────────────────────────────────
@@ -381,7 +441,7 @@ lock_monitor_instance = None  # LockMonitor instance (all platforms)
 weather_update_event: asyncio.Event | None = None
 last_host_url        = "127.0.0.1:8888"
 speedtest_lock: asyncio.Lock | None = None
-# Signalled by local_play_* to make pipewire_auto_router run immediately.
+# Signalled by a local play_clip to make pipewire_auto_router run immediately.
 sb_route_event: asyncio.Event | None = None
 
 # Template cache (mtime-based)
@@ -414,6 +474,11 @@ def _is_lan_ipv4(addr: str) -> bool:
 
 
 def get_lan_ip() -> str:
+    return (get_lan_ips() or ["LAN unavailable"])[0]
+
+
+def get_lan_ips() -> list[str]:
+    """This PC's LAN IPv4 addresses, private ones first (the first is the tray's)."""
     candidates: list[str] = []
     for target in ("8.8.8.8", "1.1.1.1"):
         try:
@@ -440,7 +505,7 @@ def get_lan_ip() -> str:
             seen.add(ip)
             valid.append(ip)
     private = [ip for ip in valid if ipaddress.ip_address(ip).is_private]
-    return (private or valid or ["LAN unavailable"])[0]
+    return private + [ip for ip in valid if ip not in private]
 
 
 # get_lan_ip() opens sockets and may block on a hostname lookup, and config_sync
@@ -572,7 +637,9 @@ def restart_discord_ipc():
             if main_event_loop and sys_data_trigger:
                 main_event_loop.call_soon_threadsafe(sys_data_trigger.set)
 
-        def _on_auth_error(auth_url: str):
+        def _on_auth_error(_unsigned_url: str):
+            # The IPC client's URL carries no OAuth state; open ours instead.
+            auth_url = _discord_auth_url()
             if main_event_loop:
                 asyncio.run_coroutine_threadsafe(
                     asyncio.to_thread(webbrowser.open, auth_url),
@@ -589,38 +656,60 @@ def restart_discord_ipc():
 
 # ─── WebSocket manager ─────────────────────────────────────────────────────────
 
+@dataclass(eq=False)
+class Client:
+    """An authenticated socket. Only these ever receive state."""
+    ws: WebSocket
+    role: str              # "admin" (loopback + own origin) or "device" (paired token)
+    ip: str
+    device_id: str = ""
+    name: str = ""
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
+
+
 class ConnectionManager:
     def __init__(self):
-        self._conns: list[WebSocket] = []
+        self._clients: list[Client] = []
 
     def has_clients(self) -> bool:
-        return bool(self._conns)
+        return bool(self._clients)
 
-    async def connect(self, ws: WebSocket):
-        await ws.accept()
-        self._conns.append(ws)
+    def add(self, client: Client):
+        self._clients.append(client)
 
-    def disconnect(self, ws: WebSocket):
-        if ws in self._conns:
-            self._conns.remove(ws)
+    def remove(self, client: Client):
+        if client in self._clients:
+            self._clients.remove(client)
 
-    async def broadcast(self, msg: dict):
-        if not self._conns:
+    def online_device_ids(self) -> set[str]:
+        return {c.device_id for c in self._clients if c.device_id}
+
+    def device_clients(self, device_id: str) -> list[Client]:
+        return [c for c in self._clients if c.device_id == device_id]
+
+    async def broadcast(self, msg: dict, admin_only: bool = False):
+        await self.broadcast_by_role({"admin": msg} if admin_only else {"admin": msg, "device": msg})
+
+    async def broadcast_by_role(self, msgs: dict[str, dict]):
+        """Send msgs[client.role] to each client; roles without an entry get nothing."""
+        targets = [c for c in self._clients if c.role in msgs]
+        if not targets:
             return
-        payload = _dumps(msg)
-        
-        async def _send(ws: WebSocket):
+        payloads = {role: _dumps(m) for role, m in msgs.items()}
+
+        async def _send(c: Client):
             try:
-                await ws.send_text(payload)
+                await c.ws.send_text(payloads[c.role])
                 return None
             except Exception:
-                return ws
-                
-        results = await asyncio.gather(*[_send(ws) for ws in self._conns])
-        
-        stale = [ws for ws in results if ws is not None]
-        for ws in stale:
-            self.disconnect(ws)
+                return c
+
+        for stale in await asyncio.gather(*[_send(c) for c in targets]):
+            if stale is not None:
+                self.remove(stale)
 
 
 ws_manager       = ConnectionManager()
@@ -634,6 +723,8 @@ SPOTIFY_POLL_INTERVAL = 3.0   # Spotify Web API round trip
 LOCAL_MEDIA_INTERVAL  = 1.0   # playerctl; Discord speaking events must not each spawn one
 BURST_INTERVAL        = 0.2   # while a track change is settling (MPRIS art)
 GPU_POLL_INTERVAL     = 2.0
+LOAD_SAMPLE_INTERVAL  = 1.0   # CPU/RAM sample; one sparkline point on the client
+TRIGGER_COALESCE_S    = 0.025
 FORCED_MEDIA_DELAY    = 0.4   # let Spotify / the player apply a just-sent command
 
 
@@ -664,6 +755,28 @@ def _snapshot_voice_channel(vc: dict | None) -> dict | None:
     return snap
 
 
+# An <img> cannot send an Authorization header, so the cover URL is its own
+# credential: sys_data (authenticated clients only) carries a URL signed for
+# the cover playing now, and /api/local_art serves nothing else.
+_ART_KEY = secrets.token_bytes(32)
+LOCAL_ART_PREFIX = "/api/local_art?h="
+_current_art_h = ""
+
+
+def _sign_art(h: str) -> str:
+    return hmac.new(_ART_KEY, h.encode(), "sha256").hexdigest()[:32]
+
+
+def _signed_media(media: dict | None) -> dict | None:
+    global _current_art_h
+    url = media.get("art_url") if media else None
+    if not (isinstance(url, str) and url.startswith(LOCAL_ART_PREFIX)):
+        _current_art_h = ""
+        return media
+    _current_art_h = url.removeprefix(LOCAL_ART_PREFIX)
+    return {**media, "art_url": f"{url}&k={_sign_art(_current_art_h)}"}
+
+
 async def _fetch_spotify(forced: bool) -> dict | None:
     if forced:
         await asyncio.sleep(FORCED_MEDIA_DELAY)
@@ -678,6 +791,57 @@ async def _fetch_local_media(forced: bool) -> dict | None:
     return await asyncio.to_thread(media_module.get_local_mpris_meta)
 
 
+# OAuth "state": a sign-in callback is accepted only with the value this server
+# put in the authorize URL, so a web page cannot make the PC's browser finish
+# a sign-in into someone else's Spotify or Discord account (login CSRF).
+OAUTH_STATE_TTL_S = 600.0
+DISCORD_SCOPES = ("rpc rpc.notifications.read rpc.voice.read rpc.video.read rpc.screenshare.read "
+                  "rpc.activities.write rpc.screenshare.write rpc.video.write rpc.voice.write")
+_oauth_states: dict[str, tuple[str, float]] = {}   # provider -> (state, expires)
+_oauth_lock = threading.Lock()                     # the Discord IPC thread builds URLs too
+
+
+def _oauth_state(provider: str) -> str:
+    """The pending state for this provider, kept until it is used or expires."""
+    now = time.monotonic()
+    with _oauth_lock:
+        state, expires = _oauth_states.get(provider, ("", 0.0))
+        if not state or now >= expires:
+            state = secrets.token_urlsafe(24)
+            _oauth_states[provider] = (state, now + OAUTH_STATE_TTL_S)
+        return state
+
+
+def _spend_oauth_state(provider: str, presented) -> bool:
+    """True once for the pending state; a wrong value does not cancel the real one."""
+    with _oauth_lock:
+        state, expires = _oauth_states.get(provider, ("", 0.0))
+        if not (state and time.monotonic() < expires and isinstance(presented, str)
+                and hmac.compare_digest(presented.encode(), state.encode())):
+            return False
+        del _oauth_states[provider]
+        return True
+
+
+def _discord_auth_url() -> str:
+    params = urllib.parse.urlencode({
+        "client_id": config.get("disc_id", ""),
+        "response_type": "code",
+        "redirect_uri": "http://127.0.0.1:8888/disc_callback",
+        "scope": DISCORD_SCOPES,
+        "state": _oauth_state("discord"),
+    })
+    return f"https://discord.com/oauth2/authorize?{params}"
+
+
+def _device_sys_data(msg: dict) -> dict:
+    """sys_data for paired devices: without the Discord sign-in URL and its OAuth state."""
+    discord = msg["data"].get("discord")
+    if not discord or "auth_url" not in discord:
+        return msg
+    return {**msg, "data": {**msg["data"], "discord": {k: v for k, v in discord.items() if k != "auth_url"}}}
+
+
 def _discord_state() -> dict:
     disc_has_token = bool(config.get("disc_token", ""))
     disc_has_creds = bool(config.get("disc_id")) and bool(config.get("disc_secret"))
@@ -690,14 +854,7 @@ def _discord_state() -> dict:
         "authorized": disc_has_token,
     }
     if disc_has_creds and not disc_has_token:
-        scopes = "rpc rpc.notifications.read rpc.voice.read rpc.video.read rpc.screenshare.read rpc.activities.write rpc.screenshare.write rpc.video.write rpc.voice.write"
-        params = urllib.parse.urlencode({
-            "client_id": config['disc_id'],
-            "response_type": "code",
-            "redirect_uri": "http://127.0.0.1:8888/disc_callback",
-            "scope": scopes
-        })
-        state["auth_url"] = f"https://discord.com/oauth2/authorize?{params}"
+        state["auth_url"] = _discord_auth_url()
     ipc = disc_ipc_instance
     if ipc:
         state.update({
@@ -708,7 +865,7 @@ def _discord_state() -> dict:
         })
         if ipc.auth_pending:
             state["authorized"] = False
-            state["auth_url"] = ipc.get_auth_url()
+            state["auth_url"] = _discord_auth_url()
         if ipc.connected:
             voice = getattr(ipc, 'voice_state', {})
             state["mute"] = voice.get('mute', False)
@@ -725,8 +882,14 @@ async def hardware_loop():
 
     main_event_loop  = asyncio.get_running_loop()
     sys_data_trigger = asyncio.Event()
+    loop, trigger = main_event_loop, sys_data_trigger
+    # The volume worker read back a level it applied: push it now, not on the next poll.
+    AudioSystem.on_volume_applied = lambda: loop.call_soon_threadsafe(trigger.set)
 
     last_gpu_check   = 0.0
+    last_load_check  = 0.0
+    load_cache       = {"cpu": 0.0, "ram": 0.0}
+    load_seq         = 0
     gpu_cache        = ""
     last_audio_check = 0.0
     last_local_check = 0.0
@@ -791,6 +954,9 @@ async def hardware_loop():
                 "mic": audio_data["mic"],
                 "active_dev": audio_data["active_sink_name"],
             }
+            # Windows polls levels without get_state(); ordered by when this poll began.
+            AudioSystem.remember("@DEFAULT_AUDIO_SINK@", audio_data["spk"], curr)
+            AudioSystem.remember("@DEFAULT_AUDIO_SOURCE@", audio_data["mic"], curr)
         if isinstance(results.get("batt"), dict):
             batt_cache = results["batt"]
         if "spotify" in jobs:
@@ -819,34 +985,46 @@ async def hardware_loop():
         else:
             current_media_source = "spotify"
 
+        # Load is a once-a-second sample: ticks woken by Discord events or volume
+        # read-backs reuse it, so they broadcast only what actually changed and
+        # the client's minute of load history stays a minute (load_seq).
+        if curr - last_load_check >= LOAD_SAMPLE_INTERVAL:
+            load_cache = {"cpu": psutil.cpu_percent(interval=None), "ram": psutil.virtual_memory().percent}
+            load_seq += 1
+            last_load_check = curr
+
         new_payload = {
-            "cpu":        psutil.cpu_percent(interval=None),
-            "ram":        psutil.virtual_memory().percent,
+            "cpu":        load_cache["cpu"],
+            "ram":        load_cache["ram"],
+            "load_seq":   load_seq,
             "gpu":        gpu_cache or None,
             # mouse_batt is a dict: {pct: float|null, state: str, model: str, vendor: str}
             "mouse_batt": batt_cache,
             # pc_locked: True when the host session's lock screen is active.
             "pc_locked":  lock_monitor_instance.get_state() if lock_monitor_instance else False,
-            "spotify":    media,
+            "spotify":    _signed_media(media),
             "discord":    _discord_state(),
             "audio": {
-                "spk": audio_cache["spk"],
-                "mic": audio_cache["mic"],
+                # The latest level: the 1 s poll, or a fader's read-back since.
+                "spk": AudioSystem.latest("@DEFAULT_AUDIO_SINK@", audio_cache["spk"]),
+                "mic": AudioSystem.latest("@DEFAULT_AUDIO_SOURCE@", audio_cache["mic"]),
                 "active_dev": audio_cache["active_dev"],
             },
         }
 
         if new_payload != last_sys_data_payload:
             last_sys_data_payload = new_payload
-            await ws_manager.broadcast({
-                "type": "sys_data",
-                "data": new_payload,
-            })
+            msg = {"type": "sys_data", "data": new_payload}
+            await ws_manager.broadcast_by_role({"admin": msg, "device": _device_sys_data(msg)})
 
         burst = is_linux and media_module.is_mpris_burst_active()
         sleep_time = BURST_INTERVAL if burst else 1.0
         try:
             await asyncio.wait_for(sys_data_trigger.wait(), timeout=sleep_time)
+            # One Discord change arrives as several IPC frames (the reply,
+            # VOICE_SETTINGS_UPDATE, the user's VOICE_STATE_UPDATE): let the
+            # rest land so they go out as one sys_data, not three.
+            await asyncio.sleep(TRIGGER_COALESCE_S)
             sys_data_trigger.clear()
         except asyncio.TimeoutError:
             pass
@@ -1011,7 +1189,7 @@ async def _do_pipewire_route() -> None:
 async def pipewire_auto_router():
     """Route Dashboard-Soundboard monitor into microphone capture targets (Linux only).
 
-    Wakes immediately when sb_route_event is set (triggered by local_play_*)
+    Wakes immediately when sb_route_event is set (triggered by a local play_clip)
     and also re-runs every 30 s to repair links torn down by PipeWire.
     """
     while True:
@@ -1057,6 +1235,10 @@ async def _make_config_sync(sinks: list[dict], initial_disc: dict | None = None)
         "latest_version":  latest_version,
         "update_apk_url":  update_apk_url,
         "update_notes":    update_notes,
+        # Messages this server understands beyond the original set; clients
+        # fall back to the older behaviour when one is missing.
+        "features":        SERVER_FEATURES,
+        "clip_source":     _clip_source(config),
     }
     if initial_disc is not None:
         data["disc_init"] = initial_disc
@@ -1066,26 +1248,75 @@ async def _make_config_sync(sinks: list[dict], initial_disc: dict | None = None)
     }
 
 
-# Check for updates on GitHub (with Codeberg fallback)
+# What a paired device may read of the config: display and live-control state.
+# An allowlist, so a new secret added to the config later is never sent by default.
+DEVICE_CFG_KEYS = (
+    "theme", "audio_names", "hidden_audio_devices", "disc_vc_enabled", "disc_sort_speakers",
+    "show_mouse_batt", "show_hw_stats", "spot_enabled", "weather_enabled", "disc_enabled",
+    "audio_enabled", "sb_enabled", "soundboard_volume", "soundboard_feedback", "device_av_controls",
+)
+DEVICE_SYNC_KEYS = (
+    "hw", "os_target", "host_ip", "server_version", "req_apk_version", "update_apk_url",
+    "features", "clip_source", "disc_init",
+)
+# Built-in modules a premade / plugin macro may name.
+MACRO_MODULES = frozenset({"app_term", "app_web", "app_task", "app_clip", "app_soundpad"})
+
+
+def _clip_source(cfg: dict) -> str:
+    """Which pad list the soundboard plays: local files or Soundpad indices."""
+    return "local" if get_os_target() == "linux" or cfg.get("sounds_path") else "soundpad"
+
+
+def _device_macro(m: dict) -> dict:
+    out = {k: m.get(k, "") for k in ("id", "type", "display_name", "icon_url")}
+    # A device runs macros by id; it only needs to know which key opens the soundboard.
+    if m.get("type") == "plugin" and m.get("action_data") in MACRO_MODULES:
+        out["action_data"] = m["action_data"]
+    return out
+
+
+def _device_config_sync(msg: dict) -> dict:
+    data = {k: msg["data"][k] for k in DEVICE_SYNC_KEYS if k in msg["data"]}
+    cfg = msg["data"]["cfg"]
+    device_cfg = {k: cfg[k] for k in DEVICE_CFG_KEYS if k in cfg}
+    device_cfg["macros"] = [_device_macro(m) for m in cfg.get("macros", []) if isinstance(m, dict)]
+    pads_key = "local_buttons" if data.get("clip_source") == "local" else "soundpad_buttons"
+    device_cfg[pads_key] = [{"uid": p.get("uid", ""), "name": p.get("name", "")}
+                            for p in cfg.get(pads_key, []) if isinstance(p, dict)]
+    data["cfg"] = device_cfg
+    return {"type": "config_sync", "data": data}
+
+
+async def _config_sync_by_role(initial_disc: dict | None = None, sinks: list | None = None) -> dict[str, dict]:
+    msg = await _make_config_sync(sinks if sinks is not None else await _current_sinks(), initial_disc)
+    return {"admin": msg, "device": _device_config_sync(msg)}
+
+
+async def broadcast_config_sync():
+    await ws_manager.broadcast_by_role(await _config_sync_by_role())
+
+
+# Check for updates on GitHub. Releases are still mirrored to Codeberg by
+# release.sh, but only for installs that predate the move and poll it.
+RELEASES_API_URL = "https://api.github.com/repos/Liburn-Bajraktari/Touch-Dashboard/releases"
+
+
 async def check_for_updates() -> dict:
     global update_available, latest_version, update_apk_url, update_notes
     try:
         def fetch_releases():
-            for api_url in [
-                "https://api.github.com/repos/Liburn-Bajraktari/Touch-Dashboard/releases",
-                "https://codeberg.org/api/v1/repos/liburnb/Touch-Dashboard/releases",
-            ]:
-                try:
-                    req = urllib.request.Request(
-                        api_url,
-                        headers={"User-Agent": f"TouchDashboard/{VERSION}", "Accept": "application/vnd.github+json"}
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        data = _loads(resp.read())
-                        if isinstance(data, list) and len(data) > 0:
-                            return data
-                except Exception as err:
-                    logger.debug(f"Failed to fetch releases from {api_url}: {err}")
+            try:
+                req = urllib.request.Request(
+                    RELEASES_API_URL,
+                    headers={"User-Agent": f"TouchDashboard/{VERSION}", "Accept": "application/vnd.github+json"}
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = _loads(resp.read())
+                    if isinstance(data, list) and len(data) > 0:
+                        return data
+            except Exception as err:
+                logger.debug(f"Failed to fetch releases from {RELEASES_API_URL}: {err}")
             return []
         
         releases = await asyncio.to_thread(fetch_releases)
@@ -1122,7 +1353,7 @@ async def check_for_updates() -> dict:
                 if ws_manager.has_clients():
                     logger.info(f"Update available ({latest_version}) — broadcasting to connected clients.")
                     try:
-                        await ws_manager.broadcast(await _make_config_sync(await _current_sinks()))
+                        await broadcast_config_sync()
                     except Exception as b_err:
                         logger.error(f"Failed to broadcast update notification: {b_err}")
     except Exception as e:
@@ -1140,6 +1371,8 @@ async def check_for_updates() -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(SOUNDS_DIR, exist_ok=True)
+    await origin_policy.refresh()
+    await asyncio.to_thread(local_token.rotate)
 
     async def update_monitor_loop():
         # Allow initial clients to connect before first check
@@ -1262,22 +1495,52 @@ async def lifespan(app: FastAPI):
 
 _app = FastAPI(lifespan=lifespan)
 
-@_app.get("/api/wakeup")
+
+def _require_loopback(request: Request) -> None:
+    """OAuth sign-in happens on the PC: its redirect URIs are 127.0.0.1 only."""
+    if not security.is_loopback(request.client.host if request.client else None):
+        raise HTTPException(status_code=403, detail="Only available on the PC")
+
+
+def _require_local_control(request: Request) -> None:
+    """Routes for local processes: loopback, a JSON POST (a cross-site page
+    cannot send one without a preflight, which this server never answers)
+    and the control token from the 0600 file in the data folder."""
+    _require_loopback(request)
+    content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not local_token.check(token.strip()):
+        raise HTTPException(status_code=401, detail="Bearer token required",
+                            headers={"WWW-Authenticate": "Bearer"})
+
+
+@_app.post("/api/wakeup", dependencies=[Depends(_require_local_control)])
 def wakeup_endpoint():
     # Bring an existing desktop window to front (second-instance signal).
     _desktop_module.wakeup()
     return {"status": "waking up"}
 
-@_app.post("/api/exit")
+@_app.post("/api/exit", dependencies=[Depends(_require_local_control)])
 def exit_endpoint():
     import threading
     threading.Timer(0.5, lambda: os._exit(0)).start()
     return {"status": "shutting down"}
 
-_CSP = (
-    "default-src 'self' 'unsafe-inline' 'unsafe-eval' ws: wss:; "
-    "img-src 'self' data: https:;"
-)
+def _csp(host: str, loopback: bool) -> str:
+    """The page's Content Security Policy for one response.
+
+    The socket may only go back to the host this page came from. 'unsafe-inline'
+    stays (inline handlers throughout the template). 'unsafe-eval' only on
+    loopback: pywebview builds window.pywebview.api.* with new Function, and
+    the desktop window is always 127.0.0.1; pages served to the LAN never need it.
+    """
+    script = "'self' 'unsafe-inline'" + (" 'unsafe-eval'" if loopback else "")
+    sockets = f" ws://{host}" if origin_policy.host_allowed(host) else ""
+    return (f"default-src 'self'; script-src {script}; style-src 'self' 'unsafe-inline'; "
+            f"img-src 'self' data: https:; connect-src 'self'{sockets}; "
+            "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
 class _SecurityHeaders:
@@ -1297,13 +1560,16 @@ class _SecurityHeaders:
             await self.app(scope, receive, send)
             return
         is_static = scope.get("path", "").startswith("/static/")
+        host = next((v.decode("latin-1") for k, v in scope.get("headers", []) if k == b"host"), "").lower()
+        client = scope.get("client")
+        csp = _csp(host, security.is_loopback(client[0] if client else None))
 
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["X-Frame-Options"]         = "DENY"
                 headers["X-Content-Type-Options"]  = "nosniff"
-                headers["Content-Security-Policy"] = _CSP
+                headers["Content-Security-Policy"] = csp
                 if is_static:
                     headers["Cache-Control"] = "no-cache"
             await send(message)
@@ -1311,7 +1577,37 @@ class _SecurityHeaders:
         await self.app(scope, receive, send_with_headers)
 
 
-# Added last = outermost: headers are set on the already-compressed response.
+class _HostGuard:
+    """403 for any HTTP request or WebSocket whose Host is not ours (DNS rebinding).
+
+    A rebinding page reaches 127.0.0.1 under the attacker's own host name, so
+    its Host header never matches 127.0.0.1, localhost or a LAN address of this PC.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        host = next((v.decode("latin-1") for k, v in scope.get("headers", []) if k == b"host"), "")
+        if not origin_policy.host_allowed(host) and origin_policy.wants_refresh(host):
+            await origin_policy.refresh()
+        if origin_policy.host_allowed(host):
+            await self.app(scope, receive, send)
+            return
+        logger.warning("Refused %s for Host %r", scope["type"], host[:100])
+        if scope["type"] == "websocket":
+            await receive()   # websocket.connect; closing before accept answers the handshake with 403
+            await send({"type": "websocket.close", "code": WS_CLOSE_POLICY})
+            return
+        await JSONResponse({"error": "Forbidden host"}, status_code=403)(scope, receive, send)
+
+
+# Added last = outermost: headers are set on the already-compressed response,
+# and on the Host guard's 403s.
+_app.add_middleware(_HostGuard)
 _app.add_middleware(GZipMiddleware, minimum_size=1024)
 _app.add_middleware(_SecurityHeaders)
 
@@ -1321,11 +1617,19 @@ _app.mount("/static", StaticFiles(directory=os.path.join(RESOURCE_DIR, "static")
 # ─── HTTP routes ───────────────────────────────────────────────────────────────
 
 @_app.get("/api/local_art")
-async def serve_local_art():
+async def serve_local_art(request: Request, h: str = "", k: str = ""):
+    # Signed by _signed_media() for the cover playing now: a revoked device's old URLs stop working.
+    if not (h and h == _current_art_h and hmac.compare_digest(k.encode(), _sign_art(h).encode())):
+        return JSONResponse({"error": "No art"}, status_code=404)
     path = media_module.get_last_mpris_art_path()
     if path and os.path.exists(path):
-        # CORS lets the APK (a file:// page) read the pixels to tint the UI from the cover.
-        return FileResponse(path, headers={"Access-Control-Allow-Origin": "*"})
+        # CORS lets the APK (a file:// page) read the pixels to tint the UI from
+        # the cover; only our own origins are echoed back, never "*".
+        headers = {"Vary": "Origin"}
+        origin = request.headers.get("origin")
+        if origin and origin_policy.origin_allowed(origin):
+            headers["Access-Control-Allow-Origin"] = origin
+        return FileResponse(path, headers=headers)
     return JSONResponse({"error": "No art"}, status_code=404)
 
 
@@ -1366,19 +1670,27 @@ async def _manifest():
     }, headers={"Cache-Control": "no-cache"})
 
 
-@_app.get("/spotify_login")
+@_app.get("/spotify_login", dependencies=[Depends(_require_loopback)])
 async def spotify_login():
     sp = get_sp_oauth()
     if not sp:
         return JSONResponse({"error": "No Spotify credentials configured"})
-    return RedirectResponse(sp.get_authorize_url())
+    return RedirectResponse(sp.get_authorize_url(state=_oauth_state("spotify")))
 
 
-@_app.get("/callback")
-async def spotify_callback(code: str | None = None):
+def _oauth_state_mismatch() -> HTMLResponse:
+    return HTMLResponse("<p>This sign-in was not started from Touch Dashboard, or it expired. "
+                        "Start it again from Settings on the PC.</p>", status_code=400)
+
+
+@_app.get("/callback", dependencies=[Depends(_require_loopback)])
+async def spotify_callback(code: str | None = None, state: str | None = None):
     sp = get_sp_oauth()
     if not sp or not code:
         return RedirectResponse("/")
+    if not _spend_oauth_state("spotify", state):
+        logger.warning("Spotify sign-in callback refused: OAuth state missing or wrong")
+        return _oauth_state_mismatch()
     try:
         await asyncio.to_thread(sp.get_access_token, code)
     except Exception:
@@ -1386,39 +1698,101 @@ async def spotify_callback(code: str | None = None):
     return RedirectResponse("/")
 
 
-@_app.get("/disc_callback")
-async def discord_callback(code: str | None = None):
+@_app.get("/disc_callback", dependencies=[Depends(_require_loopback)])
+async def discord_callback(code: str | None = None, state: str | None = None):
     if not code or not disc_ipc_instance:
         return RedirectResponse("/")
+    if not _spend_oauth_state("discord", state):
+        logger.warning("Discord sign-in callback refused: OAuth state missing or wrong")
+        return _oauth_state_mismatch()
     ok = await asyncio.to_thread(disc_ipc_instance.exchange_code, code)
     if ok:
         disc_ipc_instance.needs_reauth = True
     return RedirectResponse("/")
 
-@_app.get("/api/check_update")
-async def api_check_update():
-    """Manually trigger a check for updates."""
-    result = await check_for_updates()
-    return result
 
-@_app.post("/api/update")
-async def api_update():
-    """Trigger the auto-update process."""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    
+_update_running = False
+RELEASE_TAG_RE       = re.compile(r"v\d+\.\d+\.\d+")
+RELEASE_DOWNLOAD_URL = "https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/download"
+SUMS_MAX_BYTES       = 64 * 1024
+INSTALLER_MAX_BYTES  = 1 << 20
+
+
+def _download(url: str, limit: int) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": f"TouchDashboard/{VERSION}"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"{url} is larger than {limit} bytes")
+    return data
+
+
+def _sha256sums(text: str) -> dict[str, str]:
+    """{file name: hex digest} from a sha256sum listing."""
+    sums = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and re.fullmatch(r"[0-9a-fA-F]{64}", parts[0]):
+            sums[parts[1].lstrip("*")] = parts[0].lower()
+    return sums
+
+
+def _fetch_verified_installer(tag: str) -> str:
+    """The installer published with release `tag`, checked against that
+    release's SHA256SUMS, saved to a temp file; returns its path.
+
+    An update runs exactly what was released, never the main branch.
+    """
+    if not RELEASE_TAG_RE.fullmatch(tag):
+        raise ValueError(f"not a release tag: {tag!r}")
+    name = "setup.sh" if get_os_target() == "linux" else "install.ps1"
+    sums = _sha256sums(_download(f"{RELEASE_DOWNLOAD_URL}/{tag}/SHA256SUMS", SUMS_MAX_BYTES)
+                       .decode("utf-8", errors="replace"))
+    body = _download(f"{RELEASE_DOWNLOAD_URL}/{tag}/{name}", INSTALLER_MAX_BYTES)
+    expected = sums.get(name, "")
+    if not expected or not hmac.compare_digest(hashlib.sha256(body).hexdigest(), expected):
+        raise ValueError(f"{name} of {tag} does not match its SHA256SUMS")
+    fd, path = tempfile.mkstemp(prefix="touch-dashboard-update-", suffix=os.path.splitext(name)[1])
+    with os.fdopen(fd, "wb") as f:
+        f.write(body)
+    return path
+
+
+def _installer_argv(path: str) -> list[str]:
     if get_os_target() == "linux":
-        cmd = f"export AUTO_UPDATE=1 BACKGROUND_UPDATE=1 TARGET_DIR='{current_dir}'; bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Liburn-Bajraktari/Touch-Dashboard/main/scripts/setup.sh)\""
-    else:
-        cmd = f"powershell -ExecutionPolicy Bypass -Command \"$env:AUTO_UPDATE=1; $env:BACKGROUND_UPDATE=1; $env:TARGET_DIR='{current_dir}'; irm https://raw.githubusercontent.com/Liburn-Bajraktari/Touch-Dashboard/main/scripts/install.ps1 | iex\""
-    
+        return ["bash", path]
+    return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path]
+
+
+def _start_update(tag: str) -> bool:
+    """Install release `tag` in the background and stream the output to admins.
+
+    Started over the admin WebSocket (run_update), never over plain HTTP. The
+    installer gets the tag too (TD_RELEASE_TAG) and checks the app archive it
+    downloads against the same SHA256SUMS.
+    """
+    global _update_running
+    if _update_running:
+        return False
+    _update_running = True
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    env = {**os.environ, "AUTO_UPDATE": "1", "BACKGROUND_UPDATE": "1",
+           "TARGET_DIR": current_dir, "TD_RELEASE_TAG": tag}
+
     # Run in background and stream output to WS
     async def run_update():
-        logger.info(f"Triggering background update: {cmd}")
+        global _update_running
+        installer = ""
         try:
-            process = await asyncio.create_subprocess_shell(
-                cmd,
+            installer = await asyncio.to_thread(_fetch_verified_installer, tag)
+            logger.info("Updating to %s with the verified installer %s", tag, installer)
+            # An argument list, no shell: nothing in a path or tag is ever parsed as a command.
+            process = await asyncio.create_subprocess_exec(
+                *_installer_argv(installer),
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                env=env,
             )
             
             buf = b""
@@ -1441,7 +1815,7 @@ async def api_update():
                     if match:
                         progress_pct = float(match.group(1))
                         
-                    await ws_manager.broadcast({
+                    await ws_manager.broadcast(admin_only=True, msg={
                         "type": "update_progress",
                         "data": {
                             "text": line,
@@ -1451,8 +1825,11 @@ async def api_update():
                     })
                     
             await process.wait()
+            os.unlink(installer)
+            installer = ""
             if process.returncode != 0:
-                await ws_manager.broadcast({
+                _update_running = False
+                await ws_manager.broadcast(admin_only=True, msg={
                     "type": "update_progress",
                     "data": {
                         "text": f"\n[!] Update failed with exit code {process.returncode}",
@@ -1461,7 +1838,7 @@ async def api_update():
                     }
                 })
             else:
-                await ws_manager.broadcast({
+                await ws_manager.broadcast(admin_only=True, msg={
                     "type": "update_progress",
                     "data": {
                         "text": f"\n[*] Update successful! Restarting server...",
@@ -1483,187 +1860,579 @@ async def api_update():
                     subprocess.Popen([sys.executable] + sys.argv, creationflags=flags)
                     os._exit(0)
         except Exception as e:
-            logger.error(f"Error reading update stream: {e}")
-            await ws_manager.broadcast({
+            _update_running = False
+            logger.error(f"Update to {tag} failed: {e}")
+            await ws_manager.broadcast(admin_only=True, msg={
                 "type": "update_progress",
                 "data": {
-                    "text": f"\n[!] Internal error during update: {e}",
+                    "text": f"\n[!] Update failed: {e}",
                     "progress": 0,
                     "error": True
                 }
             })
-            
+        finally:
+            if installer:
+                with contextlib.suppress(OSError):
+                    os.unlink(installer)
+
     asyncio.create_task(run_update())
-    return {"status": "updating"}
+    return True
 
 # ─── WebSocket ─────────────────────────────────────────────────────────────────
+#
+# Handshake: the Origin is checked before accept(). The first message, within
+# AUTH_TIMEOUT_S, must be {"type": "auth", "token": ...} or
+# {"type": "pair_request", "device_name": ...}; nothing about the PC is sent
+# before one succeeds. Every later message goes through _dispatch(), the one
+# place roles are enforced (ADMIN_ACTIONS).
+
+async def _send(ws: WebSocket, msg: dict) -> bool:
+    try:
+        await ws.send_text(_dumps(msg))
+        return True
+    except Exception:   # the peer is gone; the caller decides what that means
+        return False
+
+
+async def _close(ws: WebSocket, code: int, reason: str = "") -> None:
+    try:
+        await ws.close(code=code, reason=reason)
+    except (RuntimeError, OSError, WebSocketDisconnect):
+        pass   # already closed by the peer
+
+
+def _parse_message(raw) -> dict | None:
+    try:
+        msg = _loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return msg if isinstance(msg, dict) and isinstance(msg.get("type"), str) else None
+
+
+def _refused(key: str, reason: str) -> dict:
+    return {"type": "refused", "data": {"action": key[:64], "reason": reason}}
+
+
+def _initial_disc() -> dict:
+    """Discord state for the first config_sync (replaces DOM surgery)."""
+    return {
+        "connected": bool(disc_ipc_instance and disc_ipc_instance.connected),
+        "authorized": bool(config.get("disc_token", "")),
+        "mute": (disc_ipc_instance.voice_state.get("mute", False)
+                 if disc_ipc_instance else False),
+        "deaf": (disc_ipc_instance.voice_state.get("deaf", False)
+                 if disc_ipc_instance else False),
+    }
+
+
+def _legacy_update_notice() -> dict:
+    """What a tablet app from before pairing gets instead of state.
+
+    Those apps never send auth, so they cannot connect any more; a config_sync
+    is the one message they act on, and this one only carries the required
+    app version and its public download link, so they ask the user to update.
+    """
+    return {"type": "config_sync", "data": {
+        "auth_required": True, "cfg": {}, "hw": [], "features": [],
+        "req_apk_version": REQUIRED_APK_VERSION, "update_apk_url": update_apk_url,
+    }}
+
+
+def _devices_msg() -> dict:
+    online = ws_manager.online_device_ids()
+    return {"type": "paired_devices",
+            "data": [{**d, "online": d["id"] in online} for d in paired_devices.public_list()]}
+
+
+async def _broadcast_devices() -> None:
+    await ws_manager.broadcast(_devices_msg(), admin_only=True)
+
+
+def _pair_pending_msg(req: security.PendingPair) -> dict:
+    return {"type": "pair_pending", "data": {
+        "id": req.id, "name": req.name, "ip": req.ip, "code": req.code,
+        "expires_in": int(req.remaining(pairing.clock())),
+    }}
+
 
 @_app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    global config, force_media_update, current_media_source, global_sp_oauth
-
-    await ws_manager.connect(ws)
+    ip = ws.client.host if ws.client else ""
+    origin = ws.headers.get("origin")
+    # No Origin: not a browser (it still needs a token). A foreign one: a web page.
+    if origin is not None and not origin_policy.origin_allowed(origin):
+        logger.warning("WebSocket from %s refused: origin %r", ip, origin[:100])
+        await ws.close(code=WS_CLOSE_POLICY)
+        return
+    if not pending_sockets.acquire(ip):
+        logger.warning("WebSocket from %s refused: too many unauthenticated connections", ip)
+        await ws.close(code=WS_CLOSE_TRY_LATER)
+        return
     try:
-        audio_names = config.get("audio_names", {})
-        hw = await asyncio.to_thread(AudioSystem.get_hardware_sinks, audio_names)
-
-        # Initial state push — Discord state included here (replaces DOM surgery)
-        disc_has_token = bool(config.get("disc_token", ""))
-        initial_disc = {
-            "connected": bool(disc_ipc_instance and disc_ipc_instance.connected),
-            "authorized": disc_has_token,
-            "mute": (disc_ipc_instance.voice_state.get("mute", False)
-                     if disc_ipc_instance else False),
-            "deaf": (disc_ipc_instance.voice_state.get("deaf", False)
-                     if disc_ipc_instance else False),
-        }
-        await ws.send_text(_dumps(await _make_config_sync(hw, initial_disc=initial_disc)))
-
-        if last_weather_data.get("temp") != "--":
-            await ws.send_text(_dumps({"type": "weather_data", "data": last_weather_data}))
-
-        # ── message loop ───────────────────────────────────────────────────────
-        while True:
-            raw = await ws.receive_text()
-            msg  = _loads(raw)
-            mtype = msg.get("type")
-            data  = msg.get("data")
-
-            # ── queries ────────────────────────────────────────────────────────
-            if mtype == "req_local_sounds":
-                sounds = await asyncio.to_thread(get_local_sounds)
-                await ws.send_text(_dumps({"type": "local_sounds_list", "data": sounds}))
-
-            elif mtype == "req_apps_list":
-                apps = await asyncio.to_thread(AppEnumerator.get_apps)
-                await ws.send_text(_dumps({"type": "apps_list", "data": apps}))
-
-            # ── save macros ────────────────────────────────────────────────────
-            elif mtype == "save_macros":
-                with CONFIG_LOCK:
-                    config["macros"] = data
-                await asyncio.to_thread(save_config)
-                await ws_manager.broadcast(await _make_config_sync(await _current_sinks()))
-
-            # ── macro exec ─────────────────────────────────────────────────────
-            elif mtype == "macro_exec":
-                m_type      = data.get("type")
-                action_data = data.get("action_data")
-                if m_type == "app":
-                    await asyncio.to_thread(AppEnumerator.launch_app, action_data)
-                elif m_type == "macro":
-                    keys = action_data if isinstance(action_data, list) else [action_data]
-                    await asyncio.to_thread(MacroSystem.send_keys, *keys)
-                elif m_type in ("premade", "plugin"):
-                    mtype = "action"
-                    data  = action_data
-
-            # ── save config ────────────────────────────────────────────────────
-            if mtype == "save_config":
-                old_disc  = config.get("disc_enabled", True)
-                old_disc_id, old_disc_sec = config.get("disc_id"), config.get("disc_secret")
-                old_wx_api, old_wx_city   = config.get("weather_api"), config.get("weather_city")
-                old_spot_id               = config.get("spot_id")
-
-                with CONFIG_LOCK:
-                    config.update(data)
-                await asyncio.to_thread(save_config)
-
-                if old_spot_id != config.get("spot_id"):
-                    global_sp_oauth = None
-
-                await ws_manager.broadcast(await _make_config_sync(await _current_sinks()))
-
-                if (old_disc != config.get("disc_enabled", True)
-                        or old_disc_id  != config.get("disc_id")
-                        or old_disc_sec != config.get("disc_secret")):
-                    restart_discord_ipc()
-
-                if (old_wx_api  != config.get("weather_api")
-                        or old_wx_city != config.get("weather_city")):
-                    if weather_update_event is not None:
-                        weather_update_event.set()
-
-            # ── actions ────────────────────────────────────────────────────────
-            elif mtype == "action":
-                await _handle_action(ws, data)
-
-            # ── volume ─────────────────────────────────────────────────────────
-            elif mtype == "set_volume":
-                target = ("@DEFAULT_AUDIO_SINK@" if data["type"] == "speaker"
-                          else "@DEFAULT_AUDIO_SOURCE@")
-                await asyncio.to_thread(AudioSystem.set_vol, target, data["val"])
-
-            # ── soundboard volume ───────────────────────────────────────────────
-            elif mtype == "set_sb_volume":
-                vol = max(0, min(200, int(data.get("val", 100))))
-                with CONFIG_LOCK:
-                    config["soundboard_volume"] = vol
-                await asyncio.to_thread(save_config)
-                if get_os_target() == "linux":
-                    await asyncio.to_thread(
-                        subprocess.run,
-                        ["pactl", "set-sink-volume", "Dashboard-Soundboard", f"{vol}%"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    )
-
-            # ── soundboard feedback toggle ──────────────────────────────────────
-            elif mtype == "toggle_sb_feedback":
-                if get_os_target() == "linux":
-                    with CONFIG_LOCK:
-                        current = config.get("soundboard_feedback", True)
-                        new_val = not current
-                        config["soundboard_feedback"] = new_val
-                    await asyncio.to_thread(save_config)
-                    
-                    def _toggle_feedback(enable: bool):
-                        try:
-                            mods_out = subprocess.check_output(["pactl", "list", "short", "modules"]).decode()
-                            if enable:
-                                if "source=Dashboard-Soundboard.monitor" not in mods_out:
-                                    real_sink = subprocess.check_output(["pactl", "get-default-sink"]).decode().strip()
-                                    subprocess.run(["pactl", "load-module", "module-loopback",
-                                                    "source=Dashboard-Soundboard.monitor",
-                                                    f"sink={real_sink}",
-                                                    "sink_dont_move=1",
-                                                    "source_dont_move=1"], check=True)
-                            else:
-                                for line in mods_out.splitlines():
-                                    if "source=Dashboard-Soundboard.monitor" in line and "module-loopback" in line:
-                                        mod_id = line.split()[0]
-                                        subprocess.run(["pactl", "unload-module", mod_id], check=True)
-                        except Exception as e:
-                            logger.error(f"Failed to toggle soundboard feedback: {e}")
-                    
-                    await asyncio.to_thread(_toggle_feedback, new_val)
-                    # Send a targeted update instead of a full config_sync to avoid UI resets
-                    await ws_manager.broadcast({"type": "sb_feedback_state", "data": new_val})
-
-            # ── theme ──────────────────────────────────────────────────────────
-            # Targeted message rather than config_sync: a full sync would reset
-            # fields another client is still editing in its settings modal.
-            elif mtype == "set_theme":
-                payload  = data if isinstance(data, dict) else {}
-                theme_id = str(payload.get("id", ""))
-                ground   = str(payload.get("ground", ""))
-                if THEME_ID_RE.fullmatch(theme_id):
-                    with CONFIG_LOCK:
-                        config["theme"] = theme_id
-                        if HEX_COLOUR_RE.fullmatch(ground):
-                            config["theme_ground"] = ground
-                    await asyncio.to_thread(save_config)
-                    await ws_manager.broadcast({"type": "theme_state", "data": theme_id})
-
-            # ── speedtest ──────────────────────────────────────────────────────
-            elif mtype == "run_speedtest":
-                asyncio.create_task(_run_speedtest())
-
+        await ws.accept()
+        client = await _authenticate(ws, ip, origin)
+    finally:
+        pending_sockets.release(ip)
+    if client is None:
+        return
+    try:
+        # auth_ok goes out before the client joins the broadcasts, so it is always first.
+        await ws.send_text(_dumps({"type": "auth_ok", "data": {
+            "role": client.role, "device_id": client.device_id, "name": client.name}}))
+        ws_manager.add(client)
+        await _send_initial_state(client)
+        # Until the client hangs up, or a handler closed it (unpair_self).
+        while ws.application_state == WebSocketState.CONNECTED:
+            msg = _parse_message(await ws.receive_text())
+            if msg is None:
+                await _send(ws, _refused("", "malformed"))
+                continue
+            await _dispatch(client, msg)
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
-        ws_manager.disconnect(ws)
+        ws_manager.remove(client)
+        if client.device_id:
+            await _device_seen(client.device_id)
+
+
+async def _authenticate(ws: WebSocket, ip: str, origin: str | None) -> Client | None:
+    """The first message decides the role; anything else closes the socket."""
+    try:
+        raw = await asyncio.wait_for(ws.receive_text(), AUTH_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        logger.info("WebSocket from %s sent no auth within %.0f s", ip, AUTH_TIMEOUT_S)
+        await _send(ws, _legacy_update_notice())
+        await _close(ws, WS_CLOSE_POLICY, "auth required")
+        return None
+    except WebSocketDisconnect:
+        return None
+    except KeyError:   # a binary frame
+        await _close(ws, WS_CLOSE_POLICY, "auth required")
+        return None
+
+    msg = _parse_message(raw) or {}
+    if msg.get("type") == "auth":
+        if security.is_loopback(ip) and origin_policy.is_admin_origin(origin):
+            return Client(ws, "admin", ip)
+        device = paired_devices.verify(msg.get("token"))
+        if device is None:
+            logger.warning("WebSocket from %s refused: no valid pairing token", ip)
+            await _close(ws, WS_CLOSE_UNAUTHORIZED, "pairing required")
+            return None
+        return Client(ws, "device", ip, device["id"], device["name"])
+    if msg.get("type") == "pair_request":
+        return await _pair(ws, ip, msg.get("device_name"))
+    await _close(ws, WS_CLOSE_POLICY, "auth required")
+    return None
+
+
+async def _pair(ws: WebSocket, ip: str, device_name) -> Client | None:
+    """Hold the socket until the PC user allows or denies it, or it expires."""
+    try:
+        req = pairing.open(ip, device_name)
+    except security.PairingRefused as refused:
+        logger.warning("Pairing request from %s refused: %s", ip, refused.reason)
+        await _send(ws, {"type": "pair_result", "data": {"status": refused.reason}})
+        await _close(ws, WS_CLOSE_POLICY, refused.reason)
+        return None
+
+    logger.info("Pairing request %s from %s (%r)", req.id, ip, req.name)
+    status = "expired"
+    try:
+        await _send(ws, {"type": "pair_code", "data": {
+            "code": req.code, "expires_in": int(req.remaining(pairing.clock()))}})
+        await ws_manager.broadcast(_pair_pending_msg(req), admin_only=True)
+        # A window hidden in the tray must come forward, or nobody sees the prompt.
+        await asyncio.to_thread(_desktop_module.wakeup)
+        status = await _await_pair_decision(ws, req)
+    finally:
+        pairing.close(req)
+        await ws_manager.broadcast({"type": "pair_resolved", "data": {"id": req.id, "status": status}},
+                                   admin_only=True)
+    logger.info("Pairing request %s: %s", req.id, status)
+
+    if status == "approved":
+        try:
+            device, token = await asyncio.to_thread(paired_devices.add, req.name)
+        except OSError as e:
+            logger.error("Could not save the paired device: %s", e)
+            status = "error"
+        else:
+            if await _send(ws, {"type": "pair_result", "data": {
+                    "status": "approved", "token": token, "device_id": device["id"], "name": device["name"]}}):
+                await _broadcast_devices()
+                return Client(ws, "device", ip, device["id"], device["name"])
+            # It hung up before receiving its token: nothing can ever use this entry.
+            await asyncio.to_thread(paired_devices.revoke, device["id"])
+            return None
+    if status != "cancelled":
+        await _send(ws, {"type": "pair_result", "data": {"status": status}})
+    await _close(ws, WS_CLOSE_POLICY, status)
+    return None
+
+
+async def _await_pair_decision(ws: WebSocket, req: security.PendingPair) -> str:
+    """'approved' or 'denied' from the PC, 'expired', or 'cancelled' when the
+    client hangs up or sends anything (pair_cancel) while it waits."""
+    listener = asyncio.ensure_future(ws.receive())
+    try:
+        done, _ = await asyncio.wait({req.decision, listener}, timeout=req.remaining(pairing.clock()),
+                                     return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        if not listener.done():
+            listener.cancel()
+            await asyncio.wait({listener})
+    if listener in done:
+        listener.exception()   # retrieved: a closed socket here just means "cancelled"
+        return "cancelled"
+    if req.decision in done:
+        return "approved" if req.decision.result() else "denied"
+    return "expired"
+
+
+async def _send_initial_state(client: Client) -> None:
+    hw = await asyncio.to_thread(AudioSystem.get_hardware_sinks, config.get("audio_names", {}))
+    syncs = await _config_sync_by_role(_initial_disc(), sinks=hw)
+    await client.ws.send_text(_dumps(syncs[client.role]))
+
+    if last_weather_data.get("temp") != "--":
+        await client.ws.send_text(_dumps({"type": "weather_data", "data": last_weather_data}))
+
+    if client.is_admin:
+        await client.ws.send_text(_dumps(_devices_msg()))
+        for req in pairing.pending():
+            await client.ws.send_text(_dumps(_pair_pending_msg(req)))
+    else:
+        await _device_seen(client.device_id)
+
+
+async def _device_seen(device_id: str) -> None:
+    """Record last_seen and tell admins the device went on- or offline."""
+    try:
+        await asyncio.to_thread(paired_devices.touch, device_id)
+    except OSError as e:
+        logger.warning("Could not update last_seen for device %s: %s", device_id, e)
+    await _broadcast_devices()
+
+
+# ── dispatch ──────────────────────────────────────────────────────────────────
+
+def _action_key(msg: dict) -> str:
+    """The message type, or 'action:<name>' for an action message."""
+    if msg["type"] == "action":
+        name = msg.get("data")
+        return f"action:{name}" if isinstance(name, str) else "action:"
+    return msg["type"]
+
+
+def _refusal(client: Client, key: str) -> str | None:
+    if key not in KNOWN_ACTIONS:
+        return "unknown"
+    if key in ADMIN_ACTIONS and not client.is_admin:
+        return "admin_only"
+    if key in DEVICE_AV_ACTIONS and not client.is_admin and not config.get("device_av_controls", True):
+        return "disabled"
+    return None
+
+
+async def _dispatch(client: Client, msg: dict) -> None:
+    key = _action_key(msg)
+    reason = _refusal(client, key)
+    if reason:
+        logger.warning("Refused %r from %s (%s): %s", key[:64], client.ip, client.role, reason)
+        await _send(client.ws, _refused(key, reason))
+        return
+    try:
+        await WS_HANDLERS[msg["type"]](client, msg)
+    except (KeyError, TypeError, ValueError, AttributeError) as e:
+        logger.warning("Rejected %r from %s: %r", key, client.ip, e)
+        await _send(client.ws, _refused(key, "invalid"))
+
+
+# ── handlers: (client, msg); msg["data"] unless the protocol puts fields at the top ──
+
+async def _ws_req_local_sounds(client: Client, msg: dict) -> None:
+    sounds = await asyncio.to_thread(get_local_sounds)
+    await client.ws.send_text(_dumps({"type": "local_sounds_list", "data": sounds}))
+
+
+async def _ws_req_apps_list(client: Client, msg: dict) -> None:
+    apps = await asyncio.to_thread(AppEnumerator.get_apps)
+    await client.ws.send_text(_dumps({"type": "apps_list", "data": apps}))
+
+
+async def _ws_save_macros(client: Client, msg: dict) -> None:
+    if not isinstance(msg.get("data"), list):
+        raise TypeError("macros must be a list")
+    with CONFIG_LOCK:
+        config["macros"] = _with_ids(msg["data"], "id")
+    await asyncio.to_thread(save_config)
+    await broadcast_config_sync()
+
+
+def _lookup_id(msg: dict) -> str:
+    """The top-level "id" of run_macro / play_clip; a command or path never matches one."""
+    value = msg.get("id")
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = str(value)
+    if not (isinstance(value, str) and ITEM_ID_RE.fullmatch(value)):
+        raise ValueError(f"not an id: {str(value)[:64]!r}")
+    return value
+
+
+async def _ws_run_macro(client: Client, msg: dict) -> None:
+    macro_id = _lookup_id(msg)
+    macro = next((m for m in config.get("macros", [])
+                  if isinstance(m, dict) and m.get("id") == macro_id), None)
+    if macro is None:
+        raise ValueError(f"no macro {macro_id!r}")
+    await _run_macro(client, macro)
+
+
+async def _run_macro(client: Client, macro: dict) -> None:
+    """Run a configured macro: what it does comes from the config, never the client."""
+    m_type, action_data = macro.get("type"), macro.get("action_data")
+    if m_type == "app" and isinstance(action_data, str) and action_data.strip():
+        await asyncio.to_thread(AppEnumerator.launch_app, action_data)
+    elif m_type == "macro":
+        keys = action_data if isinstance(action_data, list) else [action_data]
+        keys = [k for k in keys if isinstance(k, (str, int)) and not isinstance(k, bool)]
+        await asyncio.to_thread(MacroSystem.send_keys, *keys)
+    elif m_type in ("premade", "plugin") and action_data in MACRO_MODULES:
+        await _handle_action(client.ws, action_data)
+    else:
+        raise ValueError(f"macro {macro.get('id')!r} has nothing to run")
+
+
+async def _ws_save_config(client: Client, msg: dict) -> None:
+    global global_sp_oauth
+    data = msg.get("data")
+    if not isinstance(data, dict):
+        raise TypeError("config must be an object")
+    old_disc  = config.get("disc_enabled", True)
+    old_disc_id, old_disc_sec = config.get("disc_id"), config.get("disc_secret")
+    old_wx_api, old_wx_city   = config.get("weather_api"), config.get("weather_city")
+    old_spot_id               = config.get("spot_id")
+
+    if "hidden_audio_devices" in data:
+        data["hidden_audio_devices"] = _clean_hidden_devices(data["hidden_audio_devices"])
+    for key, id_key in (("macros", "id"), ("local_buttons", "uid"), ("soundpad_buttons", "uid")):
+        if key in data:
+            data[key] = _with_ids(data[key], id_key)
+    if "device_av_controls" in data:
+        data["device_av_controls"] = data["device_av_controls"] is True
+    with CONFIG_LOCK:
+        config.update(data)
+    await asyncio.to_thread(save_config)
+
+    if old_spot_id != config.get("spot_id"):
+        global_sp_oauth = None
+
+    await broadcast_config_sync()
+
+    if (old_disc != config.get("disc_enabled", True)
+            or old_disc_id  != config.get("disc_id")
+            or old_disc_sec != config.get("disc_secret")):
+        restart_discord_ipc()
+
+    if (old_wx_api  != config.get("weather_api")
+            or old_wx_city != config.get("weather_city")):
+        if weather_update_event is not None:
+            weather_update_event.set()
+
+
+async def _ws_action(client: Client, msg: dict) -> None:
+    await _handle_action(client.ws, msg["data"])
+
+
+async def _ws_set_volume(client: Client, msg: dict) -> None:
+    data = msg["data"]
+    target = ("@DEFAULT_AUDIO_SINK@" if data["type"] == "speaker"
+              else "@DEFAULT_AUDIO_SOURCE@")
+    # Non-blocking (a dict write and an Event): no thread hop per drag step.
+    AudioSystem.set_vol(target, max(0, min(100, int(data["val"]))))
+
+
+async def _ws_disc_voice(client: Client, msg: dict) -> None:
+    # The state the user asked for, not a toggle.
+    data = msg.get("data")
+    if disc_ipc_instance and disc_ipc_instance.connected and isinstance(data, dict):
+        disc_ipc_instance.set_voice(
+            mute=bool(data["mute"]) if "mute" in data else None,
+            deaf=bool(data["deaf"]) if "deaf" in data else None,
+        )
+
+
+async def _ws_set_sb_volume(client: Client, msg: dict) -> None:
+    vol = max(0, min(200, int(msg["data"].get("val", 100))))
+    with CONFIG_LOCK:
+        config["soundboard_volume"] = vol
+    await asyncio.to_thread(save_config)
+    if get_os_target() == "linux":
+        await asyncio.to_thread(
+            subprocess.run,
+            ["pactl", "set-sink-volume", "Dashboard-Soundboard", f"{vol}%"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+
+def _toggle_feedback(enable: bool):
+    try:
+        mods_out = subprocess.check_output(["pactl", "list", "short", "modules"]).decode()
+        if enable:
+            if "source=Dashboard-Soundboard.monitor" not in mods_out:
+                real_sink = subprocess.check_output(["pactl", "get-default-sink"]).decode().strip()
+                subprocess.run(["pactl", "load-module", "module-loopback",
+                                "source=Dashboard-Soundboard.monitor",
+                                f"sink={real_sink}",
+                                "sink_dont_move=1",
+                                "source_dont_move=1"], check=True)
+        else:
+            for line in mods_out.splitlines():
+                if "source=Dashboard-Soundboard.monitor" in line and "module-loopback" in line:
+                    mod_id = line.split()[0]
+                    subprocess.run(["pactl", "unload-module", mod_id], check=True)
+    except Exception as e:
+        logger.error(f"Failed to toggle soundboard feedback: {e}")
+
+
+async def _ws_toggle_sb_feedback(client: Client, msg: dict) -> None:
+    if get_os_target() != "linux":
+        return
+    with CONFIG_LOCK:
+        new_val = not config.get("soundboard_feedback", True)
+        config["soundboard_feedback"] = new_val
+    await asyncio.to_thread(save_config)
+    await asyncio.to_thread(_toggle_feedback, new_val)
+    # Send a targeted update instead of a full config_sync to avoid UI resets
+    await ws_manager.broadcast({"type": "sb_feedback_state", "data": new_val})
+
+
+async def _ws_set_theme(client: Client, msg: dict) -> None:
+    # Targeted message rather than config_sync: a full sync would reset
+    # fields another client is still editing in its settings modal.
+    payload  = msg.get("data") if isinstance(msg.get("data"), dict) else {}
+    theme_id = str(payload.get("id", ""))
+    ground   = str(payload.get("ground", ""))
+    if THEME_ID_RE.fullmatch(theme_id):
+        with CONFIG_LOCK:
+            config["theme"] = theme_id
+            if HEX_COLOUR_RE.fullmatch(ground):
+                config["theme_ground"] = ground
+        await asyncio.to_thread(save_config)
+        await ws_manager.broadcast({"type": "theme_state", "data": theme_id})
+
+
+async def _ws_run_speedtest(client: Client, msg: dict) -> None:
+    asyncio.create_task(_run_speedtest())
+
+
+async def _ws_play_clip(client: Client, msg: dict) -> None:
+    clip_id = _lookup_id(msg)
+    source = _clip_source(config)
+    pads = config.get("local_buttons" if source == "local" else "soundpad_buttons", [])
+    pad = next((p for p in pads if isinstance(p, dict) and p.get("uid") == clip_id), None)
+    if pad is None:
+        raise ValueError(f"no clip {clip_id!r}")
+    await _play_clip(pad, source)
+
+
+async def _ws_check_update(client: Client, msg: dict) -> None:
+    await client.ws.send_text(_dumps({"type": "update_check", "data": await check_for_updates()}))
+
+
+async def _ws_run_update(client: Client, msg: dict) -> None:
+    if not (update_available and RELEASE_TAG_RE.fullmatch(latest_version)):
+        await _send(client.ws, _refused("run_update", "no_update"))
+    elif not _start_update(latest_version):
+        await _send(client.ws, _refused("run_update", "busy"))
+
+
+async def _ws_pair_decision(client: Client, msg: dict) -> None:
+    data = msg["data"]
+    if not pairing.decide(data["id"], data.get("allow") is True):
+        await _send(client.ws, _refused("pair_decision", "expired"))
+
+
+async def _ws_rename_device(client: Client, msg: dict) -> None:
+    device_id, name = msg["data"]["id"], msg["data"]["name"]
+    if not (isinstance(device_id, str) and isinstance(name, str)):
+        raise TypeError("id and name must be strings")
+    if not await asyncio.to_thread(paired_devices.rename, device_id, name):
+        raise ValueError("unknown device")
+    for c in ws_manager.device_clients(device_id):
+        c.name = security.clean_device_name(name)
+    await _broadcast_devices()
+
+
+async def _ws_revoke_device(client: Client, msg: dict) -> None:
+    device_id = msg["data"]["id"]
+    if not isinstance(device_id, str):
+        raise TypeError("id must be a string")
+    await _revoke_device(device_id, WS_CLOSE_UNAUTHORIZED, "revoked")
+
+
+async def _ws_unpair_self(client: Client, msg: dict) -> None:
+    """"Forget this PC" on the tablet: its token stops working here too."""
+    if not client.device_id:
+        raise ValueError("not a paired device")
+    await _revoke_device(client.device_id, 1000, "forgotten")
+
+
+async def _revoke_device(device_id: str, code: int, reason: str) -> None:
+    """Delete the device's entry, then close every socket it has open."""
+    if not await asyncio.to_thread(paired_devices.revoke, device_id):
+        raise ValueError("unknown device")
+    logger.info("Paired device %s removed (%s)", device_id, reason)
+    for c in ws_manager.device_clients(device_id):
+        ws_manager.remove(c)
+        await _close(c.ws, code, reason)
+    await _broadcast_devices()
+
+
+WS_HANDLERS = {
+    "req_local_sounds":   _ws_req_local_sounds,
+    "req_apps_list":      _ws_req_apps_list,
+    "save_macros":        _ws_save_macros,
+    "run_macro":          _ws_run_macro,
+    "save_config":        _ws_save_config,
+    "action":             _ws_action,
+    "set_volume":         _ws_set_volume,
+    "disc_voice":         _ws_disc_voice,
+    "set_sb_volume":      _ws_set_sb_volume,
+    "toggle_sb_feedback": _ws_toggle_sb_feedback,
+    "set_theme":          _ws_set_theme,
+    "run_speedtest":      _ws_run_speedtest,
+    "play_clip":          _ws_play_clip,
+    "check_update":       _ws_check_update,
+    "run_update":         _ws_run_update,
+    "pair_decision":      _ws_pair_decision,
+    "rename_device":      _ws_rename_device,
+    "revoke_device":      _ws_revoke_device,
+    "unpair_self":        _ws_unpair_self,
+}
+
+# Names a client may send as {"type": "action", "data": <name>}. Launchers
+# (app_term, app_clip, ...) are not here: they run only as a configured macro.
+CLIENT_ACTIONS = (
+    "sys_power_off", "stop_local_audio",
+    "spot_play", "spot_next", "spot_prev", "spot_clear_auth",
+    "disc_auth", "disc_clear_auth", "disc_mute", "disc_deaf", "disc_disconnect", "disc_cam", "disc_screen",
+    "audio_cycle", "audio_mute_spk", "audio_mute_mic",
+)
+KNOWN_ACTIONS = frozenset(WS_HANDLERS.keys() - {"action"}) | {f"action:{a}" for a in CLIENT_ACTIONS}
+
+# Settings, macros and pads, pairing, updates: the PC only.
+ADMIN_ACTIONS = frozenset({
+    "save_config", "save_macros", "set_theme", "req_local_sounds", "req_apps_list",
+    "check_update", "run_update", "pair_decision", "rename_device", "revoke_device",
+    "action:spot_clear_auth", "action:disc_auth", "action:disc_clear_auth",
+})
+# Paired devices may use these only while device_av_controls is on.
+DEVICE_AV_ACTIONS = frozenset({"action:disc_cam", "action:disc_screen"})
 
 
 
@@ -1713,6 +2482,47 @@ async def _run_speedtest():
                                          "data": {"down": "ERR", "up": "ERR"}})
 
 
+SOUNDPAD_INDEX_RE = re.compile(r"[0-9]{1,6}")
+
+
+async def _play_clip(pad: dict, source: str) -> None:
+    """Play a configured soundboard pad, resolved here from the config.
+
+    A local file must resolve inside the sounds folder; a Soundpad index must
+    be a number, because Soundpad parses its -rc argument as a command.
+    """
+    if source == "local":
+        filepath = await asyncio.to_thread(resolve_sound_path, str(pad.get("id", "")))
+        if not filepath:
+            raise ValueError("clip is missing or outside the sounds folder")
+        play_path = await asyncio.to_thread(get_normalized_sound_path, filepath)
+        await asyncio.to_thread(AudioSystem.play_local_sound, play_path)
+        # Immediately wire monitor ports into capture consumers.
+        # pw-play needs ~0.3 s to register its ports in the PipeWire graph
+        # before pw-link can see them, so we delay the trigger slightly.
+        if get_os_target() == "linux" and sb_route_event is not None:
+            async def _delayed_route():
+                await asyncio.sleep(0.3)
+                sb_route_event.set()
+            asyncio.create_task(_delayed_route(), name="sb_route_trigger")
+        return
+
+    index = str(pad.get("id", ""))
+    if not SOUNDPAD_INDEX_RE.fullmatch(index):
+        raise ValueError("Soundpad index must be a number")
+    if sys.platform.startswith("win"):
+        for sp_path in (
+            r"C:\Program Files\Soundpad\Soundpad.exe",
+            r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe",
+        ):
+            if os.path.exists(sp_path):
+                await asyncio.to_thread(
+                    subprocess.run, [sp_path, "-rc", f"DoPlaySound({int(index)})"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                break
+
+
 async def _handle_action(ws: WebSocket, action: str):
     """Dispatch an 'action' message from the WebSocket client."""
     global force_media_update, current_media_source
@@ -1743,23 +2553,6 @@ async def _handle_action(ws: WebSocket, action: str):
                     logger.warning(f"Unsupported DE for shutdown prompt: {desktop}")
             except Exception as e:
                 logger.error(f"Failed to show Linux shutdown prompt: {e}")
-        return
-
-    # ── local soundboard ──────────────────────────────────────────────────────
-    if action.startswith("local_play_"):
-        filename = action.removeprefix("local_play_")
-        filepath = resolve_sound_path(filename)
-        if filepath:
-            play_path = get_normalized_sound_path(filepath)
-            await asyncio.to_thread(AudioSystem.play_local_sound, play_path)
-            # Immediately wire monitor ports into capture consumers.
-            # pw-play needs ~0.3 s to register its ports in the PipeWire graph
-            # before pw-link can see them, so we delay the trigger slightly.
-            if get_os_target() == "linux" and sb_route_event is not None:
-                async def _delayed_route():
-                    await asyncio.sleep(0.3)
-                    sb_route_event.set()
-                asyncio.create_task(_delayed_route(), name="sb_route_trigger")
         return
 
     if action == "stop_local_audio":
@@ -1838,22 +2631,6 @@ async def _handle_action(ws: WebSocket, action: str):
             force_media_update = True
         return
 
-    # ── Soundpad (Windows) ────────────────────────────────────────────────────
-    if action.startswith("sp_play_"):
-        sp_id = action.split("sp_play_")[1]
-        if sys.platform.startswith("win"):
-            for sp_path in (
-                r"C:\Program Files\Soundpad\Soundpad.exe",
-                r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe",
-            ):
-                if os.path.exists(sp_path):
-                    await asyncio.to_thread(
-                        subprocess.run, [sp_path, "-rc", f"DoPlaySound({sp_id})"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    break
-        return
-
     # ── Discord ────────────────────────────────────────────────────────────────
     if action == "disc_clear_auth":
         with CONFIG_LOCK:
@@ -1863,7 +2640,7 @@ async def _handle_action(ws: WebSocket, action: str):
         return
 
     if action == "disc_auth":
-        auth_url = disc_ipc_instance.get_auth_url() if disc_ipc_instance else ""
+        auth_url = _discord_auth_url() if disc_ipc_instance else ""
         if disc_ipc_instance and disc_ipc_instance.connected:
             # Standard Discord (and Vesktop): trigger native in-app consent popup via IPC.
             disc_ipc_instance.send(1, {
@@ -1890,14 +2667,18 @@ async def _handle_action(ws: WebSocket, action: str):
 
     if action == "disc_mute":
         if disc_ipc_instance and disc_ipc_instance.connected:
-            current_mute = getattr(disc_ipc_instance, 'voice_state', {}).get('mute', False)
-            disc_ipc_instance.send(1, {"cmd": "SET_VOICE_SETTINGS", "args": {"mute": not current_mute}, "nonce": "MUTE"})
+            # Flip the local copy too: a second tap before Discord answers must
+            # toggle back, not resend the same state (older clients only toggle).
+            vs = disc_ipc_instance.voice_state
+            vs["mute"] = not vs.get("mute", False)
+            disc_ipc_instance.send(1, {"cmd": "SET_VOICE_SETTINGS", "args": {"mute": vs["mute"]}, "nonce": "MUTE"})
         return
 
     if action == "disc_deaf":
         if disc_ipc_instance and disc_ipc_instance.connected:
-            current_deaf = getattr(disc_ipc_instance, 'voice_state', {}).get('deaf', False)
-            disc_ipc_instance.send(1, {"cmd": "SET_VOICE_SETTINGS", "args": {"deaf": not current_deaf}, "nonce": "DEAF"})
+            vs = disc_ipc_instance.voice_state
+            vs["deaf"] = not vs.get("deaf", False)
+            disc_ipc_instance.send(1, {"cmd": "SET_VOICE_SETTINGS", "args": {"deaf": vs["deaf"]}, "nonce": "DEAF"})
         return
 
     if action == "disc_disconnect":
@@ -1947,7 +2728,8 @@ async def _handle_action(ws: WebSocket, action: str):
 
     # ── audio ─────────────────────────────────────────────────────────────────
     if action == "audio_cycle":
-        await asyncio.to_thread(AudioSystem.cycle_device, config.get("audio_names", {}))
+        await asyncio.to_thread(AudioSystem.cycle_device, config.get("audio_names", {}),
+                                config.get("hidden_audio_devices", []))
         return
 
     if action == "audio_mute_spk":
@@ -2090,11 +2872,15 @@ def stop_fastapi_server():
 
 def run_fastapi_server(host="0.0.0.0", port=8888, reload=False):
     global uvicorn_server
+    # The Host / Origin allowlists name this port; --reload's child reads it from the environment.
+    os.environ["TD_PORT"] = str(port)
+    origin_policy.port = port
     if reload:
-        uvicorn.run("server:_app", host=host, port=port, reload=True,
+        uvicorn.run("server:_app", host=host, port=port, reload=True, ws_max_size=WS_MAX_MESSAGE_BYTES,
                     reload_dirs=[BASE_DIR, os.path.join(RESOURCE_DIR, "templates")])
     else:
-        cfg = uvicorn.Config(_app, host=host, port=port, log_level="warning")
+        cfg = uvicorn.Config(_app, host=host, port=port, log_level="warning",
+                             ws_max_size=WS_MAX_MESSAGE_BYTES)
         uvicorn_server = uvicorn.Server(cfg)
         uvicorn_server.run()
 
@@ -2113,6 +2899,14 @@ def launch_desktop(host: str = "0.0.0.0", port: int = 8888) -> None:
         app_user_model_id=WINDOWS_APP_USER_MODEL_ID,
         background_color=_theme_ground(),
     )
+
+
+def _clean_hidden_devices(value) -> list[str]:
+    """hidden_audio_devices from a client: distinct raw sink names, bounded."""
+    if not isinstance(value, list):
+        return []
+    names = [v for v in value if isinstance(v, str) and 0 < len(v) <= 256]
+    return list(dict.fromkeys(names))[:64]
 
 
 def _theme_ground() -> str:
