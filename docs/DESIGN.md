@@ -38,7 +38,9 @@ One light, above the console. Every rule below follows from it, and nothing may 
 
 1. **Raised things are lit on their top edge** (`--rim`, an inset 1px highlight) **and cast a shadow below** (`--depth`). Modules use `--elev-1`, keys `--elev-2`, caps and knobs `--elev-cap`.
 2. **Keys have thickness**: a darker lip on the bottom edge (`--edge`). Pressing a key sinks it: the lip turns into an inner shadow (`--elev-press`) and the key drops 0.12rem.
-3. **Recessed things are shaded from the top** and catch light on their bottom edge (`--well-inset`). Every display, slot and scribble strip is a well (`--well`), darker than the plate it sits in, in every theme including Daylight.
+3. **Recessed things are shaded from the top** and catch light on their bottom edge (`--well-inset`). There are two kinds:
+   - **Wells** (`--well`): recessed containers such as key screens, the voice list, load tiles, fader slots and chips. A well is one gentle step from its plate: dark on dark consoles, light grey on Daylight.
+   - **Displays** (`--display`): small readouts, namely the fader values, the output device, the speed test and the battery. They are dark LCD windows on the dark consoles; Daylight keeps them light, the same soft grey as its wells, so nothing on it is darker than text. A readout gets the display palette through one CSS rule that remaps `--well*` to `--display*` inside it, so a theme can give its readouts their own look.
 4. **Gradients only model light on an object**: a module plate (`--surface-top` → `--surface`), a keycap (`--key-top` → `--surface-2`), a fader cap or knob (`--cap-hi` → `--cap` → `--cap-lo`). Never a decorative colour-to-colour gradient, never on text.
 5. **Glow only comes from something that is lit**: an LED, a lit fader slot, a lit key, the cover's colour. A glow never decorates a resting object.
 6. **No glass.** No `backdrop-filter`: it is meaningless over a dark plate and ruinous on the desktop window (§8).
@@ -48,10 +50,11 @@ One light, above the console. Every rule below follows from it, and nothing may 
 1. **Colour belongs to data, state and light.** Plates, keys and text are neutral. One accent per theme carries the levels; status hues carry meaning (red muted, green live/speaking, amber attention); the cover's colour carries the music.
 2. **Displays hold the numbers.** Values that change live (levels, battery, load, device names) sit in recessed display windows in tabular figures. Static labels sit on the plate.
 3. **Sentence case.** "Now playing", "Output device", "Save & apply". Proper names keep their capitals ("Command Center").
-4. **Honest data.** Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
-5. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted"; Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
-6. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
-7. **Touch first.** Targets of at least 44 CSS px on a tablet; hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps.
+4. **Value balance.** Large neighbouring surfaces stay within about 1.5:1 of each other; the extreme values belong to text and small details. On a light theme, near-black is for text and icons only, never containers or readouts (Daylight: under 1 % of the screen).
+5. **Honest data.** Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
+6. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted"; Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
+7. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
+8. **Touch first.** Targets of at least 44 CSS px on a tablet; hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps.
 
 ## 4. What machine-made looks like, and what replaces it
 
@@ -66,6 +69,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Tiny uppercase letter-spaced labels | Sentence-case labels at a readable size; live values in display windows |
 | A static accent colour everywhere | Theme accent on levels; the cover's colour on the media and the room |
 | Percentage bars for load | A live trace of the real last minute |
+| Big dark blocks dropped onto a light theme | Soft grey recesses; dark only for text and icons |
 | Linear 200 ms transitions everywhere | Springs with a measured overshoot (§7) |
 | Spinners, pulsing decoration, particles | A ring pulses only around someone who is speaking |
 | `outline: none` on everything | A visible `:focus-visible` ring in `--focus` |
@@ -84,7 +88,8 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `line`, `line-strong` | Faint dividers; field borders, scale ticks, dashed slots | — |
 | `panel-line`, `key-line` | Outlines, drawn only when the width token is > 0 | — |
 | `text`, `text-2`, `text-3` | Ink on plates and keys | 7 / 4.5 / 4.5 :1 |
-| `well`, `well-ink`, `well-ink-2`, `well-accent` | Display windows: background, figures, labels, lit values | 7 / 4.5 / 4.5 :1 on `well` |
+| `well`, `well-ink`, `well-ink-2`, `well-accent` | Recessed containers: background, text, labels, lit values | 7 / 4.5 / 4.5 :1 on `well`; accent, status hues 3:1 |
+| `display`, `display-ink`, `display-ink-2`, `display-accent` | Small readouts (dark LCD windows on dark consoles, light on Daylight) | 7 / 4.5 / 4.5 :1 on `display`; status hues 3:1 |
 | `accent` | Fader light, encoder LEDs, progress, brand mark | 3:1 on surfaces and wells (graphic) |
 | `accent-text`, `accent-ink` | Accent as text; ink on an accent fill | 4.5:1 |
 | `inverse`, `inverse-ink` | Primary pill actions, weekday pill | 4.5:1 |
@@ -165,7 +170,7 @@ Always, on both tiers:
 | Preset | Why it exists |
 |---|---|
 | **Graphite** (default) | True-black hardware for OLED and night use; brand cyan on the levels. |
-| **Daylight** | A satin-white console with dark displays and silver caps, for a bright room. |
+| **Daylight** | A satin-white console with soft grey recesses and silver caps, all light, for a bright room. |
 | **Ember** | Warm walnut-black and amber: low blue light late at night. |
 | **Phosphor** | Monitor green with monospaced figures. |
 | **High contrast** | Pure black and white, outlined plates and keys, no cover tint or backdrop, heavier weights. |

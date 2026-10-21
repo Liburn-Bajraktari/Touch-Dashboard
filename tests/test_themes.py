@@ -46,12 +46,22 @@ CONTRAST_PAIRS = [
     ("text", "surface-top", 7.0),
     ("text", "key-top", 7.0),
     ("text-2", "key-top", 4.5),
-    # Display wells (scribble strips, key screens, fader slots).
+    # Wells: recessed containers (key screens, voice list, load tiles, fader slots).
     ("well-ink", "well", 7.0),
     ("well-ink-2", "well", 4.5),
     ("well-accent", "well", 4.5),
     ("accent", "well", 3.0),
     ("negative", "well", 3.0),
+    ("negative-text", "well", 4.5),
+    ("positive", "well", 3.0),
+    ("warning", "well", 3.0),
+    # Displays: small readouts (fader values, device name, speed test, battery).
+    ("display-ink", "display", 7.0),
+    ("display-ink-2", "display", 4.5),
+    ("display-accent", "display", 4.5),
+    ("positive", "display", 3.0),
+    ("warning", "display", 3.0),
+    ("negative", "display", 3.0),
     # The fader cap's index line must read against the cap.
     ("cap-index", "cap", 3.0),
 ]

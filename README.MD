@@ -1,103 +1,223 @@
 # Touch Dashboard
 
+A touch control surface for your PC: an Android tablet (or any browser) becomes a desk console with studio faders, a now-playing deck, Discord voice controls, macro keys and a live system monitor. An open alternative to Stream Deck and Touch Portal, for Linux and Windows.
+
 ## Heads Up
 
 This project is a tablet-oriented macro pad and system dashboard, intended as an alternative to tools like Stream Deck or Touch Portal.
 
 The code itself is mostly AI-generated, but the logic is human-reviewed. It currently exists mainly to fit my own workflow and hardware setup. I do plan to make it more modular and generally useful over time, and contributions are welcome from anyone who wants to improve it.
 
-## How to Install
+![Touch Dashboard in the Graphite theme: now playing with cover-tinted controls, Discord voice channel, studio faders with an output encoder, macro keys and system monitor](docs/screenshots/dashboard-graphite.png)
 
-### Windows
+![The same dashboard in the Daylight theme: white console, dark displays and silver fader caps](docs/screenshots/dashboard-daylight.png)
 
-Touch Dashboard uses a modern PowerShell web installer to completely bypass Windows Smart App Control and ensure a clean, silent background installation.
-
-1. Open PowerShell and run the following command:
-   ```powershell
-   irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex
-   ```
-2. The installer will pop up a text-based menu. Press **1** to automatically download the app, setup Python, and create your shortcuts.
-3. Once it's done, you can launch Touch Dashboard directly from your desktop or Start Menu. It will run completely invisibly in the background.
-
-*(The installer script also features a Repair Mode, an Uninstaller, and an option to download the latest Android APK directly to your PC).*
-
-### Android
-
-1. Download the latest `app-release.apk` from the Releases page (or download it directly to your PC using option 4 in the Windows PowerShell installer).
-2. Transfer the file to your Android tablet or phone and install it. (You may need to allow "Install from Unknown Sources" in your Android security settings).
-
-## How to Set up Everything
-
-### 1. The Desktop App (Backend)
-Touch Dashboard operates on a Client/Server model. The backend server must be running on your main PC at all times in order to intercept hardware metrics and handle system controls.
-
-Launch the `Touch Dashboard` app from your Start Menu. It will quietly run in the background. You can find its icon in the System Tray (bottom right corner of your taskbar). Right-click the tray icon and look at the top of the menu to find your **Local IP Address**. You will need this for your tablet.
-
-### 2. Configuring Everything
-Once the backend is running on your PC, open a web browser on that same PC and navigate to `http://127.0.0.1:8888`. Double-click anywhere outside a button to open the **Settings Menu**.
-
-- **Spotify:** Create a Spotify Developer app. Enter your Client ID and Secret in the settings. Ensure the Redirect URI in the developer console is set exactly to `http://127.0.0.1:8888/callback`. You *must* perform the initial authentication from your host PC.
-- **Discord:** Create a Discord Developer Application. Enter the Client ID and Secret. Set the Redirect URI to `http://127.0.0.1:8888/disc_callback`. Discord must be running locally for IPC to work.
-- **Weather:** Enter an OpenWeatherMap API key and your city name.
-- **Audio Routing:** The dashboard automatically pulls your active audio devices. You can assign them short display names here so they look clean on the dashboard.
-- **Themes:** Pick a look (Graphite, Daylight, Ember, Phosphor, High contrast or Classic). It applies instantly to every connected screen. To add your own preset, see [docs/DESIGN.md](docs/DESIGN.md).
-- *Click "Save & Apply" after entering your settings to apply them instantly.*
-
-### 3. Connecting and Using the Android App
-1. Make sure your Android tablet/phone is connected to the same Wi-Fi network as your host PC.
-2. Open the Touch Dashboard app on Android.
-3. On first launch, it will ask for your desktop's IP address. (You found this earlier in the system tray menu).
-4. Enter the IP (e.g., `192.168.1.50`) and connect. The app will cache this IP so you don't have to enter it again!
-
-**Touch Controls:**
-- **Two-finger double tap:** Opens the Settings menu.
-- **Sliders:** Drag up/down to adjust volume. Tap the icon below them to instantly mute/unmute.
-- **Output Cycle:** Tap the active device button in the middle of the audio panel to cycle through your available speakers/headphones.
-
-## Extra Notes
-
-- **Native Windows Integrations:** The Windows backend deeply integrates with native COM, WASAPI (`pycaw`), and WinRT (`Windows.Media.Control`). It interacts asynchronously with the system audio and media layers to ensure 0% CPU overhead while idling. Threading is carefully managed to prevent COM garbage collection crashes.
-- **Mouse Battery (Linux):** Battery percentage and charging state are monitored via the `org.freedesktop.UPower` D-Bus interface — completely event-driven with **0% idle CPU**. The backend auto-discovers any `Type == 5` (Mouse) device on startup and via hotplug `DeviceAdded`/`DeviceRemoved` signals, so wired/wireless handoffs are handled seamlessly without hardcoded device paths. Requires the `upower` system package (`sudo pacman -S upower` on Arch; `sudo apt install upower` on Debian/Ubuntu). On Windows the old `/tmp/g502_battery.txt` file-read fallback is still supported. Prerequisites: `python-dbus` and `python-gobject` (already required by PyGObject on Linux).
-- **Hardcoded Macros:** The "Macros & Apps" buttons (Terminal, Browser, Task Manager) are currently hardcoded for specific Linux apps (e.g., `alacritty`, `brave`, `gnome-system-monitor`) or generic Windows equivalents. You will likely need to adjust these inside the source code if your setup differs.
-- **Android Architecture:** The Android application is entirely native Kotlin (utilizing `MainActivity.kt` and an Android `WebView`). Capacitor has been fully removed for improved performance.
-- **Security:** There is no authentication layer for the web dashboard itself. Please ensure you are running this exclusively on a trusted, private local network.
-- **Troubleshooting:** If the app misbehaves or crashes, check `server.log` (located in the application directory or `%APPDATA%\touch-dashboard` on Windows) for tracebacks.
+<p align="center"><sub>Graphite (the default) and Daylight, two of six themes. Rendered from the app with demo content; the play key and the light around the panels take their colour from the cover that is playing.</sub></p>
 
 ---
 
-## Running from Source (Linux & Developers)
+## Contents
 
-### Linux (Automated Installation)
+- [What it does](#what-it-does)
+- [How it works](#how-it-works)
+- [Install](#install)
+- [First-time setup](#first-time-setup)
+- [Using the dashboard](#using-the-dashboard)
+- [Updating](#updating)
+- [Troubleshooting](#troubleshooting)
+- [Platform notes](#platform-notes)
+- [For developers](#for-developers)
 
-Just like Windows, you can install the Linux backend and its dependencies using a one-liner:
+## What it does
+
+| Module | What you get |
+|---|---|
+| **Now playing** | Cover art, title, artist, playing app and track progress, with previous / play-pause / next. Works with Spotify (Web API) or any local player: MPRIS via `playerctl` on Linux, the system media controls on Windows. The cover's colour tints the play key, the progress bar and the light around the panels. |
+| **Audio mixer** | Two studio faders for speaker and microphone volume, each with a mute key, and a rotary encoder that switches the output device (one LED per device). |
+| **Discord** | Mute, deafen, camera and screen share, the current voice channel, who is in it and who is speaking, and a leave-call key. |
+| **Macros & apps** | Nine display keys: launch apps, send keyboard shortcuts, open the soundboard or trigger clip recording. |
+| **Soundboard** | Drum pads that play clips into your microphone (Linux, through PipeWire) or through Soundpad / a local folder (Windows). |
+| **System** | CPU, RAM and GPU load with a live trace of the last minute, mouse battery, a network speed test and a power-off key. |
+| **Clock & weather** | Time, date and current weather from OpenWeatherMap. |
+| **Lock screen** | When the PC locks, the tablet shows a large clock with the weather; it shifts slightly every minute to protect OLED screens. |
+| **Themes** | Graphite, Daylight, Ember, Phosphor, High contrast and Classic. A choice applies to every connected screen. |
+
+## How it works
+
+Touch Dashboard is client and server:
+
+- **The desktop app** runs on your PC. It reads audio, media, Discord, hardware and battery state, runs your macros, and serves the dashboard on port **8888** over HTTP and WebSocket. It opens a desktop window of the dashboard and lives in the system tray.
+- **The Android app** is a full-screen WebView with the dashboard built in. It connects to the PC over your local network.
+- **Any browser** on the PC or the network can open the dashboard at `http://<pc-ip>:8888` as well.
+
+The PC and the tablet must be on the same network. There is no login: run it on a trusted, private network only.
+
+## Install
+
+### Windows
+
+1. Open PowerShell and run:
+   ```powershell
+   irm https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/install.ps1 | iex
+   ```
+2. A text menu opens. Press **1** to download the app, set up Python and create the Start Menu and desktop shortcuts. The app installs to `%LOCALAPPDATA%\Touch-Dashboard`.
+3. Launch **Touch Dashboard** from the Start Menu. It opens the dashboard window and keeps running in the system tray when you close the window (you can turn that off in the window's menu).
+
+The installer also has a repair mode, an uninstaller, and an option (4) to download the latest Android APK to your PC. It uses a PowerShell web install so Windows Smart App Control does not block it.
+
+### Linux
+
+Run:
 
 ```bash
 bash -c "$(curl -fsSL https://codeberg.org/liburnb/Touch-Dashboard/raw/branch/main/scripts/setup.sh)" < /dev/tty
 ```
 
-This interactive script will automatically detect your distribution (Arch, Debian/Ubuntu, or Fedora), install the required dependencies (`python3`, `pipewire`, `playerctl`, etc.), and create a background Desktop shortcut!
+The script detects Arch, Debian/Ubuntu or Fedora, installs the system packages it needs (Python, PipeWire and WirePlumber, `playerctl`, `webkit2gtk-4.1`, `python-dbus`, `python-gobject`, `upower`), installs the app to `~/.local/share/Touch-Dashboard` and adds **Touch Dashboard** to your application menu. On other distributions it lists the packages to install yourself.
 
-### Manual Installation (Developers)
+### Android
 
-1. Clone the repository: `git clone https://codeberg.org/liburnb/Touch-Dashboard.git`
-2. Enter the directory: `cd Touch-Dashboard`
-3. Create a virtual environment and install dependencies:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
+1. Download the latest `TouchDashboard-vX.Y.Z.apk` from the [Releases](https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases) page, or with option 4 of the Windows installer.
+2. Copy it to your tablet or phone and install it. You may need to allow installing apps from unknown sources.
+
+## First-time setup
+
+### 1. Start the desktop app and find your IP
+
+Start **Touch Dashboard** on the PC. Its local IP address is shown at the top of the tray icon's menu (right-click it) and in the desktop window's title bar, for example `192.168.1.50`.
+
+### 2. Connect the tablet
+
+1. Open the Touch Dashboard app on the tablet.
+2. On first launch it asks for the PC's IP address. Enter it and tap **Connect**.
+3. The app remembers the address. The green light next to the title means the tablet is connected.
+
+### 3. Configure the integrations
+
+Settings are edited on the PC and apply to every connected screen:
+
+- **Desktop window:** open the menu button (top left) and choose **Settings**.
+- **Browser on the PC:** go to `http://127.0.0.1:8888` and double-click anywhere outside a button.
+
+Click **Save & apply** when you are done (themes apply as soon as you tap them).
+
+| Tab | What to set |
+|---|---|
+| **General** | Show or hide the mouse battery and the system monitor; turn the Spotify, Weather, Discord, Audio routing and Soundboard modules on or off. |
+| **Themes** | Pick one of six presets. Each card previews its theme. |
+| **Spotify** | Create an app in the [Spotify developer dashboard](https://developer.spotify.com/dashboard), set its Redirect URI to exactly `http://127.0.0.1:8888/callback`, enter the Client ID and Secret, then click **Connect Spotify**. Do this first sign-in on the PC itself. Without Spotify, local players are still shown. |
+| **Weather** | Enter a free [OpenWeatherMap](https://openweathermap.org/) API key and your city, spelled exactly as on its OpenWeather city page. |
+| **Discord** | Create an application in the [Discord developer portal](https://discord.com/developers/applications), set its Redirect URI to exactly `http://127.0.0.1:8888/disc_callback`, enter the Client ID and Secret, then click **Authorize Discord**. Discord must be running on the PC. Optional: show the voice channel and sort active speakers to the top. |
+| **Audio routing** | Give each output device a short name (up to 10 characters) for the output encoder's display. |
+| **Soundboard** | The absolute path of your sounds folder (`.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`), and optional volume normalisation to a target level (needs `ffmpeg`; 89 dB is the ReplayGain standard Soundpad uses). |
+
+#### Using Vesktop instead of Discord
+
+Vesktop has to have its local IPC server turned on:
+
+1. In Vesktop open **Settings**, scroll to the **Vencord** section and click **Open Settings Folder**.
+2. Open `settings.json` (or `settings/settings.json`) in a text editor and make sure both are `true`:
+   ```json
+   {
+     "discordIpc": true,
+     "arRPC": true
+   }
    ```
-4. **Linux specific:** Ensure you have the required PipeWire/WirePlumber tools installed on your system (`wpctl`, `pactl`, `pw-play`, `pw-link`, `playerctl`) as well as `webkit2gtk-4.1`.
-   *Arch Linux Users:* You can optionally build and install a local pacman package automatically:
-   ```bash
-   chmod +x scripts/build-arch-package.sh
-   ./scripts/build-arch-package.sh -si
-   ```
+3. Restart Vesktop.
 
-### Running the Backend
+If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot control voice. Use the official Discord app or Vencord for mute and deafen. When voice control is unavailable, the dashboard falls back to the keyboard shortcuts `Ctrl+Shift+M` (mute) and `Ctrl+Shift+D` (deafen).
 
-Run `python server.py`. It will start a local FastAPI backend on port `8888` and show a tray icon displaying your IP. 
+## Using the dashboard
 
-*Note for Linux Soundboard:* The soundboard feature creates a PipeWire null sink named `Dashboard-Soundboard`, plays sounds into it with `pw-play`, and attempts to route that audio into apps using the microphone. This is highly tailored to specific setups and requires absolute paths to local `.mp3` or `.wav` files.
+| To | Do this |
+|---|---|
+| Change volume | Drag a fader cap, or tap anywhere on its track to jump there. On Android tablets that allow it, you feel a tick every 10 %. |
+| Mute | Tap the key under a fader, or pull the fader below 0. |
+| Switch output device | Tap the encoder. The lit LED shows which device is active. |
+| Control playback | Previous, play/pause and next under the cover. |
+| Discord voice | Mute, deafen, camera and screen share keys; the red key next to the channel name leaves the call. |
+| Run a macro | Tap its key. |
+| Add or edit a macro | Tap **Add**, or press and hold a key for about half a second. A macro can launch an app, send a keyboard shortcut, run a pre-made action (terminal, browser, task manager) or a plugin (soundboard, clip recording). |
+| Use the soundboard | Tap the **Soundboard** key. Tap a pad to play it; press and hold to edit it; **Stop audio** stops playback. On Linux the bar at the top sets the soundboard volume and toggles hearing it yourself. |
+| Run a speed test | Tap the gauge at the top right. |
+| Turn off the PC | Tap the power key: it opens your desktop's shutdown prompt (KDE, GNOME, Xfce, Cinnamon, MATE or Windows). |
+| Go full screen (browser) | Double-tap an empty area. |
 
-*Note for Android Developers:* Ensure Java (JDK 17 or 21) and the Android SDK are installed. Run `./scripts/build-android.sh release` to automatically generate the native APK.
+## Updating
+
+- **Desktop app:** it checks for new releases on start and every 30 minutes, and shows an update prompt in the desktop window and in any browser showing the dashboard. **Update** downloads and installs it in the background, then restarts the app.
+- **Android app:** when the desktop app needs a newer Android app, the tablet shows a prompt with a download link to the new APK. Install it over the old one.
+
+## Troubleshooting
+
+- **The tablet cannot connect:** check that both are on the same network, that the IP is the one from the tray menu, and that your firewall allows incoming connections on port 8888.
+- **Spotify or Discord will not sign in:** the Redirect URI in their developer portal must match exactly (`http://127.0.0.1:8888/callback`, `http://127.0.0.1:8888/disc_callback`), and the sign-in must happen on the PC.
+- **Logs:** `~/.config/touch-dashboard/server.log` on Linux, `%APPDATA%\touch-dashboard\server.log` on Windows. A crash also writes `crash_<time>.txt` next to it, with an error code to quote when reporting it.
+- **Settings and data** live in the same folder (`config.json`, the Spotify token cache, sounds).
+
+## Platform notes
+
+- **Linux audio** uses PipeWire and WirePlumber (`wpctl`, `pactl`, `pw-play`, `pw-link`). The soundboard creates a virtual sink called `Dashboard-Soundboard`, plays clips into it and links it into the apps that use your microphone (Discord, OBS and so on). Routing like this depends on your setup and may need adjusting.
+- **Mouse battery** on Linux comes from UPower over D-Bus, event-driven, for any mouse UPower knows about (`upower` must be installed). On Windows it reads `%TEMP%\g502_battery.txt`, written by an external script.
+- **Windows** integrates with WASAPI (`pycaw`), COM for switching the default device, and WinRT for the media controls.
+- **App launchers** follow your desktop environment and the `$TERMINAL` / `$BROWSER` variables instead of fixed program names.
+- **The Android app** is a native WebView with the dashboard bundled in. A change to the dashboard reaches tablets with the next APK release.
+
+## For developers
+
+### Run from source
+
+```bash
+git clone https://codeberg.org/liburnb/Touch-Dashboard.git
+cd Touch-Dashboard
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+On Linux, also install the PipeWire tools (`wpctl`, `pactl`, `pw-play`, `pw-link`), `playerctl` and `webkit2gtk-4.1`.
+
+```bash
+python server.py                 # desktop window + tray
+python server.py --server-only   # headless server
+python server.py --reload        # restart on file changes
+python server.py --port 9999     # another port (the Android app always uses 8888)
+```
+
+Arch users can build and install a local pacman package with `./scripts/build-arch-package.sh -si`.
+
+### Tests
+
+```bash
+python -m pytest tests -v
+```
+
+The suite covers the HTTP and WebSocket API, media parsing, and every theme preset's completeness and contrast. The tests start the real server lifespan, which on Linux calls `pactl`. To keep a run off your live audio session, point `HOME` at a scratch folder and put stub `pactl`, `wpctl`, `pw-*` and `playerctl` scripts that exit 1 first on your `PATH`.
+
+### Project layout
+
+| Path | What it is |
+|---|---|
+| `server.py` | FastAPI app: WebSocket hub, HTTP routes, background polling, startup |
+| `desktop.py` | Desktop window (pywebview) and tray icon (pystray) |
+| `audio_system.py`, `media.py`, `discord_ipc.py`, `macro_system.py`, `mouse_battery.py`, `lock_monitor.py` | Platform integrations |
+| `templates/index.html` | The whole dashboard: markup, styles and script |
+| `static/themes.js` | Every design token and the six theme presets |
+| `docs/DESIGN.md` | The design system: light model, materials, components, motion and how to add a theme |
+| `scripts/` | Installers (`setup.sh`, `install.ps1`), `release.sh`, `build-arch-package.sh` |
+| `tests/` | The test suite |
+
+### Releasing
+
+```bash
+./scripts/release.sh v1.2.3          # desktop release
+./scripts/release.sh v1.2.3 --apk    # also rebuild the Android app
+```
+
+The script sets the version in `version.json`, commits everything in the working tree as `Release: <tag>`, tags and pushes, creates the GitHub release (mirrored to Codeberg for older installs). With `--apk` it repacks the newest `TouchDashboard-*.apk` in the repo root with the current `templates/` and `static/`, signs it, uploads it, and raises the required Android app version so older tablets are prompted to update. Signing a fresh Android build is covered in [docs/android-signing.md](docs/android-signing.md).
+
+### References
+
+- [docs/DESIGN.md](docs/DESIGN.md): design rules and tokens.
+- [docs/discord_documentation_links.md](docs/discord_documentation_links.md): Discord RPC and IPC documentation used by `discord_ipc.py`.
+- Contributions are welcome. Read `docs/DESIGN.md` before changing the interface; `tests/test_themes.py` fails on hard-coded colours.

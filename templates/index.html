@@ -232,6 +232,19 @@
             flex-shrink: 0;
         }
 
+        /* Readouts are small displays: they remap the well palette to the display
+           palette, so a light console can keep dark LCD readouts while its
+           recessed containers (key screens, lists, tiles) stay light. */
+        .scribble,
+        .speed-widget,
+        .batt-slide,
+        .sb-vol-row {
+            --well: var(--display);
+            --well-ink: var(--display-ink);
+            --well-ink-2: var(--display-ink-2);
+            --well-accent: var(--display-accent);
+        }
+
         /* A display window: recessed, darker than its plate. */
         .scribble {
             display: flex;
