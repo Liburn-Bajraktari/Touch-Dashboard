@@ -46,11 +46,17 @@ MAX_PENDING_PER_IP   = 4       # ... and from one address
 PAIRED_DEVICES_FILE  = "paired_devices.json"
 LOCAL_TOKEN_FILE     = "local_control.token"
 
-# The Android app loads its bundled page from file:///android_asset with file
-# access enabled, so Chromium sends "Origin: file://" (measured: without that
-# setting it would be "null"). WebViewAssetLoader pages send the appassets
-# origin. "null" is never accepted: sandboxed iframes on any site send it.
+# The Android app loads its bundled page from file:///android_asset, and its
+# WebView sends "Origin: null" (seen from a real tablet; desktop Chrome with
+# file access on sends "file://"). Sandboxed iframes on any website send
+# "null" too, so it is accepted only from another device on the LAN whose
+# browser is an Android WebView (see origin_allowed), and never means admin.
+# file:// and the WebViewAssetLoader origin are accepted as they are.
 APK_ORIGINS = frozenset({"file://", "https://appassets.androidplatform.net"})
+# Android System WebView's user agent: "... (Linux; Android 14; <model>; wv) ...".
+# The app keeps WebView's own string (it only appends "TouchDashboard/<version>");
+# a web page cannot change this header.
+ANDROID_WEBVIEW_UA = re.compile(r"\(Linux; Android [^)]*; wv\)")
 LOOPBACK_NAMES = ("127.0.0.1", "localhost")
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -318,10 +324,16 @@ class OriginPolicy:
             return False
         return port == str(self.port) and self._clock() - self._last_refresh >= self._refresh_s
 
-    def origin_allowed(self, origin: str | None) -> bool:
+    def origin_allowed(self, origin: str | None, peer: str | None = None, user_agent: str = "") -> bool:
+        """Our own pages, the Android app, and nothing else.
+
+        `peer` and `user_agent` only matter for "null" (see APK_ORIGINS).
+        """
         if not origin:
             return False
         origin = origin.lower()
+        if origin == "null":
+            return bool(peer) and not is_loopback(peer) and bool(ANDROID_WEBVIEW_UA.search(user_agent or ""))
         return origin in APK_ORIGINS or origin in {f"http://{h}" for h in self.hosts()}
 
     def is_admin_origin(self, origin: str | None) -> bool:

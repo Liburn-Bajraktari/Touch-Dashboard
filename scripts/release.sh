@@ -66,6 +66,22 @@ else
     chmod 600 "$TOKEN_FILE"
 fi
 
+# Build the Android app from android/ first (scripts/build-android.sh): if it
+# fails, nothing has been committed, pushed or published yet.
+if [ "$APK_BUILD" = true ]; then
+    NEW_APK="TouchDashboard-${VERSION}.apk"
+    echo -e "${CYAN}Building $NEW_APK from android/...${NC}"
+    if ! ./scripts/build-android.sh "$VERSION" "$NEW_APK"; then
+        echo -e "${RED}Error: the Android build failed; nothing was released.${NC}"
+        exit 1
+    fi
+    # Keep only this release's APK in the repo root (APKs are gitignored).
+    for old in TouchDashboard-*.apk; do
+        [ "$old" != "$NEW_APK" ] && rm -f -- "$old"
+    done
+    APK_FILE="$NEW_APK"
+fi
+
 echo -e "${CYAN}Bumping version in version.json...${NC}"
 python3 -c "
 import json
@@ -135,62 +151,6 @@ if [ -f "$CB_TOKEN_FILE" ]; then
     fi
 fi
 
-if [ "$APK_BUILD" = true ]; then
-    echo -e "${CYAN}Finding existing APK to rebuild...${NC}"
-    OLD_APK=$(ls TouchDashboard-*.apk 2>/dev/null | head -n 1)
-    if [ -z "$OLD_APK" ]; then
-        echo -e "${RED}Error: No existing TouchDashboard-*.apk found in the repository to rebuild!${NC}"
-        exit 1
-    fi
-    
-    NEW_APK="TouchDashboard-${VERSION}.apk"
-    echo -e "${CYAN}Rebuilding $OLD_APK into $NEW_APK with updated internal version...${NC}"
-    
-    # Setup temp dir for patching
-    TMP_APK_DIR=$(mktemp -d)
-    cp "$OLD_APK" "$TMP_APK_DIR/$NEW_APK"
-    
-    # Extract, patch, and re-inject index.html
-    echo -e "${CYAN}  Bundling templates/index.html and static/ into APK and setting version $VERSION...${NC}"
-    mkdir -p "$TMP_APK_DIR/assets/public" "$TMP_APK_DIR/assets/www"
-    cp "templates/index.html" "$TMP_APK_DIR/assets/public/index.html"
-    cp "templates/index.html" "$TMP_APK_DIR/assets/www/index.html"
-    cp -r "static" "$TMP_APK_DIR/assets/public/"
-    cp -r "static" "$TMP_APK_DIR/assets/www/"
-    
-    # Replace the placeholder APK_VERSION in the main script block
-    sed -i "s/const APK_VERSION = \"dev\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/public/index.html"
-    sed -i "s/const APK_VERSION = \"dev\";/const APK_VERSION = \"$VERSION\";/g" "$TMP_APK_DIR/assets/www/index.html"
-    (cd "$TMP_APK_DIR" && zip -q -r -u "$NEW_APK" assets/public assets/www)
-    
-    # Resign APK properly with V2 signature and zipalign
-    echo -e "${CYAN}  Removing old signature and resigning with uber-apk-signer...${NC}"
-    zip -q -d "$TMP_APK_DIR/$NEW_APK" "META-INF/*" || true
-    
-    UBER_SIGNER="$HOME/.config/touch-dashboard/uber-apk-signer.jar"
-    if [ ! -f "$UBER_SIGNER" ]; then
-        echo -e "${CYAN}  Downloading uber-apk-signer for proper V2 signing...${NC}"
-        mkdir -p "$(dirname "$UBER_SIGNER")"
-        curl -L -s -o "$UBER_SIGNER" "https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar"
-    fi
-    
-    java -jar "$UBER_SIGNER" -a "$TMP_APK_DIR/$NEW_APK" -o "$TMP_APK_DIR" > /dev/null 2>&1
-    
-    SIGNED_APK=$(ls "$TMP_APK_DIR"/*-aligned-debugSigned.apk 2>/dev/null | head -n 1)
-    if [ -z "$SIGNED_APK" ]; then
-        echo -e "${RED}Error: Failed to sign and align APK! Make sure Java is installed.${NC}"
-        exit 1
-    fi
-    
-    # Bring the new APK back to the repo root and clean up
-    mv "$SIGNED_APK" "./$NEW_APK"
-    rm -rf "$TMP_APK_DIR"
-    if [ "$OLD_APK" != "$NEW_APK" ]; then
-        rm -f "$OLD_APK"
-    fi
-    
-    APK_FILE="$NEW_APK"
-fi
 
 upload_asset() {
     local file="$1" content_type="$2"

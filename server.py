@@ -1327,7 +1327,9 @@ async def check_for_updates() -> dict:
             
             for release in releases:
                 tag = release.get("tag_name", "")
-                if not tag or tag == "pre-release":
+                # Drafts and pre-releases are never offered: not to the desktop,
+                # and not to tablets, which install the APK found here.
+                if not tag or tag == "pre-release" or release.get("draft") or release.get("prerelease"):
                     continue
                     
                 # Find the newest APK asset across recent releases
@@ -1627,7 +1629,8 @@ async def serve_local_art(request: Request, h: str = "", k: str = ""):
         # the cover; only our own origins are echoed back, never "*".
         headers = {"Vary": "Origin"}
         origin = request.headers.get("origin")
-        if origin and origin_policy.origin_allowed(origin):
+        if origin and origin_policy.origin_allowed(
+                origin, request.client.host if request.client else None, request.headers.get("user-agent", "")):
             headers["Access-Control-Allow-Origin"] = origin
         return FileResponse(path, headers=headers)
     return JSONResponse({"error": "No art"}, status_code=404)
@@ -1959,9 +1962,10 @@ def _pair_pending_msg(req: security.PendingPair) -> dict:
 async def websocket_endpoint(ws: WebSocket):
     ip = ws.client.host if ws.client else ""
     origin = ws.headers.get("origin")
+    user_agent = ws.headers.get("user-agent", "")
     # No Origin: not a browser (it still needs a token). A foreign one: a web page.
-    if origin is not None and not origin_policy.origin_allowed(origin):
-        logger.warning("WebSocket from %s refused: origin %r", ip, origin[:100])
+    if origin is not None and not origin_policy.origin_allowed(origin, ip, user_agent):
+        logger.warning("WebSocket from %s refused: origin %r, user agent %r", ip, origin[:100], user_agent[:200])
         await ws.close(code=WS_CLOSE_POLICY)
         return
     if not pending_sockets.acquire(ip):

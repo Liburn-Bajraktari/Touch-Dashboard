@@ -105,6 +105,36 @@ def test_foreign_websocket_origin_is_closed_with_1008(app):
         assert closed.value.code == 1008, origin
 
 
+TABLET_UA = ("Mozilla/5.0 (Linux; Android 14; SM-X210 Build/UP1A.231005.007; wv) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Version/4.0 Chrome/141.0.7390.122 Safari/537.36")
+DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+PHONE_CHROME_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/141.0.0.0 Mobile Safari/537.36")
+APK_NULL = {"origin": "null", "user-agent": TABLET_UA}
+
+
+def test_tablet_null_origin_is_accepted_only_from_a_lan_android_webview(app):
+    # The Android app's file:// page sends "Origin: null" (seen from a real tablet).
+    with _peer(app, LAN_PEER), app.websocket_connect(WS_URL, headers=APK_NULL) as ws:
+        ws.send_json({"type": "auth", "token": ""})
+        assert _closed_with(ws) == server.WS_CLOSE_UNAUTHORIZED      # reached the auth step
+    with _device(app, _paired_token(), origin=APK_NULL):
+        pass
+    # Sandboxed iframes send "null" too: from a desktop or mobile browser, or from this PC, it is refused.
+    refused = [(LAN_PEER, DESKTOP_UA), (LAN_PEER, PHONE_CHROME_UA), (LAN_PEER, ""), (LOOPBACK, TABLET_UA)]
+    for peer, ua in refused:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            with _peer(app, peer), app.websocket_connect(WS_URL, headers={"origin": "null", "user-agent": ua}):
+                pass
+        assert closed.value.code == 1008, (peer, ua)
+
+
+def test_null_origin_tablet_is_never_admin(app):
+    with _peer(app, LAN_PEER), app.websocket_connect(WS_URL, headers=APK_NULL) as ws:
+        ws.send_json({"type": "auth"})
+        assert _closed_with(ws) == server.WS_CLOSE_UNAUTHORIZED
+
+
 def test_apk_origins_reach_the_auth_step(app):
     for origin in ("file://", "https://appassets.androidplatform.net"):
         with _peer(app, LAN_PEER), app.websocket_connect(WS_URL, headers={"origin": origin}) as ws:
@@ -468,6 +498,10 @@ def test_local_art_needs_a_url_signed_for_the_current_cover(app, tmp_path):
         assert ok.headers["access-control-allow-origin"] == "file://"
         evil = app.get(signed, headers={"origin": "http://evil.example"})
         assert evil.status_code == 200 and "access-control-allow-origin" not in evil.headers
+        with _peer(app, LAN_PEER):   # the tablet reads the cover's pixels for its tint
+            assert app.get(signed, headers=APK_NULL).headers["access-control-allow-origin"] == "null"
+            browser = app.get(signed, headers={"origin": "null", "user-agent": DESKTOP_UA})
+            assert "access-control-allow-origin" not in browser.headers
 
         server._signed_media({"art_url": "/api/local_art?h=next-track"})
         assert app.get(signed).status_code == 404   # an old URL stops working

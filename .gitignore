@@ -17,11 +17,10 @@ __pycache__/
 # Build artifacts & packages
 build/
 dist/
-pkg/
-src/
+/pkg/
+/src/
 node_modules/
 www/
-android/
 installers/
 touch-dashboard.spec
 *.pkg.tar.*

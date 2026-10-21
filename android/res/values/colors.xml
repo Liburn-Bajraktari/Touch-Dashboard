@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window behind the page before it paints (Graphite's ground). -->
+    <color name="ground">#000000</color>
+    <!-- Adaptive icon background: the icon plate's own tone, so masks blend. -->
+    <color name="icon_background">#25272B</color>
+</resources>

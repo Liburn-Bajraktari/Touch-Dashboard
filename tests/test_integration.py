@@ -231,3 +231,26 @@ def test_save_config_cleans_hidden_audio_devices(client):
     assert sync["data"]["cfg"]["hidden_audio_devices"] == ["HDMI", "Headset"]
     assert server._clean_hidden_devices("HDMI") == []
     _restore_config(original)
+
+
+def test_update_check_skips_drafts_and_prereleases():
+    """Tablets install the APK found here, so a pre-release must never be it."""
+    import asyncio
+    import io
+    import json
+    import server
+
+    def release(tag, prerelease=False, draft=False):
+        return {"tag_name": tag, "prerelease": prerelease, "draft": draft, "body": "",
+                "assets": [{"name": f"TouchDashboard-{tag}.apk",
+                            "browser_download_url": f"https://example.invalid/{tag}/TouchDashboard-{tag}.apk"}]}
+
+    listing = [release("v9.9.0", prerelease=True), release("v9.8.0", draft=True), release("v9.7.0")]
+    saved = (server.update_available, server.latest_version, server.update_apk_url, server.update_notes)
+    with patch("server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(listing).encode())):
+        asyncio.run(server.check_for_updates())
+    try:
+        assert server.update_apk_url.endswith("/v9.7.0/TouchDashboard-v9.7.0.apk")
+        assert server.latest_version == "v9.7.0"
+    finally:
+        server.update_available, server.latest_version, server.update_apk_url, server.update_notes = saved

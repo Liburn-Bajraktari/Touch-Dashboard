@@ -48,7 +48,7 @@ The code itself is mostly AI-generated, but the logic is human-reviewed. It curr
 Touch Dashboard is client and server:
 
 - **The desktop app** runs on your PC. It reads audio, media, Discord, hardware and battery state, runs your macros, and serves the dashboard on port **8888** over HTTP and WebSocket. It opens a desktop window of the dashboard and lives in the system tray.
-- **The Android app** is a full-screen WebView with the dashboard built in. It connects to the PC over your local network.
+- **The Android app** is a full-screen WebView with the dashboard built in. It connects to the PC over your local network and installs its own updates.
 - **Any browser** on the PC or the network can open the dashboard at `http://<pc-ip>:8888` as well.
 
 The PC and the tablet must be on the same network. Every tablet, and every browser on another device, is paired once: the PC shows a request and you allow it. See [Security](#security).
@@ -95,6 +95,10 @@ The script detects Arch, Debian/Ubuntu or Fedora, installs the system packages i
 
 1. Download the latest `TouchDashboard-vX.Y.Z.apk` from the [Releases](https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases) page, or with option 4 of the Windows installer.
 2. Copy it to your tablet or phone and install it. You may need to allow installing apps from unknown sources.
+
+After that the app keeps itself up to date (see [Updating](#updating)).
+
+**Coming from v0.11.0 or older?** Uninstall the old app first. The app is now signed with its own release key, so Android refuses to install it over one signed with the old key. Then install the new one and pair it again. This happens once.
 
 ## First-time setup
 
@@ -168,7 +172,8 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 ## Updating
 
 - **Desktop app:** it checks for new releases on start and every 30 minutes, and shows an update prompt in the desktop window and in a browser on the PC. **Update** downloads that release's installer and source archive, checks both against the release's `SHA256SUMS`, installs it in the background and restarts the app. A file that does not match stops the update.
-- **Android app:** when the desktop app needs a newer Android app, the tablet shows a prompt with a download link to the new APK. Install it over the old one. Android apps from before pairing (older than v0.11.0) cannot connect any more and only show this prompt.
+- **Android app:** it updates itself. When a newer app is released, the tablet offers **Update now** (or requires it, when the desktop app needs the newer version). The app downloads the APK from the GitHub release, checks it against the release's `SHA256SUMS` and checks that it is signed by the same key, then Android asks you to confirm. The first time, Android asks whether Touch Dashboard may install apps: turn on **Allow from this source** and come back. The app closes while Android installs it; open it again from the home screen.
+- **Android apps from v0.11.0 and older** cannot update themselves. They show how to install the new app by hand: download it in Chrome, uninstall the old app, install the new one and pair again. Apps from before pairing (older than v0.11.0) cannot connect any more and only show this prompt.
 
 ## Security
 
@@ -177,7 +182,7 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 - **Paired devices control, the PC configures.** A paired device can use media, volume, Discord, the soundboard and your macros, by name only. Settings, macros, soundboard pads, pairing and updates can only be changed on the PC. API keys, client secrets and sign-in tokens never leave the PC.
 - **Traffic is not encrypted.** The dashboard uses plain HTTP and WebSocket, so anyone on the same network can read it, including a device's pairing token. Avoid shared and public networks (cafés, hotels, campus or office Wi-Fi).
 - **Web pages cannot reach it.** The server answers only to `127.0.0.1`, `localhost` and this PC's own addresses, and only to its own pages and the Android app. A website you visit cannot talk to it, even through DNS rebinding, and cannot finish a Spotify or Discord sign-in on your PC (each sign-in carries a one-time state value).
-- **Updates install releases only.** Installers and the in-app update fetch a published release, never the latest code on `main`, and check every file against the `SHA256SUMS` published with it.
+- **Updates install releases only.** Installers and the in-app update fetch a published release, never the latest code on `main`, and check every file against the `SHA256SUMS` published with it. Drafts and pre-releases are never offered. The Android app downloads only from this repository's releases (the PC can name a version, not an address) and installs only an APK signed with its own release key; Android enforces the same key on every update.
 
 ## Troubleshooting
 
@@ -193,7 +198,7 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 - **Mouse battery** on Linux comes from UPower over D-Bus, event-driven, for any mouse UPower knows about (`upower` must be installed). On Windows it reads `%TEMP%\g502_battery.txt`, written by an external script.
 - **Windows** integrates with WASAPI (`pycaw`), COM for switching the default device, and WinRT for the media controls.
 - **App launchers** follow your desktop environment and the `$TERMINAL` / `$BROWSER` variables instead of fixed program names.
-- **The Android app** is a native WebView with the dashboard bundled in. A change to the dashboard reaches tablets with the next APK release.
+- **The Android app** is a small native app (`android/`, plain Java) around a WebView with the dashboard bundled in. A change to the dashboard reaches tablets with the next APK release, which the app installs itself. It asks for `REQUEST_INSTALL_PACKAGES` (its own updates) and `VIBRATE` (haptic ticks), and keeps its pairing out of cloud backups.
 
 ## For developers
 
@@ -238,6 +243,7 @@ The suite covers the HTTP and WebSocket API, Host and Origin checks, pairing, ro
 | `static/themes.js` | Every design token and the six theme presets |
 | `docs/DESIGN.md` | The design system: light model, materials, components, motion and how to add a theme |
 | `scripts/` | Installers (`setup.sh`, `install.ps1`), `release.sh`, `build-arch-package.sh` |
+| `android/` | The Android app: manifest, resources and Java sources (WebView shell and self-updater) |
 | `tests/` | The test suite |
 
 ### Releasing
@@ -247,7 +253,7 @@ The suite covers the HTTP and WebSocket API, Host and Origin checks, pairing, ro
 ./scripts/release.sh v1.2.3 --apk    # also rebuild the Android app
 ```
 
-The script sets the version in `version.json`, commits everything in the working tree as `Release: <tag>`, tags and pushes, and creates the GitHub release with `install.ps1`, `setup.sh`, the source archives the installers download (`touch-dashboard-<tag>.tar.gz` and `.zip`, built from the tag with `git archive`), the APK (with `--apk`) and a `SHA256SUMS` file covering them all. Installers and the in-app update refuse a release without these files. The release is also mirrored to Codeberg, only so installs from before the move to GitHub keep finding updates. With `--apk` it repacks the newest `TouchDashboard-*.apk` in the repo root with the current `templates/` and `static/`, signs it, uploads it, and raises the required Android app version so older tablets are prompted to update. Signing a fresh Android build is covered in [docs/android-signing.md](docs/android-signing.md).
+The script sets the version in `version.json`, commits everything in the working tree as `Release: <tag>`, tags and pushes, and creates the GitHub release with `install.ps1`, `setup.sh`, the source archives the installers download (`touch-dashboard-<tag>.tar.gz` and `.zip`, built from the tag with `git archive`), the APK (with `--apk`) and a `SHA256SUMS` file covering them all. Installers and the in-app update refuse a release without these files. The release is also mirrored to Codeberg, only so installs from before the move to GitHub keep finding updates. With `--apk` it first builds the Android app from `android/` with `scripts/build-android.sh` (the current `templates/` and `static/` bundled in, the version code taken from the tag, signed with the release key), so a failed build stops the release before anything is committed; it then uploads the APK and raises the required Android app version. Building needs the Android SDK and the release key: see [docs/android-signing.md](docs/android-signing.md).
 
 ### References
 

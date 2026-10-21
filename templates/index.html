@@ -3371,7 +3371,7 @@
 
             <div id="update-progress-container" style="display: none; margin-top: 0.5rem;">
                 <div class="progress-head">
-                    <span>Downloading&hellip;</span>
+                    <span id="update-progress-label">Downloading&hellip;</span>
                     <span id="update-progress-text" class="num">0%</span>
                 </div>
                 <div class="progress-track">
@@ -5418,73 +5418,216 @@
         ];
         // An app older than this server needs is told to update. Tablets from
         // before pairing get only this (auth_required): they cannot connect otherwise.
+        // --- Android app updates ---
+        // The current app (android/) installs its own updates: window.TDAndroid
+        // downloads the release APK from GitHub, checks it against SHA256SUMS and
+        // hands it to Android's installer, reporting back through tdAppUpdate().
+        // Apps from before it (no bridge) can only be updated by hand.
+        const APP_UPDATE_SKIP_KEY = 'td_app_update_skip';
+        const nativeApp = (() => {
+            try { return window.TDAndroid ? JSON.parse(window.TDAndroid.info()) : null; }
+            catch (e) { return null; }
+        })();
+        let appUpdateActive = false;    // a native update is running: leave the dialog alone
+
+        function versionOutdated(clientVer, requiredVer) {
+            if (!clientVer || !requiredVer) return false;
+            const c = clientVer.replace(/^v/, '').split('.').map(Number);
+            const r = requiredVer.replace(/^v/, '').split('.').map(Number);
+            for (let i = 0; i < 3; i++) {
+                if ((c[i] || 0) < (r[i] || 0)) return true;
+                if ((c[i] || 0) > (r[i] || 0)) return false;
+            }
+            return false;
+        }
+
+        function installedAppVersion() {
+            if (nativeApp && nativeApp.version) return nativeApp.version;
+            const fromQuery = new URLSearchParams(window.location.search).get('apk_version');
+            if (fromQuery) return fromQuery.replace(/^v/, '');
+            const uaMatch = navigator.userAgent.match(/TouchDashboard\/v?([\d.]+)/);
+            if (uaMatch) return uaMatch[1];
+            return APK_VERSION !== 'dev' ? APK_VERSION.replace(/^v/, '') : null;
+        }
+
+        // The newest release with an APK, from the server's update_apk_url.
+        function latestAppTag(d) {
+            const m = String(d.update_apk_url || '').match(/\/releases\/download\/(v\d+\.\d+\.\d+)\/TouchDashboard-\1\.apk$/);
+            return m ? m[1] : null;
+        }
+
+        function readSkippedUpdate() {
+            try { return localStorage.getItem(APP_UPDATE_SKIP_KEY); } catch (e) { return null; }
+        }
+
+        // fraction: 0..1 for the bar, null to leave it; the figure shows only while downloading.
+        function setUpdateProgress(label, fraction, opts = {}) {
+            const bar = document.getElementById('update-progress-bar');
+            const pct = document.getElementById('update-progress-text');
+            document.getElementById('update-progress-label').textContent = label;
+            document.getElementById('update-progress-container').style.display = 'block';
+            document.getElementById('update-log').style.display = 'none';   // the desktop updater's log
+            bar.classList.toggle('is-error', !!opts.error);
+            const p = fraction === null ? null : Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+            if (p !== null) bar.style.width = p + '%';
+            pct.textContent = opts.figure && p !== null ? p + '%' : '';
+        }
+
         function showApkUpdateIfNeeded(d) {
-            const urlParams = new URLSearchParams(window.location.search);
-            let apkVersion = urlParams.get('apk_version');
-            if (!apkVersion) {
-                const uaMatch = navigator.userAgent.match(/TouchDashboard\/v?([\d.]+)/);
-                if (uaMatch) apkVersion = uaMatch[1];
-                else if (APK_VERSION !== 'dev') apkVersion = APK_VERSION.replace('v', '');
-            }
+            if (appUpdateActive) return true;
+            const installed = installedAppVersion();
+            if (!installed) return false;
+            const latest = latestAppTag(d);
+            const required = !!(d.req_apk_version && versionOutdated(installed, d.req_apk_version));
+            // A newer app is offered by the app itself only: older ones cannot install it.
+            const available = !!(nativeApp && latest && versionOutdated(installed, latest)
+                && readSkippedUpdate() !== latest);
+            if (!required && !available) return false;
 
-            function isVersionOutdated(clientVer, requiredVer) {
-                if (!clientVer || !requiredVer) return false;
-                const c = clientVer.replace(/^v/, '').split('.').map(Number);
-                const r = requiredVer.replace(/^v/, '').split('.').map(Number);
-                for (let i = 0; i < 3; i++) {
-                    if ((c[i] || 0) < (r[i] || 0)) return true;
-                    if ((c[i] || 0) > (r[i] || 0)) return false;
-                }
-                return false;
-            }
-
-            if (!(d.req_apk_version && apkVersion && isVersionOutdated(apkVersion, d.req_apk_version))) return false;
-            document.getElementById('update-title').innerText = "App update required";
-            const url = d.update_apk_url || "https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases";
-            const safeUrl = escapeHtml(url);
-            document.getElementById('update-message').innerHTML = `This desktop version needs Android app ${escapeHtml(d.req_apk_version)} or newer. You are on ${escapeHtml(apkVersion)}.<br><br>If the button below does not open your browser, copy this link:<br><br><a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a>`;
-            document.getElementById('update-dismiss-btn').innerText = "Dismiss";
-            document.getElementById('update-dismiss-btn').style.display = 'block';
-
+            const modal = document.getElementById('update-modal');
+            const title = document.getElementById('update-title');
+            const message = document.getElementById('update-message');
             const btn = document.getElementById('update-download-btn');
-            btn.innerText = "Download via Browser";
+            const dismiss = document.getElementById('update-dismiss-btn');
+            document.getElementById('update-progress-container').style.display = 'none';
+            document.getElementById('update-log').textContent = '';
+            document.getElementById('update-notes-container').style.display = 'none';
+
+            if (nativeApp) {
+                const tag = latest && !versionOutdated(latest.replace(/^v/, ''), d.req_apk_version || '') ? latest : d.req_apk_version;
+                title.textContent = required ? 'App update required' : 'App update available';
+                message.textContent = (required
+                    ? `This desktop version needs Android app ${d.req_apk_version} or newer; you have ${installed}. `
+                    : `Touch Dashboard ${tag} is ready; you have ${installed}. `)
+                    + 'The app downloads it from GitHub, checks it, and Android asks you to confirm.';
+                btn.style.display = '';
+                btn.disabled = false;
+                btn.textContent = 'Update now';
+                btn.onclick = () => startAppUpdate(tag);
+                dismiss.style.display = 'block';
+                dismiss.textContent = required ? 'Later' : 'Skip this version';
+                dismiss.onclick = () => {
+                    if (!required) { try { localStorage.setItem(APP_UPDATE_SKIP_KEY, tag); } catch (e) { /* private mode */ } }
+                    modal.classList.remove('active');
+                };
+                modal.classList.add('active');
+                return true;
+            }
+
+            // An app from before self-update: signed with another key, so Android
+            // installs the new one only after the old one is removed.
+            const url = d.update_apk_url || 'https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/latest';
+            const safeUrl = escapeHtml(url);
+            title.textContent = 'App update required';
+            message.innerHTML = `This desktop version needs Android app ${escapeHtml(d.req_apk_version)} or newer; you have ${escapeHtml(installed)}.<br><br>`
+                + 'Install it once by hand. From then on the app updates itself.<br>'
+                + '1. Open this link in Chrome on this tablet and download the app:<br>'
+                + `<a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a><br>`
+                + '2. Uninstall the old Touch Dashboard app (Android cannot install the new one over it).<br>'
+                + '3. Install the downloaded app, open it and pair it again.';
+            dismiss.textContent = 'Dismiss';
+            dismiss.style.display = 'block';
+            dismiss.onclick = () => modal.classList.remove('active');
+            btn.style.display = '';
+            btn.disabled = false;
+            btn.textContent = 'Copy link';
+            // An old app cannot open the browser itself: copy the link to paste into Chrome.
             btn.onclick = () => {
-                // Try the standard way to open an external browser
-                window.open(url, '_blank');
-
-                // As a fallback, we also update the text to let them copy
-                setTimeout(() => {
-                    btn.innerText = "Copy Link Instead";
-                    btn.onclick = () => {
-                        const copyFallback = () => {
-                            const textArea = document.createElement("textarea");
-                            textArea.value = url;
-                            textArea.style.position = "fixed";
-                            textArea.style.opacity = "0";
-                            document.body.appendChild(textArea);
-                            textArea.select();
-                            try {
-                                document.execCommand("copy");
-                                btn.innerText = "Copied! Paste in Chrome.";
-                            } catch (err) {
-                                btn.innerText = "Copy Failed - Manually select link";
-                            }
-                            document.body.removeChild(textArea);
-                        };
-
-                        if (navigator.clipboard && window.isSecureContext) {
-                            navigator.clipboard.writeText(url).then(() => {
-                                btn.innerText = "Copied! Paste in Chrome.";
-                            }).catch(() => copyFallback());
-                        } else {
-                            copyFallback();
-                        }
-                    };
-                }, 1000);
+                const copied = () => { btn.textContent = 'Copied: paste it in Chrome'; };
+                const fallback = () => {
+                    const area = document.createElement('textarea');
+                    area.value = url;
+                    area.style.position = 'fixed';
+                    area.style.opacity = '0';
+                    document.body.appendChild(area);
+                    area.select();
+                    try { document.execCommand('copy'); copied(); }
+                    catch (err) { btn.textContent = 'Copy failed: select the link'; }
+                    document.body.removeChild(area);
+                };
+                if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(url).then(copied).catch(fallback);
+                else fallback();
             };
-            document.getElementById('update-modal').classList.add('active');
+            modal.classList.add('active');
             return true;
         }
+
+        function startAppUpdate(tag) {
+            appUpdateActive = true;
+            const btn = document.getElementById('update-download-btn');
+            btn.disabled = true;
+            btn.textContent = 'Updating…';
+            document.getElementById('update-dismiss-btn').style.display = 'none';
+            setUpdateProgress('Checking the release…', 0);
+            window.TDAndroid.update(tag);
+            btn.onclick = () => window.TDAndroid.update(tag);
+        }
+
+        const APP_UPDATE_ERRORS = {
+            not_found: 'This release has no Android app to download.',
+            no_checksum: 'This release has no checksum for the app, so it was not installed.',
+            checksum_mismatch: 'The download was damaged or altered, so it was not installed. Try again.',
+            wrong_signer: 'The download is not signed by Touch Dashboard\'s key, so it was not installed.',
+            wrong_package: 'The download is not Touch Dashboard, so it was not installed.',
+            invalid_apk: 'The download is not a valid app, so it was not installed.',
+            not_newer: 'This version is already installed.',
+            too_large: 'The download is larger than any Touch Dashboard release, so it was stopped.',
+            network: 'Could not download the update. Check that the tablet is online, then try again.',
+        };
+
+        // Called by the app (AppUpdater) at every step of an update.
+        window.tdAppUpdate = (e) => {
+            const btn = document.getElementById('update-download-btn');
+            const dismiss = document.getElementById('update-dismiss-btn');
+            const message = document.getElementById('update-message');
+            const idle = (label) => {
+                appUpdateActive = false;
+                btn.disabled = false;
+                btn.textContent = label;
+                dismiss.style.display = 'block';
+                dismiss.textContent = 'Close';
+                dismiss.onclick = () => document.getElementById('update-modal').classList.remove('active');
+            };
+            switch (e.state) {
+                case 'checking':
+                    setUpdateProgress('Checking the release…', 0);
+                    break;
+                case 'downloading':
+                    setUpdateProgress('Downloading…', typeof e.progress === 'number' ? e.progress : null, { figure: true });
+                    break;
+                case 'verifying':
+                    setUpdateProgress('Checking the download…', 1);
+                    break;
+                case 'permission':
+                    setUpdateProgress('Waiting for permission', 1);
+                    message.textContent = 'Android asks once whether Touch Dashboard may install updates. Turn on "Allow from this source", then come back here.';
+                    btn.disabled = false;
+                    btn.textContent = 'Open settings';
+                    btn.onclick = () => window.TDAndroid.openInstallSettings();
+                    break;
+                case 'confirm':
+                    setUpdateProgress('Waiting for you to confirm', 1);
+                    message.textContent = 'Tap Update in Android\'s dialog. Touch Dashboard closes while it installs; open it again from the home screen.';
+                    btn.disabled = true;
+                    break;
+                case 'installed':
+                    setUpdateProgress('Installed', 1);
+                    message.textContent = 'The update is installed.';
+                    idle('Done');
+                    break;
+                case 'cancelled':
+                    setUpdateProgress('Cancelled', null, { error: true });
+                    message.textContent = 'The update was cancelled. Nothing changed.';
+                    idle('Try again');
+                    break;
+                case 'failed':
+                    setUpdateProgress('Update failed', null, { error: true });
+                    message.textContent = APP_UPDATE_ERRORS[e.error]
+                        || ('The update failed' + (e.message ? ': ' + e.message : '.'));
+                    idle('Try again');
+                    break;
+            }
+        };
 
         function attachSocketMessageHandler(targetSocket) {
             targetSocket.onmessage = (event) => {
@@ -6437,11 +6580,12 @@
                 const label = escapeHtml((m.display_name || '').substring(0, 15));
                 btn.innerHTML = `<span class="key-screen">${glyph}<span class="key-label">${label}</span></span>`;
 
-                btn.addEventListener('mousedown', (e) => handleMacroDown(e, idx));
-                btn.addEventListener('touchstart', (e) => handleMacroDown(e, idx), { passive: true });
-                btn.addEventListener('mouseup', (e) => handleMacroUp(e, idx, m));
-                btn.addEventListener('touchend', (e) => handleMacroUp(e, idx, m), { passive: true });
-                btn.addEventListener('mouseleave', () => clearMacroTimer());
+                // Pointer events only: a tap also fires emulated mouse events after
+                // touchend, so touch + mouse listeners ran every macro twice.
+                btn.addEventListener('pointerdown', (e) => handleMacroDown(e, idx));
+                btn.addEventListener('pointerup', (e) => handleMacroUp(e, idx, m));
+                btn.addEventListener('pointerleave', () => clearMacroTimer());
+                btn.addEventListener('pointercancel', () => clearMacroTimer());
 
                 slot.appendChild(btn);
                 frag.appendChild(slot);
