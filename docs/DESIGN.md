@@ -170,7 +170,7 @@ Always, on both tiers:
 
 | Preset | Why it exists |
 |---|---|
-| **Graphite** (default) | True-black hardware for OLED and night use; untinted greys, brand cyan on the levels. |
+| **Graphite** (default) | True-black hardware for OLED and night use, entirely in greys: the levels, LEDs and brand mark are lit silver, so the only colour on screen is status (mute, live, warnings) and the music. |
 | **Daylight** | A satin-white console with soft grey recesses and silver caps, all light, for a bright room. |
 | **Ember** | Warm walnut-black and amber: low blue light late at night. Warnings are pumpkin orange and mute a deep red, so neither is mistaken for the amber. |
 | **Phosphor** | A monitor's P1 green on the levels, with monospaced figures. Live states take a cooler sea green and warnings the amber of a P3 screen, so the green levels keep their own meaning. |
