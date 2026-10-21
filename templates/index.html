@@ -24,12 +24,51 @@
 
     <style>
         /*
-         * Every design value comes from static/themes.js through var(--token).
-         * No colour literals here: tests/test_themes.py enforces it.
-         * Rules: docs/DESIGN.md. Performance rules (WebKitGTK software rendering):
-         * no backdrop-filter, no 3D transforms at rest, no infinite animations
-         * on large areas, hover styles only for fine pointers.
+         * Touch Dashboard — "broadcast console" design language.
+         * Every design value comes from static/themes.js through var(--token);
+         * no colour literals here (tests/test_themes.py enforces it).
+         * The light model, materials and rules are in docs/DESIGN.md.
+         *
+         * Performance: transforms and opacity for anything that moves; no
+         * backdrop-filter, no 3D transforms at rest. html[data-fx="lite"]
+         * (WebKitGTK desktop window, CPU rasterised) drops idle animations,
+         * glows and cross-fades.
          */
+
+        /* Ambient light: the cover art's colour when something plays, else the theme glow.
+           Registered so it can cross-fade between tracks. */
+        @property --ambient {
+            syntax: '<color>';
+            inherits: true;
+            initial-value: transparent;
+        }
+
+        :root {
+            --ambient: var(--dyn-glow, var(--glow));
+            --sq: 1;
+            transition: --ambient 1.4s var(--ease);
+        }
+
+        /* Continuous ("squircle") corners where supported; they need a larger radius to read the same. */
+        @supports (corner-shape: squircle) {
+            :root {
+                --sq: 1.6;
+            }
+
+            .card,
+            .btn:not(.round),
+            .modal-card,
+            .theme-card,
+            .scribble,
+            .key-screen,
+            .stat,
+            .speed-widget,
+            .sb-vol-row,
+            .tp {
+                corner-shape: squircle;
+            }
+        }
+
         *,
         *::before,
         *::after {
@@ -50,7 +89,10 @@
         body {
             margin: 0;
             padding: var(--pad);
-            background: var(--ground);
+            background:
+                radial-gradient(70rem 52rem at 14% 32%, var(--ambient), transparent 72%),
+                radial-gradient(56rem 42rem at 96% 108%, var(--glow), transparent 70%),
+                var(--ground);
             color: var(--text);
             font-family: var(--font-sans);
             font-size: var(--fs-md);
@@ -90,7 +132,7 @@
 
         :focus-visible {
             outline: 2px solid var(--focus);
-            outline-offset: 2px;
+            outline-offset: 3px;
         }
 
         ::selection {
@@ -108,9 +150,10 @@
         }
 
         .unit {
-            color: var(--text-3);
-            font-size: 0.8em;
-            font-weight: 400;
+            color: var(--well-ink-2);
+            font-size: 0.78em;
+            font-weight: 500;
+            margin-left: 0.15em;
         }
 
         ::-webkit-scrollbar {
@@ -126,13 +169,13 @@
             border-radius: var(--radius-pill);
         }
 
-        /* ── Surfaces ─────────────────────────────────────────────────────── */
-        /* Elevation is a lightness step. The ring is only drawn by themes that set
-           --panel-line-w (High contrast); inset so box sizes never change. */
+        /* ── Modules ──────────────────────────────────────────────────────── */
+        /* A module is a machined plate: lit from above (rim), casting a soft
+           shadow below (depth). High contrast swaps both for a 2px outline. */
         .card {
-            background: var(--surface);
-            border-radius: var(--radius-panel);
-            box-shadow: inset 0 0 0 var(--panel-line-w) var(--panel-line);
+            background: linear-gradient(180deg, var(--surface-top), var(--surface) 42%);
+            border-radius: calc(var(--radius-panel) * var(--sq));
+            box-shadow: var(--elev-1);
         }
 
         .panel {
@@ -140,6 +183,14 @@
             display: flex;
             flex-direction: column;
             min-height: 0;
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.8rem;
+            min-height: 2.2rem;
         }
 
         .panel-title {
@@ -150,6 +201,30 @@
             line-height: 1.2;
         }
 
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            height: 2.2rem;
+            padding: 0 0.85rem;
+            border-radius: var(--radius-pill);
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            color: var(--well-ink-2);
+            font-size: var(--fs-xs);
+            font-weight: 500;
+            white-space: nowrap;
+            max-width: 60%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chip svg {
+            width: 1.15rem;
+            height: 1.15rem;
+            flex-shrink: 0;
+        }
+
         .brand-mark {
             width: 2.1rem;
             height: 2.1rem;
@@ -157,7 +232,34 @@
             flex-shrink: 0;
         }
 
+        /* A display window: recessed, darker than its plate. */
+        .scribble {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.05rem;
+            padding: 0.45rem 0.5rem 0.4rem;
+            border-radius: calc(0.75rem * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            min-width: 0;
+        }
+
+        .ch-name {
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--well-ink-2);
+            font-size: var(--fs-xs);
+            font-weight: 500;
+            line-height: 1.15;
+        }
+
         /* ── Keys ─────────────────────────────────────────────────────────── */
+        /* A keycap: lit top edge, darker bottom lip, a short shadow. Pressing
+           sinks it: the lip becomes an inner shadow and it drops 0.12rem. */
         .btn {
             position: relative;
             display: flex;
@@ -168,16 +270,16 @@
             min-height: 4rem;
             padding: 1rem;
             border: 0;
-            border-radius: var(--radius-key);
-            background-color: var(--surface-2);
-            box-shadow: inset 0 0 0 var(--key-line-w) var(--key-line);
+            border-radius: calc(var(--radius-key) * var(--sq));
+            background: linear-gradient(180deg, var(--key-top), var(--surface-2));
+            box-shadow: var(--elev-2);
             color: var(--text);
             cursor: pointer;
             -webkit-appearance: none;
             appearance: none;
             /* Never transition opacity here: GSAP tweens key opacity (soundboard
                open/close) and a CSS transition would smooth it a second time. */
-            transition: transform var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+            transition: transform var(--dur-spring) var(--spring-bounce), box-shadow var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
         }
 
         .btn svg.lucide {
@@ -188,29 +290,31 @@
 
         .btn:active,
         .btn.active-btn {
-            transform: scale(0.96);
-            background-color: var(--surface-3);
+            transform: translateY(0.12rem) scale(0.97);
+            box-shadow: var(--elev-press);
+            transition-duration: var(--dur-fast);
+            transition-timing-function: var(--ease);
+        }
+
+        .btn.round {
+            border-radius: 50%;
+            padding: 0;
+            min-height: 0;
         }
 
         .btn-primary {
-            background-color: var(--inverse);
+            background: var(--inverse);
             color: var(--inverse-ink);
-            box-shadow: none;
+            box-shadow: inset 0 1px 0 var(--rim), 0 0.5rem 1.1rem -0.5rem var(--depth);
         }
 
         .btn-primary:active {
-            background-color: var(--inverse);
-            opacity: 0.86;
+            box-shadow: none;
         }
 
         .btn-danger {
-            background-color: var(--negative-soft);
+            background: var(--negative-soft);
             color: var(--negative-text);
-        }
-
-        .btn-danger:active {
-            background-color: var(--negative-soft);
-            opacity: 0.8;
         }
 
         .btn-pill {
@@ -229,25 +333,34 @@
         }
 
         .btn-ghost {
-            background-color: transparent;
+            background: transparent;
             box-shadow: inset 0 0 0 var(--line-w) var(--line-strong);
         }
 
+        .btn-ghost:active {
+            box-shadow: inset 0 0 0 var(--line-w) var(--line-strong);
+            background: var(--surface-2);
+        }
+
+        /* States are lit keys: a filled cap plus, on rich displays, the light spilling around it. */
         .btn.muted {
-            background-color: var(--negative);
+            background: var(--negative);
             color: var(--negative-ink);
-            box-shadow: none;
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 -0.2rem 0 var(--edge);
         }
 
         .btn.vid-active {
-            background-color: var(--positive);
+            background: var(--positive);
             color: var(--positive-ink);
-            box-shadow: none;
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 -0.2rem 0 var(--edge);
         }
 
-        .btn.muted:active,
-        .btn.vid-active:active {
-            opacity: 0.85;
+        [data-fx="rich"] .btn.muted {
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 -0.2rem 0 var(--edge), 0 0 1.6rem -0.3rem var(--negative);
+        }
+
+        [data-fx="rich"] .btn.vid-active {
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 -0.2rem 0 var(--edge), 0 0 1.6rem -0.3rem var(--positive);
         }
 
         /* Slash through the icon so mute reads without colour as well. */
@@ -268,14 +381,15 @@
         }
 
         .btn-add {
-            background-color: transparent;
+            background: transparent;
             box-shadow: none;
             color: var(--accent-text);
-            border: var(--line-w) dashed var(--line-strong);
+            border: 0.14rem dashed var(--line-strong);
         }
 
         .btn-add:active {
-            background-color: var(--surface-2);
+            box-shadow: none;
+            background: var(--surface-2);
         }
 
         .btn-top {
@@ -283,7 +397,6 @@
             height: 3.8rem;
             min-height: 0;
             padding: 0;
-            border-radius: var(--radius-key);
         }
 
         .btn-top svg.lucide {
@@ -293,30 +406,28 @@
 
         @media (hover: hover) and (pointer: fine) {
             .btn:hover {
-                background-color: var(--surface-3);
+                background: linear-gradient(180deg, var(--key-top), var(--surface-3));
             }
 
             .btn-primary:hover {
-                background-color: var(--inverse);
-                opacity: 0.92;
+                background: var(--inverse);
             }
 
             .btn-danger:hover {
-                background-color: var(--negative-soft);
-                opacity: 0.9;
+                background: var(--negative-soft);
             }
 
             .btn.muted:hover {
-                background-color: var(--negative);
+                background: var(--negative);
             }
 
             .btn.vid-active:hover {
-                background-color: var(--positive);
+                background: var(--positive);
             }
 
             .btn-add:hover,
             .btn-ghost:hover {
-                background-color: var(--surface-2);
+                background: var(--surface-2);
             }
         }
 
@@ -326,7 +437,7 @@
             grid-template-columns: 1.2fr 1.3fr 1.2fr;
             gap: var(--gap);
             align-items: center;
-            padding: 0.5rem 0.6rem 0.5rem 1.4rem;
+            padding: 0.5rem 0.6rem 0.5rem 1.2rem;
             flex: 0 0 4.8rem;
         }
 
@@ -343,32 +454,54 @@
 
         #btn-back {
             position: absolute;
-            left: -0.8rem;
+            left: -0.6rem;
             opacity: 0;
             pointer-events: none;
         }
 
         .bar-title {
             justify-content: center;
-            gap: 0.8rem;
+            gap: 0.75rem;
         }
 
         #top-title {
             margin: 0;
             font-size: var(--fs-lg);
             font-weight: 500;
-            color: var(--text-2);
+            color: var(--text);
+            letter-spacing: -0.01em;
             white-space: nowrap;
             transition: color var(--dur) var(--ease);
         }
 
         #top-title.is-mode {
-            color: var(--text);
             font-weight: var(--weight-strong);
         }
 
         #top-title.is-offline {
             color: var(--negative-text);
+        }
+
+        /* Link status: lit while the WebSocket is open. */
+        .conn-dot {
+            width: 0.6rem;
+            height: 0.6rem;
+            border-radius: 50%;
+            background: var(--surface-3);
+            flex-shrink: 0;
+            transition: background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+        }
+
+        .conn-dot.is-live {
+            background: var(--positive);
+        }
+
+        [data-fx="rich"] .conn-dot.is-live {
+            box-shadow: 0 0 0.7rem var(--positive);
+        }
+
+        .conn-dot.is-down {
+            background: var(--negative);
         }
 
         .bar-right {
@@ -391,32 +524,37 @@
             pointer-events: none;
         }
 
-        /* Mouse battery: glyph, then the figure beside it so it never sits on the fill. */
+        /* Mouse battery in a display window: glyph, then the figure. */
         .batt-slide {
             display: flex;
             align-items: center;
             gap: 0.7rem;
-            color: var(--text-2);
+            height: 3.4rem;
+            padding: 0 1rem 0 0.85rem;
+            border-radius: var(--radius-pill);
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            color: var(--well-ink-2);
         }
 
         .batt-slide > svg.lucide {
-            width: 1.9rem;
-            height: 1.9rem;
+            width: 1.6rem;
+            height: 1.6rem;
             stroke-width: 1.75;
         }
 
         .batt-widget {
             display: flex;
             align-items: center;
-            height: 1.6rem;
+            height: 1.45rem;
         }
 
         .batt-body {
             position: relative;
-            width: 3.4rem;
+            width: 3.1rem;
             height: 100%;
             border-radius: 0.35rem;
-            box-shadow: inset 0 0 0 0.12rem var(--line-strong);
+            box-shadow: inset 0 0 0 0.12rem var(--well-ink-2);
             padding: 0.22rem;
             overflow: hidden;
         }
@@ -447,36 +585,36 @@
             position: absolute;
             inset: 0;
             margin: auto;
-            width: 1rem;
-            height: 1rem;
-            color: var(--text);
+            width: 0.95rem;
+            height: 0.95rem;
+            color: var(--well-ink);
             stroke-width: 2.5;
             pointer-events: none;
         }
 
         .batt-cap {
-            width: 0.22rem;
+            width: 0.2rem;
             height: 45%;
             margin-left: 0.12rem;
-            background: var(--line-strong);
+            background: var(--well-ink-2);
             border-radius: 0 0.15rem 0.15rem 0;
         }
 
         .batt-pct {
-            min-width: 3.4rem;
+            min-width: 3rem;
             font-size: var(--fs-md);
             font-weight: var(--weight-strong);
-            color: var(--text);
+            color: var(--well-ink);
             white-space: nowrap;
         }
 
         .batt-pct svg.lucide {
-            width: 1.5rem;
-            height: 1.5rem;
+            width: 1.4rem;
+            height: 1.4rem;
             vertical-align: middle;
         }
 
-        /* Speed test: a half gauge and the two figures. */
+        /* Speed test: a display window with a half gauge and the two figures. */
         .speed-widget {
             display: flex;
             align-items: center;
@@ -484,22 +622,17 @@
             height: 3.8rem;
             padding: 0 1.1rem 0 0.9rem;
             border: 0;
-            border-radius: var(--radius-key);
-            background: var(--surface-2);
-            box-shadow: inset 0 0 0 var(--key-line-w) var(--key-line);
+            border-radius: calc(var(--radius-key) * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            color: var(--well-ink);
             cursor: pointer;
-            transition: transform var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+            transition: transform var(--dur-spring) var(--spring-bounce);
         }
 
         .speed-widget:active {
             transform: scale(0.96);
-            background-color: var(--surface-3);
-        }
-
-        @media (hover: hover) and (pointer: fine) {
-            .speed-widget:hover {
-                background-color: var(--surface-3);
-            }
+            transition-duration: var(--dur-fast);
         }
 
         .gauge {
@@ -524,7 +657,7 @@
         }
 
         .gauge-arc {
-            stroke: var(--text-3);
+            stroke: var(--well-ink-2);
             transition: stroke var(--dur) var(--ease), stroke-dashoffset 0.1s linear;
         }
 
@@ -533,7 +666,7 @@
             bottom: -0.25rem;
             font-size: var(--fs-xs);
             font-weight: var(--weight-strong);
-            color: var(--text);
+            color: var(--well-ink);
         }
 
         .speed-lines {
@@ -545,7 +678,6 @@
             font-weight: var(--weight-strong);
             line-height: 1.15;
             text-align: left;
-            color: var(--text);
         }
 
         .speed-line {
@@ -562,11 +694,11 @@
         }
 
         .speed-dl-icon {
-            color: var(--accent-text);
+            color: var(--well-accent);
         }
 
         .speed-ul-icon {
-            color: var(--text-3);
+            color: var(--well-ink-2);
         }
 
         #btn-shutdown {
@@ -581,9 +713,10 @@
             width: 29rem;
             height: 3.8rem;
             padding: 0 0.9rem 0 0.4rem;
-            background: var(--surface-2);
+            background: var(--well);
             border-radius: var(--radius-pill);
-            box-shadow: inset 0 0 0 var(--key-line-w) var(--key-line);
+            box-shadow: var(--well-inset);
+            color: var(--well-ink);
         }
 
         .sb-fb-btn {
@@ -594,7 +727,11 @@
             border-radius: var(--radius-pill);
             background: transparent;
             box-shadow: none;
-            color: var(--text-3);
+            color: var(--well-ink-2);
+        }
+
+        .sb-fb-btn:active {
+            box-shadow: none;
         }
 
         .sb-fb-btn.is-on {
@@ -610,7 +747,7 @@
         .sb-sep {
             width: 0.1rem;
             height: 1.6rem;
-            background: var(--line-strong);
+            background: var(--surface-3);
         }
 
         .vol-step-btn {
@@ -618,20 +755,22 @@
             padding: 0.55rem;
             border: 0;
             border-radius: var(--radius-pill);
-            background: var(--surface-3);
+            background: linear-gradient(180deg, var(--key-top), var(--surface-2));
+            box-shadow: var(--elev-2);
             color: var(--text-2);
             cursor: pointer;
-            transition: transform var(--dur-fast) var(--ease);
+            transition: transform var(--dur-spring) var(--spring-bounce);
         }
 
         .vol-step-btn:active {
-            transform: scale(0.88);
+            transform: scale(0.86);
+            transition-duration: var(--dur-fast);
         }
 
         #sb-vol-slider {
             position: relative;
             flex: 1;
-            height: 1rem;
+            height: 0.9rem;
             background: var(--surface-3);
             border-radius: var(--radius-pill);
             overflow: hidden;
@@ -645,6 +784,7 @@
             top: 0;
             bottom: 0;
             width: 50%;
+            border-radius: inherit;
             background: var(--accent);
             pointer-events: none;
         }
@@ -654,7 +794,7 @@
             text-align: right;
             font-weight: var(--weight-strong);
             font-size: var(--fs-sm);
-            color: var(--text);
+            color: var(--well-accent);
             cursor: pointer;
         }
 
@@ -699,71 +839,94 @@
             height: 100%;
             min-height: 0;
             min-width: 0;
-            overflow: hidden;
         }
 
-        .btn-row {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: var(--gap-sm);
-        }
-
-        /* Now playing */
+        /* ── Now playing ──────────────────────────────────────────────────── */
         .spotify {
             flex: 1;
-            justify-content: space-between;
-            overflow: hidden;
             position: relative;
+            overflow: hidden;
+            isolation: isolate;
+            justify-content: space-between;
         }
 
-        .spotify .panel-title {
-            text-align: center;
+        /* The cover, drawn into an 8×8 canvas and stretched: a free blur. */
+        .np-backdrop {
+            position: absolute;
+            inset: -12%;
+            width: 124%;
+            height: 124%;
+            z-index: -2;
+            opacity: 0;
+            transition: opacity 0.9s var(--ease);
+            pointer-events: none;
+        }
+
+        .np-backdrop.is-on {
+            opacity: var(--backdrop-opacity);
+        }
+
+        .spotify::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background: linear-gradient(180deg, transparent 0%, var(--surface) 82%);
+            pointer-events: none;
         }
 
         .spot-empty {
             flex: 1;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            gap: 0.9rem;
             color: var(--text-3);
             font-size: var(--fs-md);
+        }
+
+        .spot-empty svg.lucide {
+            width: 3.6rem;
+            height: 3.6rem;
+            stroke-width: 1.25;
+            color: var(--line-strong);
         }
 
         #spot-info {
             width: 100%;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start;
-            margin: 1.25rem 0 0;
+            justify-content: center;
+            margin: 1rem 0 0;
             overflow: hidden;
             flex: 1;
             min-height: 0;
-            max-height: 26rem;
-            transition: transform 0.4s var(--ease);
+            transition: transform 0.5s var(--spring);
             transform-origin: center center;
         }
 
         .spotify.expanded #spot-info {
-            transform: scale(1.1);
+            transform: scale(1.06);
         }
 
         .spot-art-box {
             flex: 1;
             min-height: 0;
-            max-height: 18rem;
+            max-height: 19rem;
             width: 100%;
             display: flex;
             justify-content: center;
             align-items: center;
-            margin-bottom: 1.2rem;
-            overflow: hidden;
+            margin-bottom: 1.3rem;
         }
 
         #spot-art {
             max-height: 100%;
             max-width: 100%;
-            border-radius: var(--radius-media);
+            border-radius: calc(var(--radius-media) * var(--sq));
             object-fit: contain;
+            box-shadow: 0 1.4rem 2.6rem -1.1rem var(--dyn-shadow, var(--depth));
         }
 
         .spot-text-box {
@@ -771,12 +934,13 @@
             width: 100%;
             text-align: center;
             overflow: hidden;
-            padding: 0 1rem;
+            padding: 0 0.5rem;
         }
 
         #spot-title {
-            font-size: 2rem;
+            font-size: 2.1rem;
             font-weight: var(--weight-strong);
+            letter-spacing: -0.015em;
             color: var(--text);
             line-height: 1.2;
         }
@@ -798,7 +962,7 @@
         }
 
         .marquee-wrapper + .marquee-wrapper {
-            margin-top: 0.4rem;
+            margin-top: 0.3rem;
         }
 
         .marquee-content {
@@ -810,30 +974,91 @@
             display: inline-block;
         }
 
-        .spot-ctrl {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: var(--gap-sm);
+        .np-progress {
             width: 100%;
-            height: 5rem;
-            margin-top: 1.5rem;
+            margin-top: 1.1rem;
         }
 
-        /* Discord */
+        .np-bar {
+            height: 0.42rem;
+            border-radius: var(--radius-pill);
+            background: var(--surface-3);
+            overflow: hidden;
+        }
+
+        .np-fill {
+            height: 100%;
+            width: 100%;
+            border-radius: inherit;
+            background: var(--dyn, var(--accent));
+            transform: scaleX(0);
+            transform-origin: left center;
+        }
+
+        .np-fill.is-ticking {
+            transition: transform 1s linear;
+        }
+
+        .np-times {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.45rem;
+            font-size: var(--fs-xs);
+            color: var(--text-3);
+        }
+
+        .spot-ctrl {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.6rem;
+            width: 100%;
+            margin-top: 1.1rem;
+        }
+
+        .spot-ctrl .btn {
+            width: 4.6rem;
+            height: 4.6rem;
+            flex: none;
+        }
+
+        .spot-ctrl .btn-play {
+            width: 6rem;
+            height: 6rem;
+            background: var(--dyn, var(--inverse));
+            color: var(--dyn-ink, var(--inverse-ink));
+            box-shadow: inset 0 1px 0 var(--rim), 0 0.9rem 1.8rem -0.7rem var(--dyn-shadow, var(--depth));
+            transition: transform var(--dur-spring) var(--spring-bounce), background-color 0.8s var(--ease), box-shadow 0.8s var(--ease);
+        }
+
+        .spot-ctrl .btn-play svg.lucide {
+            width: 2.4rem;
+            height: 2.4rem;
+            fill: currentColor;
+        }
+
+        /* ── Discord ──────────────────────────────────────────────────────── */
         #panel-discord {
             flex: 0 0 auto;
             min-height: 14rem;
             justify-content: center;
-            align-items: center;
+            align-items: stretch;
+            gap: 1rem;
             overflow: hidden;
             transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
         }
 
         .disc-header-basic {
             display: flex;
+            align-items: center;
             justify-content: center;
-            width: 100%;
-            margin-bottom: 1.25rem;
+            gap: 0.6rem;
+            color: var(--text-2);
+        }
+
+        .disc-header-basic svg {
+            width: 1.6rem;
+            height: 1.6rem;
         }
 
         #disc-vc-container {
@@ -841,7 +1066,7 @@
             min-height: 0;
             width: 100%;
             flex-direction: column;
-            padding-bottom: 1rem;
+            gap: 0.8rem;
         }
 
         .vc-head {
@@ -850,7 +1075,6 @@
             align-items: center;
             gap: 1rem;
             width: 100%;
-            margin-bottom: 1rem;
         }
 
         .vc-names {
@@ -860,12 +1084,21 @@
         }
 
         #vc-guild-name {
-            color: var(--text-3);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: var(--positive);
             font-size: var(--fs-xs);
-            font-weight: 500;
+            font-weight: var(--weight-strong);
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        }
+
+        #vc-guild-name::before {
+            content: '';
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+            background: currentColor;
         }
 
         #vc-channel-name {
@@ -878,41 +1111,44 @@
         }
 
         .vc-leave {
-            width: 4.6rem;
-            height: 3.6rem;
+            width: auto;
+            height: 3.2rem;
             min-height: 0;
-            padding: 0;
+            padding: 0 1.1rem;
             flex: none;
+            border-radius: var(--radius-pill);
         }
 
         .vc-leave svg.lucide {
-            width: 1.6rem;
-            height: 1.6rem;
+            width: 1.5rem;
+            height: 1.5rem;
         }
 
         #vc-users-list {
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 0.4rem;
+            gap: 0.35rem;
             flex: 1;
             min-height: 0;
-            padding-right: 0.4rem;
+            padding: 0.35rem;
+            border-radius: calc(0.9rem * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
         }
 
         .vc-user {
             display: flex;
             align-items: center;
             gap: 0.8rem;
-            padding: 0.45rem 0.6rem;
-            border-radius: var(--radius-key);
-            background: var(--surface-2);
+            padding: 0.35rem 0.5rem;
+            border-radius: 0.6rem;
         }
 
         .vc-avatar {
             position: relative;
-            width: 2.6rem;
-            height: 2.6rem;
+            width: 2.5rem;
+            height: 2.5rem;
             border-radius: 50%;
             flex-shrink: 0;
             background: var(--surface-3);
@@ -931,6 +1167,22 @@
             box-shadow: 0 0 0 0.16rem var(--positive);
         }
 
+        /* Speaking pulse: a ring that grows and fades, transform + opacity only. */
+        [data-fx="rich"] .vc-avatar.speaking::after {
+            content: '';
+            position: absolute;
+            inset: -0.16rem;
+            border-radius: 50%;
+            box-shadow: 0 0 0 0.16rem var(--positive);
+            animation: speak-pulse 1.1s var(--ease) infinite;
+            pointer-events: none;
+        }
+
+        @keyframes speak-pulse {
+            from { transform: scale(1); opacity: 0.8; }
+            to { transform: scale(1.45); opacity: 0; }
+        }
+
         .vc-status-icon {
             position: absolute;
             bottom: -0.3rem;
@@ -938,7 +1190,7 @@
             width: 1.3rem;
             height: 1.3rem;
             border-radius: 50%;
-            background: var(--surface-2);
+            background: var(--well);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -952,7 +1204,7 @@
         }
 
         .vc-name {
-            color: var(--text);
+            color: var(--well-ink);
             font-weight: 500;
             font-size: var(--fs-sm);
             white-space: nowrap;
@@ -960,13 +1212,35 @@
             text-overflow: ellipsis;
         }
 
+        /* Connected button group: inner corners tight, outer corners round;
+           a key that turns on morphs into a pill. */
         .disc-keys {
+            display: flex;
+            gap: 0.3rem;
             width: 100%;
             flex: 0 0 auto;
         }
 
         .disc-keys .btn {
-            height: 5rem;
+            flex: 1;
+            height: 4.8rem;
+            min-height: 0;
+            padding: 0;
+            border-radius: 0.55rem;
+            transition: transform var(--dur-spring) var(--spring-bounce), border-radius var(--dur-spring) var(--spring), box-shadow var(--dur-fast) var(--ease);
+        }
+
+        .disc-keys .btn:first-child {
+            border-radius: calc(var(--radius-key) * var(--sq) * 1.3) 0.55rem 0.55rem calc(var(--radius-key) * var(--sq) * 1.3);
+        }
+
+        .disc-keys .btn:last-child {
+            border-radius: 0.55rem calc(var(--radius-key) * var(--sq) * 1.3) calc(var(--radius-key) * var(--sq) * 1.3) 0.55rem;
+        }
+
+        .disc-keys .btn.muted,
+        .disc-keys .btn.vid-active {
+            border-radius: 2.4rem;
         }
 
         .disc-keys .btn svg.lucide {
@@ -974,24 +1248,45 @@
             height: 1.9rem;
         }
 
-        /* Time & weather */
+        /* ── Clock & weather ──────────────────────────────────────────────── */
         .time-weather-panel {
             flex: 0 0 clamp(15.75rem, 23vh, 18.5rem);
             justify-content: center;
             align-items: center;
-            gap: 1.4rem;
+            gap: 1.2rem;
         }
 
         .clock {
             position: relative;
+            display: flex;
+            align-items: center;
         }
 
         .clock-time {
+            display: flex;
             font-size: var(--fs-clock);
             font-weight: var(--weight-clock);
-            letter-spacing: -0.03em;
-            line-height: 1;
+            letter-spacing: -0.045em;
+            line-height: 0.9;
             color: var(--text);
+        }
+
+        .dg {
+            display: inline-block;
+        }
+
+        .dg-colon {
+            opacity: 0.45;
+            padding: 0 0.04em 0.06em;
+        }
+
+        .dg.roll {
+            animation: digit-roll 560ms var(--spring) both;
+        }
+
+        @keyframes digit-roll {
+            from { transform: translateY(-0.32em); opacity: 0; }
+            to { transform: none; opacity: 1; }
         }
 
         .clock-date {
@@ -999,62 +1294,73 @@
             left: 100%;
             top: 50%;
             transform: translateY(-50%);
-            margin-left: 1.5rem;
+            margin-left: 1.4rem;
             display: flex;
             flex-direction: column;
             align-items: center;
-            font-weight: var(--weight-strong);
-            font-size: var(--fs-md);
-            color: var(--text-2);
+            gap: 0.15rem;
             line-height: 1;
         }
 
-        .clock-sep {
-            color: var(--text-3);
-            font-size: var(--fs-xs);
-            margin: 0.15rem 0;
-        }
-
         .clock-day {
-            margin-top: 0.5rem;
-            padding: 0.25rem 0.7rem;
+            padding: 0.3rem 0.7rem;
             border-radius: var(--radius-pill);
             background: var(--inverse);
             color: var(--inverse-ink);
             font-size: var(--fs-xs);
+            font-weight: var(--weight-strong);
             white-space: nowrap;
+            margin-bottom: 0.35rem;
+        }
+
+        #date-day {
+            font-size: var(--fs-lg);
+            font-weight: var(--weight-strong);
+            color: var(--text);
+        }
+
+        #date-month {
+            font-size: var(--fs-sm);
+            font-weight: 500;
+            color: var(--text-2);
         }
 
         .weather {
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: 0.9rem;
+            padding: 0.55rem 1.2rem 0.55rem 0.7rem;
+            border-radius: var(--radius-pill);
+            background: var(--well);
+            box-shadow: var(--well-inset);
         }
 
         .weather > svg.lucide {
-            width: 3rem;
-            height: 3rem;
-            color: var(--accent-text);
-            stroke-width: 1.5;
+            width: 2.3rem;
+            height: 2.3rem;
+            color: var(--well-accent);
+            stroke-width: 1.6;
         }
 
         .weather-temp {
-            font-size: var(--fs-xl);
+            font-size: var(--fs-lg);
             font-weight: var(--weight-strong);
+            color: var(--well-ink);
             line-height: 1;
         }
 
         .weather-desc {
-            color: var(--text-2);
+            color: var(--well-ink-2);
             font-size: var(--fs-sm);
+            white-space: nowrap;
         }
 
-        /* Faders: one channel strip each, scale marks at 25 / 50 / 75 %. */
+        /* ── Mixer: two channel strips and the output encoder ─────────────── */
         .slider-section {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr);
             grid-template-rows: minmax(0, 1fr);
-            gap: clamp(0.75rem, 2vw, 1.75rem);
+            gap: 1rem;
             align-items: stretch;
             justify-items: center;
             min-height: 0;
@@ -1063,79 +1369,179 @@
         }
 
         .pro-slider {
-            width: min(100%, clamp(4.25rem, 6.8vw, 7rem));
+            width: 100%;
+            max-width: 8.6rem;
             height: 100%;
             display: flex;
             flex-direction: column;
             align-items: stretch;
-            gap: 0.7rem;
+            gap: 0.75rem;
             min-height: 0;
         }
 
         .fader-val {
-            flex: none;
-            text-align: center;
             font-size: var(--fs-lg);
             font-weight: var(--weight-strong);
-            color: var(--text);
-            line-height: 1.1;
+            color: var(--well-accent);
+            line-height: 1.05;
         }
 
         .fader-val.is-muted {
-            color: var(--negative-text);
+            color: var(--well-ink);
             font-size: var(--fs-md);
+            line-height: 1.3;
         }
 
+        /* The fader bed. --v (0–1) drives the lit slot and the cap, both by
+           transform, so a drag never triggers layout. */
         .slider-track-area {
-            flex: 1;
+            --v: 0;
             position: relative;
+            flex: 1;
             min-height: 0;
             width: 100%;
-            overflow: hidden;
-            cursor: pointer;
-            border-radius: var(--radius-key);
-            background: var(--surface-2);
-            box-shadow: inset 0 0 0 var(--key-line-w) var(--key-line);
+            cursor: grab;
             touch-action: none;
+        }
+
+        .slider-track-area.is-dragging {
+            cursor: grabbing;
+        }
+
+        /* Printed scale: ticks either side of the slot, figures on the left. */
+        .fader-scale {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(var(--cap-h) / 2);
+            bottom: calc(var(--cap-h) / 2);
+            pointer-events: none;
+        }
+
+        .tick {
+            position: absolute;
+            top: calc((1 - var(--t)) * 100%);
+            width: 0.45rem;
+            height: 0.12rem;
+            margin-top: -0.06rem;
+            border-radius: 1px;
+            background: var(--line-strong);
+        }
+
+        .tick.l {
+            right: calc(50% + 0.75rem);
+        }
+
+        .tick.r {
+            left: calc(50% + 0.75rem);
+        }
+
+        .tick.major {
+            width: 0.8rem;
+            background: var(--text-3);
+        }
+
+        .tick-label {
+            position: absolute;
+            top: calc((1 - var(--t)) * 100%);
+            right: calc(50% + 1.85rem);
+            transform: translateY(-50%);
+            font-size: var(--fs-xs);
+            font-weight: 500;
+            color: var(--text-3);
+            line-height: 1;
+        }
+
+        .fader-slot {
+            position: absolute;
+            left: 50%;
+            top: calc(var(--cap-h) / 2);
+            bottom: calc(var(--cap-h) / 2);
+            width: 0.65rem;
+            margin-left: -0.325rem;
+            border-radius: var(--radius-pill);
+            background: var(--well);
+            box-shadow: var(--well-inset);
         }
 
         .slider-fill {
             position: absolute;
             inset: 0;
-            transform: translateY(100%);
+            border-radius: inherit;
             background: var(--accent);
+            transform: scaleY(var(--v));
+            transform-origin: 50% 100%;
+            transition: transform 280ms var(--spring);
             pointer-events: none;
         }
 
-        .fader-scale {
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
+        /* Light from the lit slot spills onto the plate. */
+        [data-fx="rich"] .slider-fill {
+            box-shadow: 0 0 1.1rem -0.1rem var(--accent);
         }
 
-        .fader-scale::before,
-        .fader-scale::after {
-            content: '';
+        /* Carrier spans the cap's travel; translating it by (1 − v) of its own
+           height parks the cap at the value. */
+        .fader-carrier {
             position: absolute;
             left: 0;
             right: 0;
+            top: 0;
+            height: calc(100% - var(--cap-h));
+            transform: translateY(calc((1 - var(--v)) * 100%));
+            transition: transform 280ms var(--spring);
+            pointer-events: none;
         }
 
-        .fader-scale::before {
-            top: 25%;
-            height: 50%;
-            border-top: 0.14rem solid var(--meter-gap);
-            border-bottom: 0.14rem solid var(--meter-gap);
+        .slider-track-area.is-dragging .slider-fill,
+        .slider-track-area.is-dragging .fader-carrier {
+            transition: none;
         }
 
-        .fader-scale::after {
+        /* The cap: grip ridges above and below a lit index line. */
+        .fader-cap {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: min(5.2rem, 84%);
+            height: var(--cap-h);
+            border-radius: 0.6rem;
+            transform: translateX(-50%);
+            background:
+                repeating-linear-gradient(180deg, var(--cap-lo) 0 0.11rem, transparent 0.11rem 0.4rem) 50% 0.45rem / 74% 30% no-repeat,
+                repeating-linear-gradient(180deg, var(--cap-lo) 0 0.11rem, transparent 0.11rem 0.4rem) 50% calc(100% - 0.35rem) / 74% 30% no-repeat,
+                linear-gradient(180deg, var(--cap-hi) 0%, var(--cap) 38%, var(--cap) 62%, var(--cap-lo) 100%);
+            box-shadow: var(--elev-cap);
+            transition: transform var(--dur-spring) var(--spring-bounce), box-shadow var(--dur) var(--ease);
+        }
+
+        .cap-line {
+            position: absolute;
+            left: 0.45rem;
+            right: 0.45rem;
             top: 50%;
-            border-top: 0.14rem solid var(--meter-gap);
+            height: 0.24rem;
+            margin-top: -0.12rem;
+            border-radius: var(--radius-pill);
+            background: var(--cap-index);
+            transition: background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+        }
+
+        .slider-track-area.is-dragging .fader-cap {
+            transform: translateX(-50%) scale(1.05);
+        }
+
+        .slider-track-area.is-dragging .cap-line {
+            background: var(--accent);
+        }
+
+        [data-fx="rich"] .slider-track-area.is-dragging .cap-line {
+            box-shadow: 0 0 0.7rem var(--accent);
         }
 
         .slider-icon {
             flex: 0 0 auto;
-            height: 5.6rem;
+            height: 4.6rem;
             min-height: 0;
             padding: 0;
         }
@@ -1145,68 +1551,112 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
+            gap: 1.2rem;
             width: 100%;
             height: 100%;
             min-width: 0;
         }
 
-        .audio-hub-btn {
-            width: 100%;
-            aspect-ratio: 3 / 4;
-            height: auto;
-            max-height: 100%;
-            flex-direction: column;
-            gap: 1.1rem;
-            border-radius: var(--radius-panel);
+        /* Output encoder: a knurled knob inside a ring of LEDs, one per device. */
+        .encoder {
+            position: relative;
+            width: min(100%, 12rem);
+            aspect-ratio: 1;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+            flex-shrink: 0;
         }
 
-        .audio-hub-btn:active {
-            transform: scale(0.98);
+        .enc-leds,
+        .enc-led-wrap {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
         }
 
-        .hub-label {
-            font-size: var(--fs-sm);
-            color: var(--text-2);
-            font-weight: 500;
-        }
-
-        .audio-hub-ring {
-            width: 6.4rem;
-            height: 6.4rem;
+        .enc-led {
+            position: absolute;
+            top: 2.5%;
+            left: 50%;
+            width: 0.6rem;
+            height: 0.6rem;
+            margin-left: -0.3rem;
             border-radius: 50%;
             background: var(--surface-3);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: var(--text);
-            transition: transform 0.3s var(--ease);
+            box-shadow: inset 0 1px 0 var(--rim);
+            transition: background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
         }
 
-        .audio-hub-ring svg.lucide {
-            width: 2.8rem;
-            height: 2.8rem;
+        .enc-led.is-on {
+            background: var(--accent);
         }
 
-        .audio-hub-btn:active .audio-hub-ring {
-            transform: rotate(90deg) scale(0.92);
+        [data-fx="rich"] .enc-led.is-on {
+            box-shadow: 0 0 0.75rem var(--accent);
+        }
+
+        .encoder-knob {
+            position: absolute;
+            inset: 15%;
+            border-radius: 50%;
+            background: repeating-conic-gradient(from 0deg, var(--cap) 0deg 4deg, var(--cap-lo) 4deg 8deg);
+            box-shadow: var(--elev-cap);
+            transform: rotate(var(--angle, 0deg));
+            transition: transform 620ms var(--spring-bounce), scale var(--dur-spring) var(--spring-bounce);
+        }
+
+        .encoder-knob::before {
+            content: '';
+            position: absolute;
+            inset: 11%;
+            border-radius: 50%;
+            background: radial-gradient(circle at 36% 28%, var(--cap-hi), var(--cap) 58%, var(--cap-lo));
+            box-shadow: inset 0 1px 0 var(--rim), 0 0.2rem 0.5rem var(--edge);
+        }
+
+        .knob-indicator {
+            position: absolute;
+            left: 50%;
+            top: 15%;
+            width: 0.32rem;
+            height: 20%;
+            margin-left: -0.16rem;
+            border-radius: var(--radius-pill);
+            background: var(--accent);
+        }
+
+        [data-fx="rich"] .knob-indicator {
+            box-shadow: 0 0 0.6rem var(--accent);
+        }
+
+        .encoder:active .encoder-knob {
+            scale: 0.95;
+        }
+
+        .encoder-display {
+            width: 100%;
+            max-width: 13rem;
+            padding: 0.55rem 0.7rem 0.5rem;
         }
 
         #btn-audio-cycle {
-            font-size: var(--fs-lg);
+            max-width: 100%;
+            font-size: var(--fs-md);
             font-weight: var(--weight-strong);
-            color: var(--text);
+            color: var(--well-ink);
             text-align: center;
             line-height: 1.2;
-            max-width: 90%;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
 
-        /* Macros */
+        /* ── Macro keys: display keys, a screen inside each cap ───────────── */
         .macros-panel {
             flex: 1;
-            gap: 1.25rem;
+            gap: 1rem;
         }
 
         .btn-grid {
@@ -1220,8 +1670,6 @@
 
         .macro-slot {
             display: flex;
-            flex-direction: column;
-            gap: 0.4rem;
             height: 100%;
             min-width: 0;
             min-height: 0;
@@ -1231,32 +1679,77 @@
             flex: 1;
             height: auto;
             min-height: 0;
-            padding: 0.75rem;
+            padding: 0;
         }
 
-        .macro-slot .btn img {
-            width: 2.2rem;
-            height: 2.2rem;
+        .key-screen {
+            position: absolute;
+            inset: 0.4rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.45rem;
+            padding: 0.4rem;
+            border-radius: calc((var(--radius-key) - 0.3rem) * var(--sq));
+            /* A faint backlight from the top edge, like an LCD key. */
+            background: radial-gradient(120% 80% at 50% 0%, var(--glow), transparent 70%), var(--well);
+            box-shadow: inset 0 0.2rem 0.6rem var(--edge), inset 0 -1px 0 var(--rim);
+            color: var(--well-ink);
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .key-screen svg.lucide {
+            width: 2.6rem;
+            height: 2.6rem;
+            stroke-width: 1.6;
+            transition: transform var(--dur-spring) var(--spring-bounce);
+        }
+
+        .btn:active .key-screen svg.lucide {
+            transform: scale(0.9);
+            transition-duration: var(--dur-fast);
+        }
+
+        .key-screen img {
+            width: 2.4rem;
+            height: 2.4rem;
             object-fit: contain;
         }
 
-        .macro-slot > span {
-            text-align: center;
-            font-size: var(--fs-xs);
-            font-weight: 500;
-            color: var(--text-2);
-            white-space: nowrap;
+        .key-label {
+            max-width: 100%;
             overflow: hidden;
             text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: var(--fs-xs);
+            font-weight: 500;
+            color: var(--well-ink-2);
+            line-height: 1.15;
         }
 
-        .btn.btn-plugin svg.lucide,
-        .macro-slot > span.is-plugin {
+        .btn-plugin .key-screen svg.lucide,
+        .btn-plugin .key-label {
+            color: var(--well-accent);
+        }
+
+        .btn-add .key-label {
             color: var(--accent-text);
         }
 
+        .btn-add svg.lucide {
+            width: 2rem;
+            height: 2rem;
+        }
+
+        .btn-add {
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
         .macro-slot.empty .btn {
-            background-color: transparent;
+            background: transparent;
             box-shadow: inset 0 0 0 var(--line-w) var(--line);
             cursor: default;
         }
@@ -1265,77 +1758,96 @@
             transform: none;
         }
 
-        .macro-slot.empty > span {
-            visibility: hidden;
-        }
-
-        /* System monitor: label, a meter at the true ratio, the figure. */
+        /* ── System monitor: three display tiles with live history ────────── */
         .sys-monitor {
             flex: 0 0 auto;
-            gap: 1rem;
+            gap: 0.9rem;
         }
 
         .stats {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(0, 1fr);
+            gap: var(--gap-sm);
+        }
+
+        .stat {
+            --spark: var(--well-accent);
+            position: relative;
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .stat-row {
-            display: grid;
-            grid-template-columns: 2rem 4rem minmax(0, 1fr) 4.6rem;
-            align-items: center;
-            gap: 1rem;
-            padding: 1rem 1.2rem;
-            border-radius: var(--radius-key);
-            background: var(--surface-2);
-            font-size: var(--fs-md);
-        }
-
-        .stat-row > svg.lucide {
-            width: 1.8rem;
-            height: 1.8rem;
-            color: var(--text-2);
-            stroke-width: 1.75;
-        }
-
-        .stat-label {
-            color: var(--text-2);
-            font-weight: 500;
-        }
-
-        .stat-meter {
-            height: 0.55rem;
-            border-radius: var(--radius-pill);
-            background: var(--surface-3);
+            gap: 0.1rem;
+            height: 6.4rem;
+            padding: 0.7rem 0.85rem 0;
+            border-radius: calc(0.9rem * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
             overflow: hidden;
         }
 
-        .stat-meter-fill {
-            display: block;
-            height: 100%;
-            width: 100%;
-            background: var(--text-2);
-            transform: scaleX(0);
-            transform-origin: left center;
-            transition: transform 0.6s var(--ease), background-color var(--dur) var(--ease);
+        .stat.is-high {
+            --spark: var(--warning);
         }
 
-        .stat-meter-fill.is-high {
-            background: var(--warning);
+        .stat.is-critical {
+            --spark: var(--negative);
         }
 
-        .stat-meter-fill.is-critical {
-            background: var(--negative);
+        .stat-head {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: var(--well-ink-2);
+            font-size: var(--fs-xs);
+            font-weight: 500;
+        }
+
+        .stat-head svg.lucide {
+            width: 1.05rem;
+            height: 1.05rem;
+            stroke-width: 2;
         }
 
         .stat-val {
-            text-align: right;
+            position: relative;
+            z-index: 1;
+            font-size: var(--fs-lg);
             font-weight: var(--weight-strong);
-            color: var(--text);
+            color: var(--well-ink);
+            line-height: 1.1;
         }
 
-        /* Soundboard view */
+        .spark {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: 52%;
+            overflow: visible;
+        }
+
+        .spark-line {
+            fill: none;
+            stroke: var(--spark);
+            stroke-width: 1.6;
+            stroke-linejoin: round;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .spark-a {
+            stop-color: var(--spark);
+            stop-opacity: 0.38;
+        }
+
+        .spark-b {
+            stop-color: var(--spark);
+            stop-opacity: 0;
+        }
+
+        /* ── Soundboard: drum pads that light when struck ─────────────────── */
         #soundpad-view {
             position: absolute;
             inset: 0;
@@ -1358,31 +1870,58 @@
 
         #sp-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
             gap: var(--gap);
             align-content: start;
         }
 
         .sp-btn {
-            height: 7rem;
+            aspect-ratio: 1 / 0.78;
+            height: auto;
             flex-direction: column;
-            gap: 0.5rem;
+            gap: 0.6rem;
+            overflow: hidden;
         }
 
         .sp-btn svg.lucide {
             color: var(--accent-text);
-            width: 1.8rem;
-            height: 1.8rem;
+            width: 2.6rem;
+            height: 2.6rem;
+            fill: currentColor;
         }
 
         .sp-btn span {
-            font-weight: 500;
-            font-size: var(--fs-md);
+            font-weight: var(--weight-strong);
+            font-size: var(--fs-lg);
             pointer-events: none;
             max-width: 100%;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        .sp-btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            box-shadow: inset 0 0 0 0.16rem var(--accent), inset 0 0 2.2rem -0.6rem var(--accent);
+            opacity: 0;
+            transition: opacity 0.7s var(--ease);
+            pointer-events: none;
+        }
+
+        .sp-btn.active-btn::after {
+            opacity: 1;
+            transition: none;
+        }
+
+        .sp-btn.btn-add svg.lucide {
+            fill: none;
+        }
+
+        .sp-btn.btn-add::after {
+            display: none;
         }
 
         /* ── Desktop titlebar ─────────────────────────────────────────────── */
@@ -1392,6 +1931,7 @@
             align-items: center;
             justify-content: space-between;
             background: var(--surface);
+            box-shadow: inset 0 -1px 0 var(--line);
             margin: calc(var(--pad) * -1) calc(var(--pad) * -1) 0 calc(var(--pad) * -1);
             padding: 0 1rem;
             z-index: 9999;
@@ -1459,9 +1999,9 @@
             padding: 1.25rem;
             flex-direction: column;
             gap: 0.8rem;
-            background: var(--surface);
+            background: linear-gradient(180deg, var(--surface-top), var(--surface));
             border-radius: var(--radius-panel);
-            box-shadow: var(--shadow), inset 0 0 0 var(--line-w) var(--line);
+            box-shadow: var(--shadow), var(--elev-1);
             z-index: 99999;
         }
 
@@ -1502,7 +2042,7 @@
             align-items: center;
             opacity: 0;
             visibility: hidden;
-            transition: opacity 0.15s ease-out, visibility 0.15s ease-out;
+            transition: opacity 0.18s ease-out, visibility 0.18s ease-out;
         }
 
         .modal-overlay.active {
@@ -1520,13 +2060,13 @@
             max-width: 90vw;
             max-height: 90vh;
             padding: 2.5rem;
-            background: var(--surface);
-            border-radius: var(--radius-panel);
-            box-shadow: var(--shadow), inset 0 0 0 var(--panel-line-w) var(--panel-line);
+            background: linear-gradient(180deg, var(--surface-top), var(--surface) 30%);
+            border-radius: calc(var(--radius-panel) * var(--sq));
+            box-shadow: var(--shadow), var(--elev-1);
             overflow-y: auto;
             overflow-x: hidden;
-            transform: scale(0.97) translateY(0.6rem);
-            transition: transform 0.2s var(--ease);
+            transform: scale(0.96) translateY(0.8rem);
+            transition: transform var(--dur-spring) var(--spring);
         }
 
         .modal-overlay.active .modal-card {
@@ -1542,6 +2082,7 @@
             margin: 0;
             font-size: 2rem;
             font-weight: var(--weight-strong);
+            letter-spacing: -0.015em;
             color: var(--text);
             line-height: 1.2;
         }
@@ -1581,17 +2122,11 @@
             z-index: 10;
             width: 3rem;
             height: 3rem;
-            min-height: 0;
-            padding: 0;
-            border-radius: var(--radius-pill);
-            background: transparent;
-            box-shadow: none;
-            color: var(--text-2);
         }
 
         .modal-close svg.lucide {
-            width: 1.5rem;
-            height: 1.5rem;
+            width: 1.4rem;
+            height: 1.4rem;
         }
 
         /* IP connect */
@@ -1635,12 +2170,13 @@
         #update-notes-container {
             margin-top: 0.5rem;
             padding: 1rem;
-            background: var(--surface-2);
+            background: var(--well);
+            box-shadow: var(--well-inset);
             border-radius: var(--radius-key);
             max-height: 14rem;
             overflow-y: auto;
             font-size: var(--fs-sm);
-            color: var(--text-2);
+            color: var(--well-ink);
             white-space: pre-wrap;
         }
 
@@ -1677,11 +2213,12 @@
         #update-log {
             margin-top: 1rem;
             padding: 0.75rem;
-            background: var(--surface-2);
+            background: var(--well);
+            box-shadow: var(--well-inset);
             border-radius: var(--radius-key);
             font-family: ui-monospace, "Cascadia Mono", "Roboto Mono", "Noto Sans Mono", monospace;
             font-size: var(--fs-xs);
-            color: var(--text-2);
+            color: var(--well-ink-2);
             max-height: 10rem;
             overflow-y: auto;
             display: flex;
@@ -1690,7 +2227,7 @@
         }
 
         #update-log .is-error {
-            color: var(--negative-text);
+            color: var(--negative);
         }
 
         /* Settings */
@@ -1706,7 +2243,6 @@
             gap: 0.3rem;
             padding: 1.5rem 1rem;
             min-width: 16rem;
-            background: var(--surface);
             box-shadow: inset calc(var(--line-w) * -1) 0 0 var(--line);
         }
 
@@ -1734,13 +2270,14 @@
             cursor: pointer;
             padding: 0.85rem 1rem;
             text-align: left;
-            border-radius: var(--radius-key);
+            border-radius: calc(var(--radius-key) * var(--sq));
             transition: background-color var(--dur-fast), color var(--dur-fast);
         }
 
         .tab.active {
             color: var(--text);
-            background: var(--surface-3);
+            background: var(--surface-2);
+            box-shadow: var(--elev-2);
         }
 
         @media (hover: hover) and (pointer: fine) {
@@ -1775,6 +2312,7 @@
             margin: 0;
             font-size: var(--fs-lg);
             font-weight: var(--weight-strong);
+            letter-spacing: -0.01em;
             color: var(--text);
         }
 
@@ -1804,9 +2342,9 @@
         }
 
         .setting-group {
+            border-radius: calc(var(--radius-key) * var(--sq));
             background: var(--surface-2);
-            border-radius: var(--radius-key);
-            box-shadow: inset 0 0 0 var(--key-line-w) var(--key-line);
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 0 0 var(--key-line-w) var(--key-line);
         }
 
         .setting-row {
@@ -1895,7 +2433,7 @@
         .audio-dev-row {
             padding: 0.6rem 0.6rem 0.6rem 1.1rem;
             background: var(--surface-2);
-            border-radius: var(--radius-key);
+            border-radius: calc(var(--radius-key) * var(--sq));
         }
 
         .audio-dev-row .raw {
@@ -1967,7 +2505,7 @@
             align-items: flex-start;
             padding: 1rem 1.2rem;
             background: var(--surface-2);
-            border-radius: var(--radius-key);
+            border-radius: calc(var(--radius-key) * var(--sq));
             color: var(--text);
             font-size: var(--fs-sm);
             line-height: 1.45;
@@ -2001,12 +2539,12 @@
             color: var(--text-2);
         }
 
-        /* Switch: inverted when on (white on dark, near-black on light). */
+        /* Switch: a recessed track; on, it lights and the knob slides across. */
         .switch {
             position: relative;
             display: inline-block;
-            width: 4.2rem;
-            height: 2.4rem;
+            width: 4.4rem;
+            height: 2.5rem;
             flex-shrink: 0;
         }
 
@@ -2021,36 +2559,36 @@
             position: absolute;
             inset: 0;
             cursor: pointer;
-            background-color: var(--surface-3);
+            background: var(--well);
             border-radius: var(--radius-pill);
-            box-shadow: inset 0 0 0 var(--key-line-w) var(--key-line);
+            box-shadow: var(--well-inset);
             transition: background-color var(--dur) var(--ease);
         }
 
         .switch .slider::before {
             content: '';
             position: absolute;
-            height: 1.8rem;
-            width: 1.8rem;
+            height: 1.9rem;
+            width: 1.9rem;
             left: 0.3rem;
             top: 0.3rem;
-            background-color: var(--text-2);
             border-radius: 50%;
-            transition: transform var(--dur) var(--ease), background-color var(--dur) var(--ease);
+            background: radial-gradient(circle at 40% 30%, var(--cap-hi), var(--cap) 70%);
+            box-shadow: var(--elev-cap);
+            transition: transform var(--dur-spring) var(--spring-bounce);
         }
 
         .switch input:checked + .slider {
-            background-color: var(--inverse);
+            background: var(--accent);
         }
 
         .switch input:checked + .slider::before {
-            transform: translateX(1.8rem);
-            background-color: var(--inverse-ink);
+            transform: translateX(1.9rem);
         }
 
         .switch input:focus-visible + .slider {
             outline: 2px solid var(--focus);
-            outline-offset: 2px;
+            outline-offset: 3px;
         }
 
         /* Themes: each card previews its own preset, scoped by inline tokens. */
@@ -2067,21 +2605,22 @@
             gap: 0.9rem;
             padding: 0.8rem 0.8rem 1.1rem;
             border: 0;
-            border-radius: var(--radius-panel);
+            border-radius: calc(var(--radius-panel) * var(--sq));
             background: var(--surface-2);
-            box-shadow: inset 0 0 0 var(--key-line-w) var(--key-line);
+            box-shadow: var(--elev-2);
             color: var(--text);
             text-align: left;
             cursor: pointer;
-            transition: transform var(--dur-fast) var(--ease);
+            transition: transform var(--dur-spring) var(--spring-bounce);
         }
 
         .theme-card:active {
-            transform: scale(0.98);
+            transform: scale(0.97);
+            transition-duration: var(--dur-fast);
         }
 
         .theme-card[aria-checked="true"] {
-            box-shadow: inset 0 0 0 0.2rem var(--text);
+            box-shadow: inset 0 0 0 0.2rem var(--accent), var(--elev-2);
         }
 
         .theme-check {
@@ -2092,8 +2631,8 @@
             height: 2rem;
             padding: 0.35rem;
             border-radius: 50%;
-            background: var(--inverse);
-            color: var(--inverse-ink);
+            background: var(--accent);
+            color: var(--accent-ink);
             stroke-width: 3;
             visibility: hidden;
         }
@@ -2108,8 +2647,8 @@
             gap: 0.45rem;
             padding: 0.55rem;
             height: 8.6rem;
-            border-radius: calc(var(--radius-panel) * 0.7);
-            background: var(--ground);
+            border-radius: calc(var(--radius-panel) * 0.7 * var(--sq));
+            background: radial-gradient(14rem 10rem at 20% 30%, var(--glow), transparent 70%), var(--ground);
             font-family: var(--font-sans);
             pointer-events: none;
         }
@@ -2120,8 +2659,8 @@
             justify-content: space-between;
             padding: 0.6rem 0.7rem;
             border-radius: 0.6rem;
-            background: var(--surface);
-            box-shadow: inset 0 0 0 calc(var(--panel-line-w) * 0.5) var(--panel-line);
+            background: linear-gradient(180deg, var(--surface-top), var(--surface));
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 0 0 calc(var(--panel-line-w) * 0.5) var(--panel-line);
         }
 
         .tp-clock {
@@ -2129,7 +2668,7 @@
             font-variant-numeric: tabular-nums;
             font-size: 1.9rem;
             font-weight: var(--weight-clock);
-            letter-spacing: -0.03em;
+            letter-spacing: -0.04em;
             line-height: 1;
             color: var(--text);
         }
@@ -2150,12 +2689,17 @@
         .tp-key {
             height: 1.5rem;
             border-radius: 0.35rem;
-            background: var(--surface-2);
-            box-shadow: inset 0 0 0 calc(var(--key-line-w) * 0.5) var(--key-line);
+            padding: 0.18rem;
+            background: linear-gradient(180deg, var(--key-top), var(--surface-2));
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 0 0 calc(var(--key-line-w) * 0.5) var(--key-line);
         }
 
-        .tp-key.is-primary {
-            background: var(--inverse);
+        .tp-key::before {
+            content: '';
+            display: block;
+            height: 100%;
+            border-radius: 0.2rem;
+            background: var(--well);
         }
 
         .tp-key.is-muted {
@@ -2163,32 +2707,48 @@
             box-shadow: none;
         }
 
+        .tp-key.is-muted::before {
+            display: none;
+        }
+
         .tp-faders {
             display: flex;
-            gap: 0.35rem;
-            padding: 0.55rem;
+            justify-content: space-around;
+            padding: 0.55rem 0.3rem;
             border-radius: 0.6rem;
-            background: var(--surface);
-            box-shadow: inset 0 0 0 calc(var(--panel-line-w) * 0.5) var(--panel-line);
+            background: linear-gradient(180deg, var(--surface-top), var(--surface));
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 0 0 calc(var(--panel-line-w) * 0.5) var(--panel-line);
         }
 
         .tp-fader {
             position: relative;
-            flex: 1;
-            border-radius: 0.35rem;
-            background: var(--surface-2);
-            overflow: hidden;
-            box-shadow: inset 0 0 0 calc(var(--key-line-w) * 0.5) var(--key-line);
+            width: 0.32rem;
+            border-radius: 1rem;
+            background: var(--well);
         }
 
-        .tp-fader::after {
+        .tp-fader::before {
             content: '';
             position: absolute;
             left: 0;
             right: 0;
             bottom: 0;
             height: var(--tp-level, 60%);
+            border-radius: inherit;
             background: var(--accent);
+        }
+
+        .tp-fader::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: var(--tp-level, 60%);
+            width: 1.6rem;
+            height: 0.95rem;
+            margin: 0 0 -0.47rem -0.8rem;
+            border-radius: 0.25rem;
+            background: linear-gradient(180deg, var(--cap-hi), var(--cap) 45%, var(--cap-lo));
+            box-shadow: 0 0.2rem 0.4rem var(--edge);
         }
 
         .theme-meta {
@@ -2219,7 +2779,7 @@
         }
 
         .sp-save-valid {
-            background-color: var(--inverse) !important;
+            background: var(--inverse) !important;
             color: var(--inverse-ink) !important;
             opacity: 1 !important;
         }
@@ -2250,7 +2810,7 @@
         }
 
         #macro-record-btn.is-recording {
-            background-color: var(--negative);
+            background: var(--negative);
             color: var(--negative-ink);
         }
 
@@ -2260,11 +2820,12 @@
             align-items: center;
             min-height: 3.8rem;
             padding: 0 1.1rem;
-            background: var(--surface-2);
+            background: var(--well);
+            box-shadow: var(--well-inset);
             border-radius: calc(var(--radius-key) * 0.75);
             font-family: ui-monospace, "Cascadia Mono", "Roboto Mono", "Noto Sans Mono", monospace;
             font-size: var(--fs-sm);
-            color: var(--text);
+            color: var(--well-accent);
         }
 
         .move-row {
@@ -2292,7 +2853,7 @@
             z-index: 9999;
             visibility: hidden;
             pointer-events: none;
-            background: var(--ground);
+            background: radial-gradient(60rem 42rem at 50% 42%, var(--ambient), transparent 72%), var(--ground);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -2310,7 +2871,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4.5rem;
+            gap: 4rem;
             transition: transform 2s var(--ease);
         }
 
@@ -2329,10 +2890,11 @@
         }
 
         #lock-time {
-            font-size: 9rem;
+            display: flex;
+            font-size: 10rem;
             font-weight: var(--weight-clock);
-            letter-spacing: -0.03em;
-            line-height: 1;
+            letter-spacing: -0.045em;
+            line-height: 0.9;
             color: var(--text);
         }
 
@@ -2340,10 +2902,18 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            gap: 0.15rem;
+            line-height: 1;
+        }
+
+        #lock-date-day {
+            font-size: 2.6rem;
             font-weight: var(--weight-strong);
+        }
+
+        #lock-date-month {
             font-size: var(--fs-lg);
             color: var(--text-2);
-            line-height: 1;
         }
 
         .lock-weather {
@@ -2389,6 +2959,16 @@
             font-weight: 500;
         }
 
+        /* ── Lite effects tier (WebKitGTK desktop window) ─────────────────── */
+        [data-fx="lite"] {
+            transition: none;
+        }
+
+        [data-fx="lite"] .np-backdrop,
+        [data-fx="lite"] .spot-ctrl .btn-play {
+            transition: none;
+        }
+
         @media (prefers-reduced-motion: reduce) {
             *,
             *::before,
@@ -2411,10 +2991,9 @@
                     <div class="lock-clock">
                         <div id="lock-time" class="num">00:00</div>
                         <div class="lock-date num">
-                            <div id="lock-date-day">-</div>
-                            <div class="clock-sep">/</div>
-                            <div id="lock-date-month">-</div>
                             <div id="lock-date-dayname" class="clock-day">---</div>
+                            <div id="lock-date-day">-</div>
+                            <div id="lock-date-month">-</div>
                         </div>
                     </div>
                     <div class="lock-weather">
@@ -2838,9 +3417,9 @@
         <div class="section bar-left">
             <button class="btn btn-top" id="btn-back" onclick="toggleSoundpad(false)" aria-label="Back to dashboard"><i
                     data-lucide="arrow-left"></i></button>
-            <div id="batt-slide" class="batt-slide">
+            <div id="batt-slide" class="batt-slide" title="Mouse battery">
                 <i data-lucide="mouse"></i>
-                <div class="batt-widget" id="batt-widget" title="Mouse battery">
+                <div class="batt-widget" id="batt-widget">
                     <div class="batt-body">
                         <div class="batt-fill" id="batt-fill"></div>
                         <i data-lucide="zap" class="batt-zap" id="batt-zap" style="display:none;"></i>
@@ -2855,6 +3434,7 @@
         <div class="section bar-title">
             <svg class="brand-mark" aria-hidden="true"><use href="#icon-brand" /></svg>
             <h1 id="top-title">Command Center</h1>
+            <span class="conn-dot" id="conn-dot" role="status" aria-label="Connecting"></span>
         </div>
         <div class="section bar-right">
             <div id="top-right-normal" class="bar-cluster">
@@ -2911,9 +3491,13 @@
         <div class="grid-container view-layer active" id="main-view">
             <div class="col">
                 <section class="card panel spotify" aria-label="Now playing">
-                    <h2 class="panel-title">Now playing</h2>
+                    <canvas class="np-backdrop" id="np-backdrop" width="8" height="8" aria-hidden="true"></canvas>
+                    <div class="panel-head">
+                        <h2 class="panel-title">Now playing</h2>
+                        <span class="chip" id="np-source" hidden></span>
+                    </div>
 
-                    <div id="spot-empty" class="spot-empty">Nothing playing</div>
+                    <div id="spot-empty" class="spot-empty"><i data-lucide="disc-3"></i>Nothing playing</div>
 
                     <div id="spot-info" style="display: none;">
                         <div class="spot-art-box">
@@ -2928,23 +3512,30 @@
                                 <div id="wrapper-artist" class="marquee-content"><span id="spot-artist"></span></div>
                             </div>
                         </div>
+
+                        <div class="np-progress" id="np-progress" hidden>
+                            <div class="np-bar"><div class="np-fill" id="np-fill"></div></div>
+                            <div class="np-times num"><span id="np-elapsed">0:00</span><span
+                                    id="np-remaining">0:00</span></div>
+                        </div>
                     </div>
 
                     <div class="spot-ctrl">
-                        <button class="btn" onclick="act('spot_prev')" aria-label="Previous track"><i
+                        <button class="btn round" onclick="act('spot_prev')" aria-label="Previous track"><i
                                 data-lucide="skip-back"></i></button>
-                        <button class="btn btn-primary" id="btn-spot-play" onclick="act('spot_play')"
+                        <button class="btn round btn-play" id="btn-spot-play" onclick="act('spot_play')"
                             aria-label="Play or pause">
                             <i data-lucide="play" id="icon-spot-play"></i>
                             <i data-lucide="pause" id="icon-spot-pause" style="display: none;"></i>
                         </button>
-                        <button class="btn" onclick="act('spot_next')" aria-label="Next track"><i
+                        <button class="btn round" onclick="act('spot_next')" aria-label="Next track"><i
                                 data-lucide="skip-forward"></i></button>
                     </div>
                 </section>
 
                 <section id="panel-discord" class="card panel" style="display: none;" aria-label="Discord">
                     <div id="disc-header-basic" class="disc-header-basic">
+                        <svg aria-hidden="true"><use href="#icon-discord" /></svg>
                         <h2 class="panel-title">Discord</h2>
                     </div>
 
@@ -2963,7 +3554,7 @@
                         <div id="vc-users-list"></div>
                     </div>
 
-                    <div class="btn-row disc-keys">
+                    <div class="disc-keys" role="group" aria-label="Voice controls">
                         <button class="btn" id="btn-disc-mute" onclick="act('disc_mute')" aria-label="Mute"><i
                                 data-lucide="mic"></i></button>
                         <button class="btn" id="btn-disc-deaf" onclick="act('disc_deaf')" aria-label="Deafen"><i
@@ -2981,48 +3572,54 @@
                     <div class="clock">
                         <div id="time" class="clock-time num">00:00</div>
                         <div class="clock-date num">
-                            <div id="date-day">-</div>
-                            <div class="clock-sep">/</div>
-                            <div id="date-month">-</div>
                             <div id="date-dayname" class="clock-day">---</div>
+                            <div id="date-day">-</div>
+                            <div id="date-month">-</div>
                         </div>
                     </div>
                     <div class="weather">
                         <i data-lucide="cloud" id="w-icon"></i>
-                        <div>
-                            <div id="w-temp" class="weather-temp num">&mdash;&deg;</div>
-                            <div id="w-desc" class="weather-desc">&mdash;</div>
-                        </div>
+                        <div id="w-temp" class="weather-temp num">&mdash;&deg;</div>
+                        <div id="w-desc" class="weather-desc">&mdash;</div>
                     </div>
                 </section>
 
-                <section class="card panel slider-section" aria-label="Audio levels">
+                <section class="card panel slider-section" aria-label="Audio mixer">
                     <div class="pro-slider">
-                        <div class="fader-val num" id="val-spk">0%</div>
+                        <div class="scribble">
+                            <span class="ch-name">Output</span>
+                            <span class="fader-val num" id="val-spk">0%</span>
+                        </div>
                         <div class="slider-track-area" id="slide-spk" aria-label="Speaker volume">
-                            <div class="slider-fill" id="fill-spk"></div>
                             <div class="fader-scale"></div>
+                            <div class="fader-slot"><div class="slider-fill" id="fill-spk"></div></div>
+                            <div class="fader-carrier"><div class="fader-cap"><span class="cap-line"></span></div></div>
                         </div>
                         <button class="btn slider-icon" id="icon-spk" onclick="toggleMuteOpt('spk')"
                             aria-label="Mute speaker"><i data-lucide="volume-2"></i></button>
                     </div>
 
                     <div class="audio-switch">
-                        <button class="btn audio-hub-btn" onclick="act('audio_cycle')"
+                        <button class="encoder" id="encoder" onclick="act('audio_cycle')"
                             aria-label="Switch output device">
-                            <span class="hub-label">Output</span>
-                            <span class="audio-hub-ring">
-                                <i data-lucide="refresh-cw"></i>
-                            </span>
-                            <span id="btn-audio-cycle">Device</span>
+                            <span class="enc-leds" id="enc-leds"></span>
+                            <span class="encoder-knob" id="encoder-knob"><span class="knob-indicator"></span></span>
                         </button>
+                        <div class="scribble encoder-display">
+                            <span class="ch-name">Output device</span>
+                            <span id="btn-audio-cycle">Device</span>
+                        </div>
                     </div>
 
                     <div class="pro-slider">
-                        <div class="fader-val num" id="val-mic">0%</div>
+                        <div class="scribble">
+                            <span class="ch-name">Mic</span>
+                            <span class="fader-val num" id="val-mic">0%</span>
+                        </div>
                         <div class="slider-track-area" id="slide-mic" aria-label="Microphone volume">
-                            <div class="slider-fill" id="fill-mic"></div>
                             <div class="fader-scale"></div>
+                            <div class="fader-slot"><div class="slider-fill" id="fill-mic"></div></div>
+                            <div class="fader-carrier"><div class="fader-cap"><span class="cap-line"></span></div></div>
                         </div>
                         <button class="btn slider-icon" id="icon-mic" onclick="toggleMuteOpt('mic')"
                             aria-label="Mute microphone"><i data-lucide="mic"></i></button>
@@ -3032,23 +3629,46 @@
 
             <div class="col">
                 <section class="card panel macros-panel" aria-label="Macros and apps">
-                    <h2 class="panel-title">Macros &amp; apps</h2>
+                    <div class="panel-head">
+                        <h2 class="panel-title">Macros &amp; apps</h2>
+                    </div>
                     <div id="macro-grid" class="btn-grid"></div>
                 </section>
                 <section class="card panel sys-monitor" id="sys-monitor-panel" aria-label="System monitor">
-                    <h2 class="panel-title">System monitor</h2>
+                    <div class="panel-head">
+                        <h2 class="panel-title">System monitor</h2>
+                    </div>
                     <div class="stats">
-                        <div class="stat-row"><i data-lucide="cpu"></i><span class="stat-label">CPU</span><span
-                                class="stat-meter"><span class="stat-meter-fill" id="sys-cpu-bar"></span></span><span
-                                class="stat-val num" id="sys-cpu">0%</span></div>
-                        <div class="stat-row"><i data-lucide="memory-stick"></i><span
-                                class="stat-label">RAM</span><span class="stat-meter"><span class="stat-meter-fill"
-                                    id="sys-ram-bar"></span></span><span class="stat-val num" id="sys-ram">0%</span>
+                        <div class="stat" id="sys-cpu-tile">
+                            <div class="stat-head"><i data-lucide="cpu"></i>CPU</div>
+                            <div class="stat-val num" id="sys-cpu">0%</div>
+                            <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
+                                <defs><linearGradient id="spark-g-cpu" x1="0" y1="0" x2="0" y2="1"><stop
+                                            offset="0" class="spark-a" /><stop offset="1" class="spark-b" /></linearGradient></defs>
+                                <path id="spark-area-cpu" fill="url(#spark-g-cpu)" />
+                                <path id="spark-line-cpu" class="spark-line" />
+                            </svg>
                         </div>
-                        <div class="stat-row" id="sys-gpu-row" style="display: none;"><i
-                                data-lucide="monitor"></i><span class="stat-label">GPU</span><span
-                                class="stat-meter"><span class="stat-meter-fill" id="sys-gpu-bar"></span></span><span
-                                class="stat-val num" id="sys-gpu">0%</span></div>
+                        <div class="stat" id="sys-ram-tile">
+                            <div class="stat-head"><i data-lucide="memory-stick"></i>RAM</div>
+                            <div class="stat-val num" id="sys-ram">0%</div>
+                            <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
+                                <defs><linearGradient id="spark-g-ram" x1="0" y1="0" x2="0" y2="1"><stop
+                                            offset="0" class="spark-a" /><stop offset="1" class="spark-b" /></linearGradient></defs>
+                                <path id="spark-area-ram" fill="url(#spark-g-ram)" />
+                                <path id="spark-line-ram" class="spark-line" />
+                            </svg>
+                        </div>
+                        <div class="stat" id="sys-gpu-row" style="display: none;">
+                            <div class="stat-head"><i data-lucide="monitor"></i>GPU</div>
+                            <div class="stat-val num" id="sys-gpu">0%</div>
+                            <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
+                                <defs><linearGradient id="spark-g-gpu" x1="0" y1="0" x2="0" y2="1"><stop
+                                            offset="0" class="spark-a" /><stop offset="1" class="spark-b" /></linearGradient></defs>
+                                <path id="spark-area-gpu" fill="url(#spark-g-gpu)" />
+                                <path id="spark-line-gpu" class="spark-line" />
+                            </svg>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -3129,12 +3749,26 @@
         }
 
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-        function applyMotionPreference() {
-            // GSAP drives the larger transitions; speed them up rather than branch every call site.
-            if (gsap.globalTimeline) gsap.globalTimeline.timeScale(reducedMotion.matches ? 40 : 1);
+        if (gsap.matchMedia) {
+            // GSAP drives the larger transitions; under reduced motion they finish
+            // almost at once instead of every call site branching.
+            gsap.matchMedia().add('(prefers-reduced-motion: reduce)', () => {
+                gsap.globalTimeline.timeScale(40);
+                return () => gsap.globalTimeline.timeScale(1);
+            });
         }
-        applyMotionPreference();
-        if (reducedMotion.addEventListener) reducedMotion.addEventListener('change', applyMotionPreference);
+
+        // --- Haptics (Android) ---
+        // A short tick on every key, a firmer one on toggles, detents on faders.
+        const canVibrate = typeof navigator.vibrate === 'function' && window.matchMedia('(pointer: coarse)').matches;
+        const HAPTIC_KEY = 8, HAPTIC_DETENT = 5, HAPTIC_END = 14;
+        function haptic(ms) {
+            if (!canVibrate) return;
+            try { navigator.vibrate(ms); } catch (err) { /* blocked by the WebView: silent */ }
+        }
+        document.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.btn, .encoder, .speed-widget, .theme-card, .switch')) haptic(HAPTIC_KEY);
+        }, { passive: true });
 
         window.addEventListener('pywebviewready', () => {
             document.getElementById('desktop-titlebar').style.display = 'flex';
@@ -3282,7 +3916,16 @@
             document.getElementById('ip-modal').classList.remove('active');
         }
 
+        function setLinkState(live) {
+            const dot = document.getElementById('conn-dot');
+            if (!dot) return;
+            dot.classList.toggle('is-live', live);
+            dot.classList.toggle('is-down', !live);
+            dot.setAttribute('aria-label', live ? 'Connected to PC' : 'Disconnected');
+        }
+
         function handleSocketFailure(failedIp, message = 'Connection failed or timed out') {
+            setLinkState(false);
             if (!isCapacitorRuntime()) {
                 closePendingSocket();
                 hasDisconnected = true;
@@ -3332,6 +3975,7 @@
 
             nextSocket.onopen = () => {
                 if (attemptId !== socketAttemptId) return;
+                setLinkState(true);
                 if (socketConnectTimer) {
                     clearTimeout(socketConnectTimer);
                     socketConnectTimer = null;
@@ -3529,9 +4173,16 @@
             macroActionContainer: document.getElementById('macro-action-container'),
             macroDelBtn: document.getElementById('macro-del-btn'),
             macroSaveBtn: document.getElementById('macro-save-btn'),
-            sysCpuBar: document.getElementById('sys-cpu-bar'),
-            sysRamBar: document.getElementById('sys-ram-bar'),
-            sysGpuBar: document.getElementById('sys-gpu-bar'),
+            sysCpuTile: document.getElementById('sys-cpu-tile'),
+            sysRamTile: document.getElementById('sys-ram-tile'),
+            npBackdrop: document.getElementById('np-backdrop'),
+            npSource: document.getElementById('np-source'),
+            npProgress: document.getElementById('np-progress'),
+            npFill: document.getElementById('np-fill'),
+            npElapsed: document.getElementById('np-elapsed'),
+            npRemaining: document.getElementById('np-remaining'),
+            encoderKnob: document.getElementById('encoder-knob'),
+            encLeds: document.getElementById('enc-leds'),
             speedDl: document.getElementById('s-dl'),
             speedUl: document.getElementById('s-ul'),
             gaugeArc: document.getElementById('speed-gauge-arc'),
@@ -3608,6 +4259,249 @@
             dom.sbFeedback.title = on ? 'Local feedback: on' : 'Local feedback: off';
         }
 
+        // --- Now playing: cover colour, backdrop, progress, source ---
+        // The cover tints the room: its most vivid hue becomes --dyn (play key,
+        // progress, glow), fitted per scheme so the key's ink keeps 4.5:1.
+        const ART_SAMPLE_PX = 24, BACKDROP_PX = 8;
+        const HUE_BINS = 12, MIN_VIVID_WEIGHT = 1.5;
+        const DYN_MIN_LUM_DARK = 0.26, DYN_MAX_LUM_LIGHT = 0.14, DYN_MIN_SAT = 0.5;
+        const PROGRESS_SNAP_S = 1.5;
+        let dynRgb = null;
+
+        function luminance([r, g, b]) {
+            const ch = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+            return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+        }
+        function rgbToHsl([r, g, b]) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+            if (max === min) return [0, 0, l];
+            const d = max - min, sat = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            let h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+            return [h * 60, sat, l];
+        }
+        function hslToRgb([h, sat, l]) {
+            const k = n => (n + h / 30) % 12, a = sat * Math.min(l, 1 - l);
+            const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+            return [f(0) * 255, f(8) * 255, f(4) * 255];
+        }
+        function hexOf(rgb, alphaHex = '') {
+            return '#' + rgb.map(c => Math.max(0, Math.min(255, Math.round(c))).toString(16).padStart(2, '0')).join('') + alphaHex;
+        }
+
+        // Most vivid hue family, weighted by saturation and mid lightness.
+        function vibrantColour(px) {
+            const bins = Array.from({ length: HUE_BINS }, () => ({ w: 0, r: 0, g: 0, b: 0 }));
+            for (let i = 0; i < px.length; i += 4) {
+                if (px[i + 3] < 200) continue;
+                const rgb = [px[i], px[i + 1], px[i + 2]];
+                const [h, sat, l] = rgbToHsl(rgb);
+                if (sat < 0.25 || l < 0.12 || l > 0.9) continue;
+                const w = sat * sat * (1 - Math.abs(l - 0.55));
+                const bin = bins[Math.floor(h / (360 / HUE_BINS)) % HUE_BINS];
+                bin.w += w; bin.r += rgb[0] * w; bin.g += rgb[1] * w; bin.b += rgb[2] * w;
+            }
+            const best = bins.reduce((a, b) => (b.w > a.w ? b : a));
+            return best.w < MIN_VIVID_WEIGHT ? null : [best.r / best.w, best.g / best.w, best.b / best.w];
+        }
+
+        function fitToScheme(rgb, scheme) {
+            let [h, sat, l] = rgbToHsl(rgb);
+            sat = Math.max(sat, DYN_MIN_SAT);
+            let out = hslToRgb([h, sat, l]);
+            for (let guard = 0; guard < 40; guard++) {
+                const lum = luminance(out);
+                if (scheme === 'light' ? lum <= DYN_MAX_LUM_LIGHT : lum >= DYN_MIN_LUM_DARK) break;
+                l = Math.max(0, Math.min(1, l + (scheme === 'light' ? -0.025 : 0.025)));
+                out = hslToRgb([h, sat, l]);
+            }
+            return out;
+        }
+
+        function applyDyn() {
+            const st = document.documentElement.style;
+            const theme = window.TDTheme ? TDTheme.current() : '';
+            // High contrast keeps its fixed palette.
+            if (!dynRgb || theme === 'contrast') {
+                ['--dyn', '--dyn-ink', '--dyn-glow', '--dyn-shadow'].forEach(prop => st.removeProperty(prop));
+                return;
+            }
+            const scheme = TDTheme.scheme(theme);
+            const c = fitToScheme(dynRgb, scheme);
+            st.setProperty('--dyn', hexOf(c));
+            st.setProperty('--dyn-ink', scheme === 'light' ? 'var(--on-deep)' : 'var(--on-bright)');
+            st.setProperty('--dyn-glow', hexOf(c, scheme === 'light' ? '2e' : '38'));
+            st.setProperty('--dyn-shadow', hexOf(c, '8c'));
+        }
+        document.addEventListener('td-theme-change', applyDyn);
+
+        // Reading pixels needs CORS; a cover served without it keeps the theme accent.
+        function sampleArt(url) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                try {
+                    const c = document.createElement('canvas');
+                    c.width = c.height = ART_SAMPLE_PX;
+                    const ctx = c.getContext('2d', { willReadFrequently: true });
+                    ctx.drawImage(img, 0, 0, ART_SAMPLE_PX, ART_SAMPLE_PX);
+                    dynRgb = vibrantColour(ctx.getImageData(0, 0, ART_SAMPLE_PX, ART_SAMPLE_PX).data);
+                } catch (err) {
+                    dynRgb = null;
+                }
+                applyDyn();
+            };
+            img.onerror = () => { dynRgb = null; applyDyn(); };
+            img.src = url;
+        }
+
+        // An 8×8 copy of the cover, stretched by CSS: a blur that costs nothing.
+        // Drawing (not reading) works without CORS.
+        function drawBackdrop(img) {
+            const cv = dom.npBackdrop;
+            if (!cv) return;
+            try {
+                const ctx = cv.getContext('2d');
+                ctx.clearRect(0, 0, BACKDROP_PX, BACKDROP_PX);
+                ctx.drawImage(img, 0, 0, BACKDROP_PX, BACKDROP_PX);
+                cv.classList.add('is-on');
+            } catch (err) {
+                cv.classList.remove('is-on');
+            }
+        }
+
+        function clearCover() {
+            if (dynRgb) { dynRgb = null; applyDyn(); }
+            if (dom.npBackdrop) dom.npBackdrop.classList.remove('is-on');
+        }
+
+        function setSource(player) {
+            const chip = dom.npSource;
+            const name = String(player || '');
+            if (!chip || chip.dataset.player === name) return;
+            chip.dataset.player = name;
+            chip.hidden = !name;
+            chip.innerHTML = name === 'Spotify'
+                ? '<svg aria-hidden="true"><use href="#icon-spotify"/></svg>Spotify'
+                : `<i data-lucide="radio"></i>${escapeHtml(name)}`;
+            renderIcons(chip);
+        }
+
+        // Progress: anchored to the last report, advanced locally once a second.
+        // On rich displays the bar leads by a second and a 1 s linear transition
+        // carries it there, so it glides instead of stepping.
+        let npClock = null;
+        let npTimer = null;
+        const progressGlides = document.documentElement.dataset.fx === 'rich';
+
+        function fmtDuration(sec) {
+            sec = Math.max(0, Math.floor(sec));
+            const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), r = sec % 60;
+            return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(r).padStart(2, '0');
+        }
+        function npPosition() {
+            if (!npClock) return 0;
+            const p = npClock.playing ? npClock.pos + (performance.now() - npClock.at) / 1000 : npClock.pos;
+            return Math.min(npClock.len, Math.max(0, p));
+        }
+        function renderProgress(lead) {
+            if (!npClock) return;
+            const pos = npPosition();
+            const target = lead ? Math.min(npClock.len, pos + 1) : pos;
+            dom.npFill.style.transform = `scaleX(${(target / npClock.len).toFixed(4)})`;
+            setText(dom.npElapsed, fmtDuration(pos));
+            setText(dom.npRemaining, '−' + fmtDuration(npClock.len - pos));
+        }
+        function stopProgressTimer() {
+            clearInterval(npTimer);
+            npTimer = null;
+        }
+        function startProgressTimer() {
+            if (npTimer || !npClock || !npClock.playing || document.hidden) return;
+            npTimer = setInterval(() => {
+                dom.npFill.classList.toggle('is-ticking', progressGlides);
+                renderProgress(progressGlides);
+            }, 1000);
+        }
+        function updateProgress(media) {
+            const len = Number(media && media.length), pos = Number(media && media.position);
+            if (!media || !(len > 0) || media.position === null || !Number.isFinite(pos)) {
+                npClock = null;
+                dom.npProgress.hidden = true;
+                stopProgressTimer();
+                return;
+            }
+            const playing = media.status === 'Playing';
+            const jumped = !npClock || npClock.len !== len || npClock.playing !== playing
+                || Math.abs(npPosition() - pos) > PROGRESS_SNAP_S;
+            npClock = { pos, len, at: performance.now(), playing };
+            dom.npProgress.hidden = false;
+            if (jumped) {
+                // Seek, new track or play/pause: move without a glide.
+                dom.npFill.classList.remove('is-ticking');
+                renderProgress(false);
+            }
+            if (playing) startProgressTimer();
+            else stopProgressTimer();
+        }
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) stopProgressTimer();
+            else if (npClock) { dom.npFill.classList.remove('is-ticking'); renderProgress(false); startProgressTimer(); }
+        });
+
+        if (dom.spotArt) {
+            dom.spotArt.onload = function () { drawBackdrop(this); };
+        }
+
+        // --- Output encoder: one LED per output device, the knob points at the live one ---
+        const ENC_STEP_DEG = 60, ENC_MAX_SPAN_DEG = 270, ENC_LOCK_MS = 1500;
+        let encoderSinks = [];
+        let encoderIndex = null;
+        let encoderLock = 0;
+
+        function encoderAngles(n) {
+            if (n <= 1) return [0];
+            const span = Math.min(ENC_MAX_SPAN_DEG, (n - 1) * ENC_STEP_DEG);
+            return Array.from({ length: n }, (_, i) => -span / 2 + (i * span) / (n - 1));
+        }
+
+        function setEncoderIndex(i) {
+            if (i === encoderIndex) return;
+            encoderIndex = i;
+            const angles = encoderAngles(encoderSinks.length);
+            dom.encLeds.querySelectorAll('.enc-led').forEach((led, k) => led.classList.toggle('is-on', k === i));
+            if (i >= 0) dom.encoderKnob.style.setProperty('--angle', angles[i] + 'deg');
+        }
+
+        function renderEncoder(sinks) {
+            if (!dom.encLeds) return;
+            encoderSinks = Array.isArray(sinks) ? sinks : [];
+            const angles = encoderAngles(encoderSinks.length);
+            dom.encLeds.innerHTML = encoderSinks.map((_, i) =>
+                `<span class="enc-led-wrap" style="transform: rotate(${angles[i]}deg)"><span class="enc-led"></span></span>`).join('');
+            encoderIndex = null;
+            setEncoderIndex(encoderSinks.findIndex(sk => sk.is_active));
+        }
+
+        // Same short name the server shows (custom alias, else the raw name's first 8 letters).
+        function sinkLabel(sink) {
+            const alias = (globalCfg.audio_names || {})[sink.raw_name] || '';
+            return alias ? alias.slice(0, 10) : String(sink.raw_name || '').slice(0, 8).toUpperCase();
+        }
+
+        function syncEncoder(activeName) {
+            if (Date.now() < encoderLock || !encoderSinks.length) return;
+            let i = encoderSinks.findIndex(sk => sk.name === activeName);
+            if (i < 0) i = encoderSinks.findIndex(sk => sinkLabel(sk) === activeName);
+            setEncoderIndex(i);
+        }
+
+        function encoderAdvance() {
+            if (!encoderSinks.length) return;
+            encoderLock = Date.now() + ENC_LOCK_MS;
+            setEncoderIndex(((encoderIndex ?? -1) + 1) % encoderSinks.length);
+        }
+
         if (dom.spotArt) {
             dom.spotArt.onerror = function () {
                 this.style.display = 'none';
@@ -3620,15 +4514,40 @@
             if (el && el.textContent !== value) el.textContent = value;
         }
 
-        // Load meters: a transform, so the 1 Hz update never triggers layout.
+        // --- System monitor: tile level + a sparkline of the last minute ---
+        // History is kept here from the 1 Hz sys_data stream; nothing is invented.
         const LOAD_HIGH = 85, LOAD_CRITICAL = 95;
-        function setMeter(el, pct) {
-            if (!el) return;
+        const SPARK_POINTS = 60, SPARK_W = 60, SPARK_H = 30, SPARK_PAD = 1.5;
+        const sparkHistory = { cpu: [], ram: [], gpu: [] };
+        const sparkEls = {};
+        for (const key of Object.keys(sparkHistory)) {
+            sparkEls[key] = {
+                line: document.getElementById('spark-line-' + key),
+                area: document.getElementById('spark-area-' + key)
+            };
+        }
+
+        function setLoad(tile, key, pct) {
             const v = Math.max(0, Math.min(100, Number(pct) || 0));
-            const transform = `scaleX(${(v / 100).toFixed(3)})`;
-            if (el.style.transform !== transform) el.style.transform = transform;
-            el.classList.toggle('is-high', v >= LOAD_HIGH && v < LOAD_CRITICAL);
-            el.classList.toggle('is-critical', v >= LOAD_CRITICAL);
+            if (tile) {
+                tile.classList.toggle('is-high', v >= LOAD_HIGH && v < LOAD_CRITICAL);
+                tile.classList.toggle('is-critical', v >= LOAD_CRITICAL);
+            }
+            const hist = sparkHistory[key];
+            hist.push(v);
+            if (hist.length > SPARK_POINTS) hist.shift();
+            const els = sparkEls[key];
+            if (!els || !els.line || hist.length < 2) return;
+            const step = SPARK_W / (SPARK_POINTS - 1);
+            const x0 = SPARK_W - (hist.length - 1) * step;  // newest sample on the right edge
+            let d = '';
+            hist.forEach((val, i) => {
+                const x = (x0 + i * step).toFixed(2);
+                const y = (SPARK_H - SPARK_PAD - (val / 100) * (SPARK_H - SPARK_PAD * 2)).toFixed(2);
+                d += (i ? 'L' : 'M') + x + ',' + y;
+            });
+            els.line.setAttribute('d', d);
+            els.area.setAttribute('d', d + `L${SPARK_W},${SPARK_H}L${x0.toFixed(2)},${SPARK_H}Z`);
         }
 
         function setDisplay(el, value) {
@@ -3773,6 +4692,7 @@
                     }
 
                     populateAudioTab(d.hw, globalCfg.audio_names);
+                    renderEncoder(d.hw);
 
                     const c = d.cfg;
                     if (window.TDTheme) TDTheme.apply(c.theme || TDTheme.defaultId);
@@ -3881,6 +4801,7 @@
                 else if (msg.type === 'hw_scan_results') {
                     currentHwDevices = d;
                     populateAudioTab(d, globalCfg.audio_names);
+                    renderEncoder(d);
                 }
                 else if (msg.type === 'apps_list') {
                     osApps = d;
@@ -4160,8 +5081,8 @@
                 // Whole percentages: steadier to read at a glance than 12.3 / 5 / 12.4.
                 setText(dom.sysCpu, Math.round(d.cpu) + '%');
                 setText(dom.sysRam, Math.round(d.ram) + '%');
-                setMeter(dom.sysCpuBar, d.cpu);
-                setMeter(dom.sysRamBar, d.ram);
+                setLoad(dom.sysCpuTile, 'cpu', d.cpu);
+                setLoad(dom.sysRamTile, 'ram', d.ram);
 
                 // Battery widget (handles both new dict and legacy string)
                 if (d.mouse_batt !== undefined) {
@@ -4170,9 +5091,9 @@
 
                 const gpuRow = dom.gpuRow;
                 if (d.gpu !== null && d.gpu !== "") {
-                    setDisplay(gpuRow, 'grid');
+                    setDisplay(gpuRow, 'flex');
                     setText(dom.sysGpu, Math.round(d.gpu) + '%');
-                    setMeter(dom.sysGpuBar, d.gpu);
+                    setLoad(gpuRow, 'gpu', d.gpu);
                 } else {
                     setDisplay(gpuRow, 'none');
                 }
@@ -4202,12 +5123,17 @@
 
                             artImg.src = finalUrl;
                             artImg.style.display = 'block';
+                            sampleArt(finalUrl);
                         }
                     } else {
                         artImg.style.display = 'none';
                         artImg.removeAttribute('data-src');
                         artImg.removeAttribute('src');
+                        clearCover();
                     }
+
+                    setSource(d.spotify.player);
+                    updateProgress(d.spotify);
 
                     // Restart marquee only when the rendered text changes.
                     [{ el: dom.spotTitle, text: d.spotify.title || '', wrapNode: dom.wrapTitle },
@@ -4270,6 +5196,9 @@
                 } else {
                     setDisplay(dom.spotEmpty, 'flex');
                     setDisplay(dom.spotInfo, 'none');
+                    setSource('');
+                    updateProgress(null);
+                    clearCover();
                 }
 
                 const liveIconSpotPlay = dom.iconSpotPlay;
@@ -4314,6 +5243,7 @@
                 }
 
                 setText(dom.btnAudioCycle, d.audio.active_dev);
+                syncEncoder(d.audio.active_dev);
                 if (d.discord) {
                     if (globalCfg && globalCfg.disc_enabled === false) {
                         setDiscordPanelVisible(false);
@@ -4654,17 +5584,19 @@
                 btn.setAttribute('aria-label', m.display_name || 'Macro');
 
                 const icon = m.icon_url || '';
+                let glyph;
                 if (m.type === 'plugin') {
                     btn.classList.add('btn-plugin');
-                    const iconName = (icon || 'box').replace(/^lucide-/, '');
-                    btn.innerHTML = `<i data-lucide="${escapeHtml(iconName)}"></i>`;
+                    glyph = `<i data-lucide="${escapeHtml((icon || 'box').replace(/^lucide-/, ''))}"></i>`;
                 } else if (icon.startsWith('lucide-')) {
-                    btn.innerHTML = `<i data-lucide="${escapeHtml(icon.replace('lucide-', ''))}"></i>`;
+                    glyph = `<i data-lucide="${escapeHtml(icon.replace('lucide-', ''))}"></i>`;
                 } else if (icon) {
-                    btn.innerHTML = `<img src="${escapeHtml(icon)}" alt="">`;
+                    glyph = `<img src="${escapeHtml(icon)}" alt="">`;
                 } else {
-                    btn.innerHTML = `<i data-lucide="box"></i>`;
+                    glyph = `<i data-lucide="box"></i>`;
                 }
+                const label = escapeHtml((m.display_name || '').substring(0, 15));
+                btn.innerHTML = `<span class="key-screen">${glyph}<span class="key-label">${label}</span></span>`;
 
                 btn.addEventListener('mousedown', (e) => handleMacroDown(e, idx));
                 btn.addEventListener('touchstart', (e) => handleMacroDown(e, idx), { passive: true });
@@ -4673,12 +5605,6 @@
                 btn.addEventListener('mouseleave', () => clearMacroTimer());
 
                 slot.appendChild(btn);
-
-                const span = document.createElement('span');
-                span.textContent = (m.display_name || '').substring(0, 15);
-                if (m.type === 'plugin') span.classList.add('is-plugin');
-                slot.appendChild(span);
-
                 frag.appendChild(slot);
                 renderCount++;
             });
@@ -4689,15 +5615,9 @@
                 const btn = document.createElement('button');
                 btn.className = 'btn btn-add';
                 btn.setAttribute('aria-label', 'Add macro');
-                btn.innerHTML = `<i data-lucide="plus"></i>`;
+                btn.innerHTML = `<i data-lucide="plus"></i><span class="key-label">Add</span>`;
                 btn.onclick = () => openMacroModal(-1);
                 slot.appendChild(btn);
-
-                const span = document.createElement('span');
-                span.textContent = 'Add';
-                span.classList.add('is-plugin');
-                slot.appendChild(span);
-
                 frag.appendChild(slot);
                 renderCount++;
             }
@@ -4706,7 +5626,7 @@
                 const slot = document.createElement('div');
                 slot.className = 'macro-slot empty';
                 // Still a <button> so the double-tap gesture ignores empty slots.
-                slot.innerHTML = `<button class="btn" tabindex="-1" aria-hidden="true"></button><span>-</span>`;
+                slot.innerHTML = `<button class="btn" tabindex="-1" aria-hidden="true"></button>`;
                 frag.appendChild(slot);
                 renderCount++;
             }
@@ -5289,15 +6209,40 @@
             act(target === 'spk' ? 'audio_mute_spk' : 'audio_mute_mic');
         }
 
+        // --- Studio faders ---
+        // Printed scale: a tick every 5 %, a long tick and a figure every 25 %.
+        const FADER_TICK_STEP = 5, FADER_MAJOR_STEP = 25;
+        const FADER_DETENT_STEP = 10;   // haptic tick every 10 %
+        const FADER_MUTE_PULL = -8;     // dragging this far below 0 % mutes the channel
+
+        function renderFaderScale(scale) {
+            if (!scale) return;
+            let html = '';
+            for (let p = 0; p <= 100; p += FADER_TICK_STEP) {
+                const major = p % FADER_MAJOR_STEP === 0 ? ' major' : '';
+                const t = `style="--t:${p / 100}"`;
+                html += `<span class="tick l${major}" ${t}></span><span class="tick r${major}" ${t}></span>`;
+                if (major) html += `<span class="tick-label num" ${t}>${p}</span>`;
+            }
+            scale.innerHTML = html;
+        }
+
         function initSlider(sId, fId, vId, type, dCheck) {
             const s = document.getElementById(sId), f = document.getElementById(fId), v = document.getElementById(vId);
+            const cap = s.querySelector('.fader-cap');
             let lastEmit = 0; let currentPct = 0;
             let rAF = null;
-            let dragRect = null;  // measured once per drag, not on every move event
+            let dragRect = null;   // measured once per drag, not on every move event
+            let capHalf = 0;       // half the cap height in px: the travel ends at cap centres
+            let grabOffset = 0;    // grabbing the cap itself moves it without a jump
+            let lastDetent = null;
+
+            renderFaderScale(s.querySelector('.fader-scale'));
 
             function set(pct, isMuted = false) {
                 currentPct = isMuted ? 0 : pct;
-                f.style.transform = `translateY(${100 - currentPct}%)`;
+                // One custom property drives the lit slot and the cap (transforms only).
+                s.style.setProperty('--v', (currentPct / 100).toFixed(3));
                 const txt = isMuted ? 'Muted' : currentPct + '%';
                 if (v.textContent !== txt) {
                     v.textContent = txt;
@@ -5323,20 +6268,33 @@
             s.setAttribute('aria-valuemin', '0');
             s.setAttribute('aria-valuemax', '100');
 
+            function pointerY(e) {
+                return (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+            }
+
+            function detent(pct) {
+                const bucket = Math.round(pct / FADER_DETENT_STEP);
+                if (bucket === lastDetent) return;
+                if (lastDetent !== null) haptic(pct === 0 || pct === 100 ? HAPTIC_END : HAPTIC_DETENT);
+                lastDetent = bucket;
+            }
+
             function drag(e) {
                 if (!dCheck()) return;
                 if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
                 const r = dragRect || s.getBoundingClientRect();
-                let clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+                const clientY = pointerY(e);
                 if (clientY === undefined) return;
 
-                let rawPct = 100 - (((clientY - r.top) / r.height) * 100);
+                const travel = Math.max(1, r.height - capHalf * 2);
+                let rawPct = 100 - (((clientY - grabOffset - r.top - capHalf) / travel) * 100);
                 let isMutedSnap = false;
 
-                if (rawPct < -8) {
+                if (rawPct < FADER_MUTE_PULL) {
                     isMutedSnap = true;
                     if (!s.dataset.snappedMute) {
                         s.dataset.snappedMute = 'true';
+                        haptic(HAPTIC_END);
                         toggleMuteOpt(type === 'speaker' ? 'spk' : 'mic', true);
                     }
                 } else if (rawPct >= 0) {
@@ -5344,6 +6302,7 @@
                 }
 
                 let pct = Math.max(0, Math.min(100, Math.round(rawPct)));
+                if (!isMutedSnap) detent(pct);
 
                 if (rAF) cancelAnimationFrame(rAF);
                 rAF = requestAnimationFrame(() => set(pct, isMutedSnap));
@@ -5358,23 +6317,35 @@
                 if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
                 dCheck(true);
                 dragRect = s.getBoundingClientRect();
+                capHalf = cap ? cap.offsetHeight / 2 : 0;
+                // On the cap: keep the finger's offset from its centre. Elsewhere: jump there.
+                const travel = Math.max(1, dragRect.height - capHalf * 2);
+                const capCentre = dragRect.top + capHalf + (1 - currentPct / 100) * travel;
+                const y = pointerY(e);
+                grabOffset = (y !== undefined && Math.abs(y - capCentre) <= capHalf) ? y - capCentre : 0;
+                lastDetent = Math.round(currentPct / FADER_DETENT_STEP);
+                s.classList.add('is-dragging');
                 f.style.willChange = 'transform';
                 applyOptimisticUnmute();
                 document.addEventListener('mousemove', drag, { passive: false });
                 document.addEventListener('touchmove', drag, { passive: false });
                 document.addEventListener('mouseup', endDrag);
                 document.addEventListener('touchend', endDrag);
+                document.addEventListener('touchcancel', endDrag);
                 drag(e);
             }
             function endDrag() {
                 if (dCheck()) {
                     dCheck(false);
                     dragRect = null;
+                    grabOffset = 0;
+                    s.classList.remove('is-dragging');
                     f.style.willChange = '';
                     document.removeEventListener('mousemove', drag);
                     document.removeEventListener('touchmove', drag);
                     document.removeEventListener('mouseup', endDrag);
                     document.removeEventListener('touchend', endDrag);
+                    document.removeEventListener('touchcancel', endDrag);
                     if (!s.dataset.snappedMute) {
                         applyOptimisticUnmute();
                         sendSocket('set_volume', { type: type, val: currentPct });
@@ -5449,6 +6420,8 @@
                 }
             }
 
+            if (a === 'audio_cycle') encoderAdvance();
+
             if (a === 'spot_play') {
                 spotifyLock = Date.now() + 1500;
 
@@ -5515,6 +6488,20 @@
         // Formatters are built once; the clock wakes once a minute, not every second.
         const fmtTime = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12: false });
         const fmtWeekday = new Intl.DateTimeFormat([], { weekday: 'short' });
+        const fmtMonth = new Intl.DateTimeFormat([], { month: 'short' });
+
+        // One span per character so only the digits that changed roll in.
+        function setClockDigits(el, str) {
+            if (!el || el.dataset.v === str) return;
+            const prev = el.dataset.v || '';
+            el.dataset.v = str;
+            el.setAttribute('aria-label', str);
+            el.innerHTML = [...str].map((ch, i) => {
+                const cls = /\d/.test(ch) ? 'dg' : 'dg dg-colon';
+                const roll = prev && prev[i] !== ch ? ' roll' : '';
+                return `<span class="${cls}${roll}" aria-hidden="true">${ch}</span>`;
+            }).join('');
+        }
         const clockEls = [
             ['time', 'date-day', 'date-month', 'date-dayname'],
             ['lock-time', 'lock-date-day', 'lock-date-month', 'lock-date-dayname']
@@ -5525,10 +6512,10 @@
             const d = new Date();
             const time = fmtTime.format(d);
             const day = String(d.getDate());
-            const month = String(d.getMonth() + 1);
+            const month = fmtMonth.format(d);
             const weekday = fmtWeekday.format(d);
             for (const [elTime, elDay, elMonth, elWeekday] of clockEls) {
-                setText(elTime, time);
+                setClockDigits(elTime, time);
                 setText(elDay, day);
                 setText(elMonth, month);
                 setText(elWeekday, weekday);
@@ -5545,6 +6532,18 @@
         scheduleClock();
         // Timers are throttled while hidden or asleep; resync the moment the screen is back.
         document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleClock(); });
+
+        // --- First paint: the modules settle in once ---
+        // Skipped under reduced motion and on the CPU-rendered desktop window.
+        if (gsap.matchMedia && document.documentElement.dataset.fx === 'rich') {
+            gsap.matchMedia().add('(prefers-reduced-motion: no-preference)', () => {
+                gsap.from('.top-bar, #main-view > .col > .card', {
+                    autoAlpha: 0, y: 18, scale: 0.985,
+                    duration: 0.7, ease: 'power3.out', stagger: 0.06,
+                    clearProps: 'transform,opacity,visibility'
+                });
+            });
+        }
 
     </script>
 </body>

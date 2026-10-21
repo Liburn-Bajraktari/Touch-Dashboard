@@ -1,164 +1,196 @@
 # Touch Dashboard — Design System
 
-One place for the rules behind the UI. The pieces:
+One place for the rules behind the UI.
 
 | What | Where | Enforced by |
 |------|-------|-------------|
 | Token **values** and theme presets | `static/themes.js` (the JSON block between the `TD-THEMES` markers) | `tests/test_themes.py` |
-| Token **use** (components, layout) | `templates/index.html` — reads only `var(--token)` | `tests/test_themes.py::test_template_uses_tokens_only` |
+| Token **use** (components, layout) | `templates/index.html`, which reads only `var(--token)` | `tests/test_themes.py::test_template_uses_tokens_only` |
 | The **rules** (this file) | `docs/DESIGN.md` | review |
 
 If a value is not in `themes.js`, it is not part of the design. If a rule here and the code disagree, fix the code or change the rule here, never only one of them.
 
 ---
 
-## 1. The idea
+## 1. The idea: a broadcast console
 
-Touch Dashboard is a **hardware control surface** that happens to be made of pixels: keys you press, faders you pull, status lights that tell you what is live. Every visual decision follows from that object, not from a generic "dashboard" look.
+Touch Dashboard is a piece of studio hardware that happens to be made of pixels: the kind of desk unit a streamer keeps beside the PC (a RØDECaster, a GoXLR, a Stream Deck), built with the depth, light and motion of a 2026 interface. Every component is an object from that world:
 
-- **Keys** are solid tiles, one lightness step above their panel. Pressing one scales it to 0.96 and lifts it one more step, like a key going down.
-- **Faders** are channel strips. Scale marks at 25 / 50 / 75 % segment the level fill, the way a console fader has printed ticks. The value sits above the strip, never on top of the fill.
-- **State lights**: red means muted or destructive, green means live (camera, screen share, someone speaking), amber means attention (battery, load). Status colours are for status only.
-- **The brand hue** (cyan in Graphite, taken from the app icon) goes on the main data element (the audio levels) and almost nothing else. The default theme carries about 3 % coloured pixels.
+| On the screen | The object it is |
+|---|---|
+| Panels | Machined module plates, lit from above |
+| Volume | **Studio faders**: a recessed slot lit from inside, a printed scale, a grip cap with an index line |
+| Output switch | A **rotary encoder** with an LED ring, one LED per output device |
+| Macros | **Display keys**: an LCD screen set into each keycap (Stream Deck) |
+| Soundboard | **Drum pads** that light when struck (MPC) |
+| Levels, names, figures | **Scribble strips and displays**: recessed dark windows |
+| Mute, live, speaking | **Lit keys and LEDs**: the state is light, and on rich displays it spills |
+| System load | Display tiles with a live trace of the last minute |
 
-## 2. Principles (2026 baseline)
+Two things make it feel alive rather than rendered:
 
-1. **Colour goes on data and state, not on chrome.** Navigation, panels and ordinary keys are neutral. One accent per theme.
-2. **Elevation is a lightness step.** `ground` → `surface` (panels) → `surface-2` (keys, tracks, fields) → `surface-3` (pressed, active). No borders between surfaces unless a theme needs them (`key-line-w`, `panel-line-w`), no shadows on anything at rest.
-3. **Real shadows only on what floats**: dialogs and the window menu (`--shadow`).
-4. **Sentence case everywhere.** "Now playing", "System monitor", "Save & apply". Proper names keep their capitals ("Command Center"). No tracked uppercase micro-labels.
-5. **Numbers are tabular** (`.num` → `font-variant-numeric: tabular-nums`) so updating figures never jitter. Load figures are whole percentages. A missing value is an em dash (`—`), a real zero is printed as `0%`. Units are a smaller, quieter suffix (`.unit`).
-6. **State never relies on colour alone.** Mute swaps the icon (`mic` → `mic-off`) and adds a slash, and the fader prints "Muted". Discord mute/deafen draw a slash through the glyph.
-7. **Motion is feedback**, not decoration: press, open, close, a panel arriving. Transform and opacity only. Everything honours `prefers-reduced-motion`.
-8. **Touch first.** Targets are at least 44 CSS px on a tablet (the rem scale keeps them proportional), hover styles exist only for fine pointers, touch listeners are passive unless they cancel.
-9. **Honest empty states.** "Nothing playing", an empty battery glyph with a dash, a dashed "Add" slot. No illustrations, no fake data.
+- **The music lights the room.** The most vivid colour in the current cover becomes `--dyn`: the play key, the progress bar, the cover's shadow and the ambient light behind the modules. Nothing playing, and the theme's own glow takes over.
+- **It answers touch like hardware.** Keys sink and spring back, the encoder overshoots and settles, fader caps lift while held, and on Android every press, detent and limit is a haptic tick.
 
-## 3. What makes a UI look machine-made — and what replaces it
+## 2. The light model
 
-Each line pairs the habit with what this project does instead. Treat any of the left column appearing in a diff as a review comment.
+One light, above the console. Every rule below follows from it, and nothing may contradict it.
+
+1. **Raised things are lit on their top edge** (`--rim`, an inset 1px highlight) **and cast a shadow below** (`--depth`). Modules use `--elev-1`, keys `--elev-2`, caps and knobs `--elev-cap`.
+2. **Keys have thickness**: a darker lip on the bottom edge (`--edge`). Pressing a key sinks it: the lip turns into an inner shadow (`--elev-press`) and the key drops 0.12rem.
+3. **Recessed things are shaded from the top** and catch light on their bottom edge (`--well-inset`). Every display, slot and scribble strip is a well (`--well`), darker than the plate it sits in, in every theme including Daylight.
+4. **Gradients only model light on an object**: a module plate (`--surface-top` → `--surface`), a keycap (`--key-top` → `--surface-2`), a fader cap or knob (`--cap-hi` → `--cap` → `--cap-lo`). Never a decorative colour-to-colour gradient, never on text.
+5. **Glow only comes from something that is lit**: an LED, a lit fader slot, a lit key, the cover's colour. A glow never decorates a resting object.
+6. **No glass.** No `backdrop-filter`: it is meaningless over a dark plate and ruinous on the desktop window (§8).
+
+## 3. Principles
+
+1. **Colour belongs to data, state and light.** Plates, keys and text are neutral. One accent per theme carries the levels; status hues carry meaning (red muted, green live/speaking, amber attention); the cover's colour carries the music.
+2. **Displays hold the numbers.** Values that change live (levels, battery, load, device names) sit in recessed display windows in tabular figures. Static labels sit on the plate.
+3. **Sentence case.** "Now playing", "Output device", "Save & apply". Proper names keep their capitals ("Command Center").
+4. **Honest data.** Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
+5. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted"; Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
+6. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
+7. **Touch first.** Targets of at least 44 CSS px on a tablet; hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps.
+
+## 4. What machine-made looks like, and what replaces it
 
 | Machine-made habit | Here instead |
 |---|---|
-| Navy or slate dark theme with cyan/violet glow | True neutral darks (`#000`, `#111`, `#222`), no glow. A warm or cool tint only as a deliberate preset (Ember, Phosphor). |
-| Glassmorphism, `backdrop-filter: blur()` | Opaque surfaces one lightness step apart. (Also mandatory for performance, see §8.) |
-| Gradients on panels, buttons, text, fills | Flat fills. The fader is one colour; the segments come from scale marks. |
-| Soft drop shadow under every card | No shadow at rest; dialogs only. |
-| Tiny uppercase letter-spaced labels ("NOW PLAYING") | Sentence-case panel titles at a readable size (`--fs-sm`, weight 600). |
-| Icon in a tinted circle on every tile | Plain 1.75 px outline icons, neutral unless they carry state. |
-| Accent colour on every button and border | Accent on levels and the speed-test download arc. The primary action is an inverted key (white on dark, near-black on light). |
-| Accent flash on every press | Press = scale 0.96 + one lightness step. |
-| Gradient text headings | Plain ink, one weight. |
-| Decorative particles, pulsing rings, infinite animations | Nothing moves unless something changed. The lock screen drifts once a minute, which is burn-in protection with a purpose. |
-| Placeholder `--` at full size reading as "loading" | Em dash at the value's size, in the tertiary text colour. |
-| Rainbow status (a hue per item) | Three status hues with fixed meanings (§1). |
-| Default "Inter everywhere" | A system stack per theme (see §6), with tabular figures, and a monospaced figure face as a deliberate preset choice. |
-| `outline: none` on everything | Visible `:focus-visible` ring in `--focus`. |
-| Sticky hover on touch screens | Hover only inside `@media (hover: hover) and (pointer: fine)`. |
+| Glassmorphism, `backdrop-filter: blur()` | Opaque plates lit from above; light from the cover tints the space between them |
+| Decorative gradients, gradient text, purple-to-blue washes | Gradients only as light on an object (§2.4) |
+| A soft drop shadow on every card, from nowhere in particular | One light source: rim on top, depth below, consistently |
+| Glows on idle borders and icons | Glow only from something lit (§2.5) |
+| A plain range slider | A studio fader: slot, scale, cap, index line |
+| Generic flat buttons for every control | Each control is its object: encoder, display key, drum pad, lit key |
+| Tiny uppercase letter-spaced labels | Sentence-case labels at a readable size; live values in display windows |
+| A static accent colour everywhere | Theme accent on levels; the cover's colour on the media and the room |
+| Percentage bars for load | A live trace of the real last minute |
+| Linear 200 ms transitions everywhere | Springs with a measured overshoot (§7) |
+| Spinners, pulsing decoration, particles | A ring pulses only around someone who is speaking |
+| `outline: none` on everything | A visible `:focus-visible` ring in `--focus` |
+| Sticky hover on touch screens | Hover only inside `@media (hover: hover) and (pointer: fine)` |
 
-## 4. Tokens
+## 5. Tokens
 
-### Colour roles (every preset defines every role)
+### Colour and material roles (every preset defines every role)
 
 | Token | Used for | Minimum contrast (tested) |
 |---|---|---|
 | `ground` | Page background, lock screen | — |
-| `surface` | Panels, dialogs, top bar | — |
-| `surface-2` | Keys, fader tracks, fields, grouped settings rows | — |
-| `surface-3` | Pressed/active key, active tab pill, meter tracks | — |
-| `line` | Faint dividers (settings rows, tab column edge) | — |
-| `line-strong` | Field borders, dashed "Add" slot, battery outline | — |
-| `panel-line` / `key-line` | Optional rings, drawn only when the width token is > 0 | — |
-| `text` | Primary ink | 7:1 on ground, surface, surface-2 |
-| `text-2` | Secondary text, labels, icons | 4.5:1 on surface, surface-2 |
-| `text-3` | Meta, placeholders, empty states | 4.5:1 on surface, surface-2 |
-| `accent` | Fader fills, progress, speed-test arc, brand mark | 3:1 on surface, surface-2 (graphic) |
-| `accent-text` | Accent used as text or small icons | 4.5:1 on surface, surface-2 |
-| `accent-ink` | Text on an accent fill, selection | 4.5:1 on accent |
-| `inverse` / `inverse-ink` | Primary key (play, Save, Connect), "on" switch, weekday pill | 4.5:1 |
-| `positive` / `positive-ink` | Live camera/screen share, speaking ring, battery high, feedback on | 3:1 graphic, 4.5:1 ink |
-| `warning` | Battery mid, load ≥ 85 %, ping, notices | 3:1 graphic |
-| `negative` / `negative-ink` | Muted keys, critical load ≥ 95 %, errors | 4.5:1 ink on fill |
-| `negative-text` | Red as text or icon (Muted label, power icon, errors) | 4.5:1 on surface, surface-2, negative-soft |
-| `negative-soft` | Destructive buttons at rest (Clear authorization, Leave, Stop audio) | — |
-| `meter-gap` | Fader scale marks drawn over track and fill | — |
-| `scrim` | Dialog backdrop (opaque-ish, never blurred) | — |
-| `shadow` | Dialogs and the window menu only | — |
-| `focus` | Keyboard focus ring | 3:1 on ground, surface |
+| `surface`, `surface-top` | Module plates (bottom, lit top) | text 7:1 on both |
+| `surface-2`, `key-top` | Keycaps (bottom, lit top), grouped settings rows | text 7:1 on both |
+| `surface-3` | Pressed keys, meter tracks, unlit LEDs | — |
+| `line`, `line-strong` | Faint dividers; field borders, scale ticks, dashed slots | — |
+| `panel-line`, `key-line` | Outlines, drawn only when the width token is > 0 | — |
+| `text`, `text-2`, `text-3` | Ink on plates and keys | 7 / 4.5 / 4.5 :1 |
+| `well`, `well-ink`, `well-ink-2`, `well-accent` | Display windows: background, figures, labels, lit values | 7 / 4.5 / 4.5 :1 on `well` |
+| `accent` | Fader light, encoder LEDs, progress, brand mark | 3:1 on surfaces and wells (graphic) |
+| `accent-text`, `accent-ink` | Accent as text; ink on an accent fill | 4.5:1 |
+| `inverse`, `inverse-ink` | Primary pill actions, weekday pill | 4.5:1 |
+| `positive`, `positive-ink` | Live keys, speaking ring, link light, battery high | 3:1 graphic, 4.5:1 ink |
+| `warning` | Battery mid, load ≥ 85 %, ping | 3:1 graphic |
+| `negative`, `negative-ink`, `negative-text`, `negative-soft` | Mute, critical load, errors, destructive actions | 4.5:1 ink; 3:1 on wells |
+| `cap-hi`, `cap`, `cap-lo`, `cap-index` | Fader caps, the encoder knob, switch knobs | index 3:1 on cap |
+| `rim`, `edge`, `depth` | The light model: top highlight, bottom lip and inner shade, cast shadow | — |
+| `glow` | The theme's own ambient light (8-digit hex with alpha) | — |
+| `meter-gap`, `scrim`, `shadow`, `focus` | Spare, dialog backdrop, floating shadow, keyboard focus | focus 3:1 |
 
 ### Base tokens (shared, a preset may override)
 
 | Token | Value | Notes |
 |---|---|---|
-| `pad`, `gap`, `gap-sm` | 1.25rem, 1.25rem, 0.75rem | One gap for the grid, one inside groups of keys |
-| `fs-xs` … `fs-xl` | 1 / 1.15 / 1.35 / 1.75 / 2.6 rem | Five steps. Nothing below `fs-xs` (≈ 11 px on a 1280×800 tablet). |
-| `fs-clock` | 5.75rem | The one glance figure |
-| `radius-panel`, `radius-key`, `radius-media`, `radius-pill` | 1.5, 1.05, 0.6 rem, 999px | Nested radii step down |
-| `line-w`, `key-line-w`, `panel-line-w` | 1px, 0, 0 | High contrast sets the last two to 2px |
-| `font-sans`, `font-num` | System stack; `font-num` defaults to `font-sans` | Phosphor sets a monospaced `font-num` |
-| `weight-clock`, `weight-strong` | 500, 600 | High contrast uses 700 |
-| `dur-fast`, `dur`, `ease` | 110ms, 180ms, `cubic-bezier(.2,.8,.2,1)` | |
+| `pad`, `gap`, `gap-sm` | 1.25 / 1.25 / 0.75 rem | |
+| `fs-xs` … `fs-xl`, `fs-clock` | 1 / 1.15 / 1.35 / 1.75 / 2.6 / 6.4 rem | Nothing below `fs-xs` (≈ 11 px on a 1280×800 tablet) |
+| `radius-panel`, `radius-key`, `radius-media`, `radius-pill` | 1.6, 1.1, 0.9 rem, 999px | Multiplied by `--sq` (§6) |
+| `elev-1`, `elev-2`, `elev-press`, `elev-cap`, `well-inset` | Composite shadows | Built from `rim`, `edge`, `depth`, so presets only set those three |
+| `weight-clock`, `weight-strong` | 300, 600 | Phosphor 400; High contrast 700 |
+| `cap-h` | 3.4rem | Fader cap height; the travel ends at cap centres |
+| `backdrop-opacity` | 0.5 | Daylight 0.32; High contrast 0 (no cover behind text) |
+| `on-bright`, `on-deep` | near-black, white | Ink chosen for the cover-coloured play key |
+| `spring`, `spring-bounce` | CSS `linear()` curves | §7 |
+| `dur-fast`, `dur`, `dur-spring`, `ease` | 110, 180, 460 ms; ease-out | |
 
-The root font size scales with the viewport (reference 2560×1600 → 22 px), so every rem value scales the whole surface as one unit. Do not mix in px for layout.
+### Runtime values (set by the page, never by a theme)
 
-## 5. Presets
+| Variable | Set by | Meaning |
+|---|---|---|
+| `--dyn`, `--dyn-ink`, `--dyn-glow`, `--dyn-shadow` | `applyDyn()` from the cover | The music's colour, fitted per scheme so `--dyn-ink` keeps ≥ 4.5:1; unset when nothing plays or in High contrast |
+| `--ambient` | CSS (`@property`, cross-fades 1.4 s) | `--dyn-glow` if set, else `--glow` |
+| `--v` | the fader | 0–1, drives the lit slot and the cap by transform |
+| `--angle` | the encoder | Where the knob points |
+| `--sq` | `@supports (corner-shape: squircle)` | 1.6 where continuous corners exist, else 1 |
+
+## 6. Shape
+
+- Continuous (squircle) corners on plates, keys, displays and dialogs where the engine supports `corner-shape` (Chromium 139+, so the Android app). Squircles need about 1.6× the radius to read the same, hence `--sq`. Round things (`.round`, knobs, LEDs, avatars) stay circles.
+- Nested radii step down: plate → key → screen inside the key.
+- Discord's voice keys are a connected group: inner corners tight, outer corners round; a key that turns on morphs into a pill.
+
+## 7. Motion
+
+| Use | Curve | Duration |
+|---|---|---|
+| Key release, encoder turn, switch knob, pad press, theme card | `spring-bounce` (ζ ≈ 0.55, 12.5 % overshoot) | 460–620 ms |
+| Fader settle, modal open, Now Playing scale, clock digits | `spring` (ζ ≈ 0.75, 3 %) | 280–560 ms |
+| Press-in, colour changes | `ease`, `dur-fast` | 110 ms |
+| Progress bar | linear, 1 s, leading the true position by 1 s so it glides | — |
+| First load | modules rise and fade in once (GSAP stagger 60 ms) | 700 ms |
+
+- The springs are generated from a damped oscillator and written as `linear()`; engines without `linear()` fall back to `ease`.
+- While a fader is held its transitions switch off, so the cap is glued to the finger.
+- **Reduced motion**: CSS durations collapse to 1 ms and GSAP runs 40× faster through `gsap.matchMedia()`. The first-load entrance is skipped.
+- **Haptics** (Android, coarse pointers): 8 ms on any key, 5 ms per 10 % fader detent, 14 ms at 0 %, 100 % and the mute pull.
+
+## 8. Performance and effects tiers
+
+The desktop window on Linux is WebKitGTK with GPU compositing disabled (NVIDIA/XWayland workaround), so every changing pixel is rasterised by the CPU. `themes.js` sets `html[data-fx]` before first paint:
+
+| Tier | Where | What changes |
+|---|---|---|
+| `rich` | Android app, browsers, Windows WebView2 | Everything in this file |
+| `lite` | Linux desktop window (WebKitGTK) | No light spill (slot, LED, key glows), no speaking pulse, no ambient cross-fade, no first-load entrance, progress steps instead of gliding |
+
+Always, on both tiers:
+
+- Anything that moves uses `transform` or `opacity`. The fader and encoder are driven by one custom property each; a drag never triggers layout.
+- No `backdrop-filter`, no 3D transforms at rest, no `will-change` at rest.
+- No infinite animation except the speaking pulse (rich only, small) and the charging battery (4 steps per 2 s).
+- Never CSS-transition a property GSAP also tweens (key opacity during the soundboard transition).
+- The cover backdrop is the cover drawn into an 8×8 canvas and stretched: a blur with no filter cost.
+- Write text with `textContent`; never read `innerText` in an update path.
+
+## 9. Presets
 
 | Preset | Why it exists |
 |---|---|
-| **Graphite** (default) | True black (OLED-friendly, calm at night), brand cyan on the levels only. |
-| **Daylight** | A bright room: white keys with a hairline edge on cool grey. Deeper cyan so it holds contrast on white. |
-| **Ember** | Late night: warm near-black and amber, low blue light. |
-| **Phosphor** | Monitoring feel: cool black, green levels, monospaced figures. Green is also its positive colour. |
-| **High contrast** | Glare or low vision: pure black and white, outlined keys and panels, yellow levels, heavier weights. |
-| **Classic** | The original midnight-blue palette for anyone who liked it, minus the gradients and glow. |
+| **Graphite** (default) | True-black hardware for OLED and night use; brand cyan on the levels. |
+| **Daylight** | A satin-white console with dark displays and silver caps, for a bright room. |
+| **Ember** | Warm walnut-black and amber: low blue light late at night. |
+| **Phosphor** | Monitor green with monospaced figures. |
+| **High contrast** | Pure black and white, outlined plates and keys, no cover tint or backdrop, heavier weights. |
+| **Classic** | The original midnight blue and cyan. |
 
 ### Adding a preset
 
-1. Copy an existing preset object inside the `TD-THEMES` JSON block in `static/themes.js`.
+1. Copy a preset object inside the `TD-THEMES` JSON block in `static/themes.js`.
 2. Give it a unique lowercase `id`, a `name`, a one-sentence `note` and a `scheme` (`dark` or `light`).
-3. Define **every** colour role. Base tokens are optional overrides.
-4. Run `python -m pytest tests/test_themes.py -v`. It fails on a missing role, an unknown token or any contrast pair below its minimum.
-5. The Themes tab lists it automatically and renders its preview from its own tokens.
+3. Define **every** colour and material role (§5). Base tokens are optional overrides.
+4. Run `python -m pytest tests/test_themes.py -v`: it fails on a missing role, an unknown token, or any contrast pair below its minimum.
+5. The Themes tab lists it automatically and previews it as a miniature console from its own tokens.
 
-## 6. Type
+## 10. Type
 
-- **System stacks, deliberately.** The page is served over the LAN and often runs with no internet, and the CSP allows only `'self'`, so web fonts from a CDN never loaded. `system-ui` resolves to Roboto on Android, Segoe UI Variable on Windows and the desktop's sans on Linux, all of which have real tabular figures.
-- To ship a bundled face later: add the `.woff2` and its licence under `static/fonts/`, declare an `@font-face` in the template, and point `font-sans` (or one preset's) at it.
-- Five sizes do the work (§4). The clock is the only large figure; everything else is app-sized.
+- System stacks, chosen deliberately: the server's CSP allows only `'self'` and the console often runs offline on the LAN. `system-ui` resolves to Roboto on Android, Segoe UI Variable on Windows and the desktop's sans on Linux, all with real tabular figures.
+- The clock is the one display figure (light weight, tight tracking); everything else is app-sized. Phosphor swaps figures to monospace.
+- To ship a bundled face later: add the `.woff2` and its licence under `static/fonts/`, declare an `@font-face`, and point `font-sans` (or one preset's) at it. The APK bundles `static/`, so it travels with the app.
 
-## 7. Components (quick reference)
-
-| Component | Classes | Notes |
-|---|---|---|
-| Panel | `.card.panel` | `surface`, `radius-panel`, optional ring via `panel-line-w` |
-| Key | `.btn` | `surface-2`, press scale + `surface-3` |
-| Primary key | `.btn.btn-primary` | Inverted. One per view. |
-| Destructive | `.btn.btn-danger` | `negative-soft` + `negative-text`; becomes a filled `negative` only as a state (`.muted`) |
-| Secondary | `.btn.btn-ghost` | Transparent with a `line-strong` ring |
-| Pill action | `.btn-pill` | Dialog and settings actions |
-| Empty / add slot | `.btn-add` | Dashed `line-strong`, accent icon |
-| Fader | `.pro-slider` › `.fader-val` + `.slider-track-area` (`.slider-fill`, `.fader-scale`) + `.slider-icon` | `touch-action: none` on the track |
-| Meter | `.stat-meter` › `.stat-meter-fill` | Width via `transform: scaleX()`, `.is-high` / `.is-critical` |
-| Switch | `.switch` › `input` + `.slider` | Inverted when on |
-| Notice | `.notice` (+ `.is-danger`) | `surface-2` box with a status-coloured icon |
-| Settings group | `.setting-group` › `.setting-row` | One container split by rules, not a box per row |
-
-Icons: lucide outline, 1.75 px stroke on keys. Always render them with `renderIcons(root)` or `setIcon(el, name)` (see AGENTS.md, the bundled lucide rebuilds every icon on the page otherwise).
-
-## 8. Performance rules
-
-The desktop window runs WebKitGTK with GPU compositing disabled (NVIDIA/XWayland workaround), so every pixel that changes is software-rasterised. The tablet is often a low-end Android WebView. Therefore:
-
-- No `backdrop-filter`, no 3D transforms (`translateZ`, `translate3d`) and no `will-change` at rest. GSAP keeps its default `force3D: "auto"`.
-- No infinite animations on large areas. The charging battery steps 4 times per 2 s; the lock screen moves once a minute.
-- Never CSS-transition a property GSAP also tweens (key opacity, transforms on animated layers).
-- Write text with `textContent`, never read `innerText` in update paths (it forces layout). Meters use transforms, not width.
-- DOM updates from `sys_data` run inside one `requestAnimationFrame` and skip unchanged values.
-
-## 9. Before you ship a UI change
+## 11. Before you ship a UI change
 
 - [ ] No colour literal in `templates/index.html` (`pytest tests/test_themes.py` passes).
-- [ ] Looked at it in Graphite, Daylight and High contrast.
-- [ ] Every new icon-only control has an `aria-label`; every new state is readable without colour.
-- [ ] Hover styles sit inside the fine-pointer media query.
-- [ ] Nothing new animates forever, blurs, or uses a 3D transform at rest.
+- [ ] It obeys the light model (§2): lit top, shadow below, wells shaded from the top.
+- [ ] Looked at it in Graphite, Daylight and High contrast, and with `data-fx="lite"`.
+- [ ] Every new icon-only control has an `aria-label`; every new state reads without colour.
+- [ ] Anything that moves uses transform/opacity and a token curve; nothing new animates forever.
 - [ ] Any user, media or device string reaching `innerHTML` goes through `escapeHtml()`.
+- [ ] UI changes reach tablets only through a new APK: `./scripts/release.sh <tag> --apk`.

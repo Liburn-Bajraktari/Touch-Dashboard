@@ -42,6 +42,18 @@ CONTRAST_PAIRS = [
     ("negative-text", "negative-soft", 4.5),
     ("focus", "ground", 3.0),
     ("focus", "surface", 3.0),
+    # Lit surfaces: panel and key tops carry the same text as their base.
+    ("text", "surface-top", 7.0),
+    ("text", "key-top", 7.0),
+    ("text-2", "key-top", 4.5),
+    # Display wells (scribble strips, key screens, fader slots).
+    ("well-ink", "well", 7.0),
+    ("well-ink-2", "well", 4.5),
+    ("well-accent", "well", 4.5),
+    ("accent", "well", 3.0),
+    ("negative", "well", 3.0),
+    # The fader cap's index line must read against the cap.
+    ("cap-index", "cap", 3.0),
 ]
 
 

@@ -20,6 +20,43 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 
+# ── Player names ─────────────────────────────────────────────────────────────
+# MPRIS bus names and Windows AppUserModelIDs → the name people know.
+_PLAYER_NAMES = {
+    "spotify": "Spotify", "firefox": "Firefox", "chromium": "Chromium",
+    "chrome": "Chrome", "brave": "Brave", "msedge": "Edge", "vivaldi": "Vivaldi",
+    "plasma-browser-integration": "Browser", "vlc": "VLC", "mpv": "mpv",
+    "elisa": "Elisa", "strawberry": "Strawberry", "rhythmbox": "Rhythmbox",
+    "microsoft.zunemusic": "Media Player", "tidal": "TIDAL", "deezer": "Deezer",
+    "kdeconnect": "KDE Connect",
+}
+PLAYER_LABEL_MAX = 20
+
+
+def _player_label(raw: str) -> str:
+    """'firefox.instance_1_23' / 'Spotify.exe' / 'Microsoft.ZuneMusic_8wek…!App' → 'Firefox' …"""
+    if not raw:
+        return ""
+    base = raw.split("!")[0].split("_")[0].lower().removesuffix(".exe")
+    if base in _PLAYER_NAMES:
+        return _PLAYER_NAMES[base]
+    base = base.split(".")[0]
+    if base in _PLAYER_NAMES:
+        return _PLAYER_NAMES[base]
+    # Opaque ids (Firefox's Windows AUMID is a hex hash) are not names.
+    if base.isalpha() and len(base) <= PLAYER_LABEL_MAX:
+        return base.capitalize()
+    return ""
+
+
+def _seconds(value, scale: float = 1.0) -> float | None:
+    try:
+        secs = float(value) / scale
+    except (TypeError, ValueError):
+        return None
+    return round(secs, 1) if secs >= 0 else None
+
+
 # ── Spotify ────────────────────────────────────────────────────────────────────
 
 def get_spotify_api_meta(sp_oauth, req_session=None) -> dict | None:
@@ -53,6 +90,9 @@ def get_spotify_api_meta(sp_oauth, req_session=None) -> dict | None:
                 "artist": (item.get("artists") or [{}])[0].get("name", "Unknown"),
                 "title":  item.get("name", "Unknown"),
                 "art_url": art_url,
+                "player":   "Spotify",
+                "position": _seconds(curr.get("progress_ms"), 1000),
+                "length":   _seconds(item.get("duration_ms"), 1000),
             }
     except Exception as e:
         logger.debug(f"Spotify API error: {e}")
@@ -98,7 +138,8 @@ def get_local_mpris_meta() -> dict:
 
         out = subprocess.check_output(
             [playerctl, "--player=spotify,plasma-browser-integration,%any", "metadata", "--format",
-             "{{status}}|||{{artist}}|||{{title}}|||{{mpris:artUrl}}"],
+             "{{status}}|||{{artist}}|||{{title}}|||{{mpris:artUrl}}|||{{playerName}}"
+             "|||{{position}}|||{{mpris:length}}"],
             stderr=subprocess.DEVNULL, timeout=2,
         ).decode().strip()
 
@@ -113,6 +154,10 @@ def get_local_mpris_meta() -> dict:
         artist      = parts[1].strip() if len(parts) > 1 else "Unknown"
         title       = parts[2].strip() if len(parts) > 2 else "Unknown"
         raw_art_url = parts[3].strip() if len(parts) > 3 else ""
+        player      = _player_label(parts[4].strip()) if len(parts) > 4 else ""
+        # MPRIS reports both in microseconds; browsers often omit the length.
+        position    = _seconds(parts[5].strip(), 1e6) if len(parts) > 5 else None
+        length      = _seconds(parts[6].strip(), 1e6) if len(parts) > 6 else None
         current_song = f"{artist}-{title}"
 
         if current_song != _last_mpris_title:
@@ -157,7 +202,8 @@ def get_local_mpris_meta() -> dict:
             elif raw_art_url and raw_art_url != _last_art_url:
                 _last_art_url = raw_art_url
 
-        return {"status": status, "artist": artist, "title": title, "art_url": _last_art_url}
+        return {"status": status, "artist": artist, "title": title, "art_url": _last_art_url,
+                "player": player, "position": position, "length": length or None}
     except Exception as e:
         logger.debug(f"MPRIS error: {e}")
         return _STOPPED
@@ -188,6 +234,23 @@ if sys.platform.startswith("win"):
         _WINRT_AVAILABLE = True
     except Exception:
         _WINRT_AVAILABLE = False
+
+
+def _winrt_timeline(session, playing: bool) -> tuple[float | None, float | None]:
+    """Position and length from SMTC; position is as of last_updated_time."""
+    try:
+        from datetime import datetime, timezone
+        tl = session.get_timeline_properties()
+        length = tl.end_time.total_seconds()
+        if length <= 0:
+            return None, None
+        position = tl.position.total_seconds()
+        if playing and tl.last_updated_time:
+            position += max(0.0, (datetime.now(timezone.utc) - tl.last_updated_time).total_seconds())
+        return round(min(position, length), 1), round(length, 1)
+    except Exception as e:  # winrt projections differ between versions
+        logger.debug(f"Windows SMTC timeline: {e}")
+        return None, None
 
 
 async def _query_winrt_session() -> dict | None:
@@ -221,11 +284,15 @@ async def _query_winrt_session() -> dict | None:
         if status_val not in (PLAYING, PAUSED):
             return None
 
+        position, length = _winrt_timeline(session, status_val == PLAYING)
         return {
             "status": "Playing" if status_val == PLAYING else "Paused",
             "artist": (props.artist or "Unknown") if props else "Unknown",
             "title":  (props.title  or "Unknown") if props else "Unknown",
             "art_url": "",
+            "player":   _player_label(getattr(session, "source_app_user_model_id", "") or ""),
+            "position": position,
+            "length":   length,
         }
     except asyncio.TimeoutError:
         logger.debug("Windows SMTCS query timed out")

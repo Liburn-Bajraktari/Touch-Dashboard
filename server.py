@@ -1324,7 +1324,8 @@ _app.mount("/static", StaticFiles(directory=os.path.join(RESOURCE_DIR, "static")
 async def serve_local_art():
     path = media_module.get_last_mpris_art_path()
     if path and os.path.exists(path):
-        return FileResponse(path)
+        # CORS lets the APK (a file:// page) read the pixels to tint the UI from the cover.
+        return FileResponse(path, headers={"Access-Control-Allow-Origin": "*"})
     return JSONResponse({"error": "No art"}, status_code=404)
 
 
