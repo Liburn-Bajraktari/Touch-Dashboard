@@ -121,6 +121,25 @@ def test_set_theme_broadcasts_and_persists(client):
     server.config.update(original)
 
 
+def test_set_play_key_broadcasts_and_persists(client):
+    """Settings → Themes: the play key in the cover's colour or the theme's, for every screen."""
+    import server
+    original = dict(server.config)
+    with patch("server.save_config") as save:
+        with _admin_ws(client) as websocket:
+            sync = websocket.receive_json()
+            assert sync["data"]["cfg"]["play_key_cover"] is True
+            websocket.send_json({"type": "set_play_key", "data": {"cover": "no"}})
+            assert _receive_until(websocket, "refused")["data"]["reason"] == "invalid"
+            websocket.send_json({"type": "set_play_key", "data": {"cover": False}})
+            assert _receive_until(websocket, "play_key_state")["data"] is False
+        assert server.config["play_key_cover"] is False
+        assert save.called
+    assert "play_key_cover" in server.DEVICE_CFG_KEYS   # tablets follow it
+    server.config.clear()
+    server.config.update(original)
+
+
 def test_set_theme_rejects_bad_values(client):
     import server
     original = dict(server.config)

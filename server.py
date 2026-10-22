@@ -286,6 +286,7 @@ DEFAULT_CONFIG: dict = {
     "macros": [],
     "theme": "graphite",      # preset id from static/themes.js
     "theme_ground": "#000000",  # that preset's ground, painted by the desktop window before load
+    "play_key_cover": True,   # the play key takes the cover's colour; off, the theme's accent
     "device_av_controls": True,  # paired tablets may toggle Discord camera / screen share
 }
 
@@ -1264,7 +1265,7 @@ async def _make_config_sync(sinks: list[dict], initial_disc: dict | None = None)
 # What a paired device may read of the config: display and live-control state.
 # An allowlist, so a new secret added to the config later is never sent by default.
 DEVICE_CFG_KEYS = (
-    "theme", "audio_names", "hidden_audio_devices", "disc_vc_enabled", "disc_sort_speakers",
+    "theme", "play_key_cover", "audio_names", "hidden_audio_devices", "disc_vc_enabled", "disc_sort_speakers",
     "show_mouse_batt", "show_hw_stats", "spot_enabled", "weather_enabled", "disc_enabled",
     "audio_enabled", "sb_enabled", "soundboard_volume", "soundboard_feedback", "device_av_controls",
 )
@@ -2351,6 +2352,18 @@ async def _ws_set_theme(client: Client, msg: dict) -> None:
         await ws_manager.broadcast({"type": "theme_state", "data": theme_id})
 
 
+async def _ws_set_play_key(client: Client, msg: dict) -> None:
+    """{cover: bool}: the play key in the cover's colour or the theme's. Targeted,
+    like set_theme, so nobody's half-edited settings are reset."""
+    cover = msg["data"]["cover"]
+    if not isinstance(cover, bool):
+        raise TypeError("cover must be a boolean")
+    with CONFIG_LOCK:
+        config["play_key_cover"] = cover
+    await asyncio.to_thread(save_config)
+    await ws_manager.broadcast({"type": "play_key_state", "data": cover})
+
+
 async def _ws_run_speedtest(client: Client, msg: dict) -> None:
     asyncio.create_task(_run_speedtest())
 
@@ -2430,6 +2443,7 @@ WS_HANDLERS = {
     "set_sb_volume":      _ws_set_sb_volume,
     "toggle_sb_feedback": _ws_toggle_sb_feedback,
     "set_theme":          _ws_set_theme,
+    "set_play_key":       _ws_set_play_key,
     "run_speedtest":      _ws_run_speedtest,
     "play_clip":          _ws_play_clip,
     "check_update":       _ws_check_update,
@@ -2452,7 +2466,7 @@ KNOWN_ACTIONS = frozenset(WS_HANDLERS.keys() - {"action"}) | {f"action:{a}" for 
 
 # Settings, macros and pads, pairing, updates: the PC only.
 ADMIN_ACTIONS = frozenset({
-    "save_config", "save_macros", "set_theme", "req_local_sounds", "req_apps_list",
+    "save_config", "save_macros", "set_theme", "set_play_key", "req_local_sounds", "req_apps_list",
     "check_update", "run_update", "pair_decision", "rename_device", "revoke_device",
     "action:spot_clear_auth", "action:disc_auth", "action:disc_clear_auth",
 })

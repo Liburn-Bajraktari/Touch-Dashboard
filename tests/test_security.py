@@ -305,6 +305,7 @@ ADMIN_ONLY_MESSAGES = [
     {"type": "save_config", "data": {"spot_secret": "pwned"}},
     {"type": "save_macros", "data": [{"id": "x", "type": "app", "action_data": "xterm"}]},
     {"type": "set_theme", "data": {"id": "ember", "ground": "#000000"}},
+    {"type": "set_play_key", "data": {"cover": False}},
     {"type": "req_local_sounds"},
     {"type": "req_apps_list"},
     {"type": "check_update"},

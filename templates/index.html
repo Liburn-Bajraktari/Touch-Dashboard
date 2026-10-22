@@ -1299,13 +1299,22 @@
             flex: none;
         }
 
+        /* The play key: lit in the cover's colour, or in the theme's accent when
+           the cover gives none or the cover colour is switched off (Settings →
+           Themes, html[data-play-key="theme"]). */
         .spot-ctrl .btn-play {
             width: 6rem;
             height: 6rem;
-            background: var(--dyn, var(--inverse));
-            color: var(--dyn-ink, var(--inverse-ink));
+            background: var(--dyn, var(--accent));
+            color: var(--dyn-ink, var(--accent-ink));
             box-shadow: inset 0 1px 0 var(--rim), 0 0.9rem 1.8rem -0.7rem var(--dyn-shadow, var(--depth));
             transition: transform var(--dur-spring) var(--spring-bounce), background-color 0.8s var(--ease), box-shadow 0.8s var(--ease);
+        }
+
+        [data-play-key="theme"] .spot-ctrl .btn-play {
+            background: var(--accent);
+            color: var(--accent-ink);
+            box-shadow: inset 0 1px 0 var(--rim), 0 0.9rem 1.8rem -0.7rem var(--depth);
         }
 
         .spot-ctrl .btn-play svg.lucide {
@@ -4161,6 +4170,21 @@
                     <h3 class="settings-h">Theme</h3>
                     <p class="settings-sub">Applies straight away to every screen connected to this PC.</p>
                     <div id="theme-grid" class="theme-grid" role="radiogroup" aria-label="Theme"></div>
+
+                    <h3 class="settings-h">Now playing</h3>
+                    <div class="setting-group">
+                        <div class="setting-row">
+                            <div>
+                                <label class="title" for="cfg-play-key-cover">Cover colour on the play key</label>
+                                <label class="desc" for="cfg-play-key-cover">The play key takes the colour of the album
+                                    art. Off, it uses the theme's own colour.</label>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="cfg-play-key-cover" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="tab-spotify" class="tab-content">
@@ -5527,6 +5551,17 @@
         });
         document.addEventListener('td-theme-change', renderThemeGrid);
 
+        // The play key in the cover's colour, or the theme's accent. Applies at
+        // once on every screen, like a theme (set_play_key → play_key_state).
+        function setPlayKeyCover(on) {
+            document.documentElement.dataset.playKey = on ? 'cover' : 'theme';
+            document.getElementById('cfg-play-key-cover').checked = on;
+        }
+        document.getElementById('cfg-play-key-cover').addEventListener('change', (e) => {
+            setPlayKeyCover(e.target.checked);
+            sendSocket('set_play_key', { cover: e.target.checked });
+        });
+
         let isAnimating = false;
         let pendingSysData = null;
         let spotifyLock = 0;
@@ -6656,6 +6691,7 @@
 
                     const c = d.cfg;
                     if (window.TDTheme) TDTheme.apply(c.theme || TDTheme.defaultId);
+                    setPlayKeyCover(c.play_key_cover !== false);
                     macros = c.macros || [];
                     if (!c.macros) {
                         macros = [
@@ -6804,6 +6840,10 @@
                 else if (msg.type === 'theme_state') {
                     if (globalCfg) globalCfg.theme = d;
                     if (window.TDTheme) TDTheme.apply(d);
+                }
+                else if (msg.type === 'play_key_state') {
+                    if (globalCfg) globalCfg.play_key_cover = d;
+                    setPlayKeyCover(d !== false);
                 }
                 else if (msg.type === 'hw_scan_results') {
                     currentHwDevices = d;

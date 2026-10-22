@@ -32,7 +32,7 @@ Touch Dashboard is a piece of studio hardware that happens to be made of pixels:
 
 Two things make it feel alive rather than rendered:
 
-- **The music lights the room.** The most vivid colour in the current cover becomes `--dyn`: the play key, the progress bar, the cover's shadow and the ambient light behind the modules. Nothing playing, and the theme's own glow takes over.
+- **The music lights the room.** The most vivid colour in the current cover becomes `--dyn`: the play key, the progress bar, the cover's shadow and the ambient light behind the modules. Nothing playing, and the theme's own glow takes over. The play key can keep the theme's accent instead (Settings → Themes → Cover colour on the play key); it also takes the accent whenever the cover gives no colour.
 - **It answers touch like hardware.** Keys sink and spring back, the encoder overshoots and settles, fader caps lift while held, and on Android every press, detent and limit is a haptic tick.
 
 ## 2. The light model
@@ -97,7 +97,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `text`, `text-2`, `text-3` | Ink on plates and keys | 7 / 4.5 / 4.5 :1 |
 | `well`, `well-ink`, `well-ink-2`, `well-accent` | Recessed containers: background, text, labels, lit values | 7 / 4.5 / 4.5 :1 on `well`; accent, status hues 3:1 |
 | `display`, `display-ink`, `display-ink-2`, `display-accent` | Small readouts (dark LCD windows on dark consoles, light on Daylight) | 7 / 4.5 / 4.5 :1 on `display`; status hues 3:1 |
-| `accent` | Fader light, encoder LEDs, progress, brand mark | 3:1 on surfaces and wells (graphic) |
+| `accent` | Fader light, encoder LEDs, progress, brand mark, the play key without a cover colour | 3:1 on surfaces and wells (graphic) |
 | `accent-text`, `accent-ink` | Accent as text; ink on an accent fill | 4.5:1 |
 | `inverse`, `inverse-ink` | Primary pill actions, weekday pill | 4.5:1 |
 | `positive`, `positive-ink` | Live keys, speaking ring, link light, battery high | 3:1 graphic, 4.5:1 ink |
