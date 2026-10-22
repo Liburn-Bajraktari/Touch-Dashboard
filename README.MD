@@ -55,7 +55,7 @@ The PC and the tablet must be on the same network. Every tablet, and every brows
 
 ## Install
 
-### Windows
+### Windows (Testing and Development paused for the time being)
 
 1. From the [latest release](https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/latest), download `install.ps1` and `SHA256SUMS` into the same folder.
 2. Open PowerShell as administrator (so the installer can add the firewall rule), go to that folder and check the installer against the published checksum. It prints `True` when they match; if it prints `False`, delete the file and do not run it:
