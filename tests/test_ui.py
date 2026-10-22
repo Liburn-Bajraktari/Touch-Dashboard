@@ -49,3 +49,34 @@ def test_old_browser_key_names_still_work():
     assert macro_system.key_name("key_arrowup") == "KEY_UP"
     assert macro_system.key_name("KEY_NUMPAD7") == "KEY_KP7"
     assert macro_system.key_name("KEY_L") == "KEY_L"
+
+
+def _z_index(selector: str) -> int:
+    css = TEMPLATE.read_text(encoding="utf-8")
+    block = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
+    assert block, selector
+    return int(re.search(r"z-index:\s*(\d+)", block.group(1)).group(1))
+
+
+def test_full_screen_clock_stays_under_the_lock_screen():
+    """The clock is dismissed with a tap; the lock screen must cover it and cannot be."""
+    assert _z_index("#clock-view") < _z_index("#lock-overlay")
+
+
+def test_screen_care_choices_match_what_the_server_accepts():
+    """Settings → General → Screen care offers exactly the minutes save_config keeps."""
+    import server
+    html = TEMPLATE.read_text(encoding="utf-8")
+    for picker_id, key in (("cfg-idle-dim", "idle_dim_min"), ("cfg-idle-clock", "idle_clock_min")):
+        block = re.search(r'id="' + picker_id + r'"[^>]*>([\s\S]*?)</div>', html).group(1)
+        offered = tuple(int(v) for v in re.findall(r'data-v="(\d+)"', block))
+        assert offered == server.IDLE_CHOICES[key], key
+        assert server.DEFAULT_CONFIG[key] in offered
+
+
+def test_screen_share_key_is_a_push_key():
+    """Discord does not report whether a screen share is running, so the key
+    never shows a state: each press sinks and springs back (pressKey)."""
+    code = _script()
+    assert not re.search(r"btnDiscScreen[^;\n]*vid-active", code)
+    assert "pressKey(dom.btnDiscScreen)" in code

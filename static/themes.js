@@ -53,6 +53,7 @@
       "on-bright": "#0a0a0b",
       "on-deep": "#ffffff",
       "mask": "#000000",
+      "dim": "#000000",
       "cap-h": "3.4rem",
       "backdrop-opacity": "0.5",
       "dur-fast": "110ms",

@@ -757,14 +757,26 @@ class AudioSystem:
     # ── cycle output device ────────────────────────────────────────────────────
 
     @staticmethod
-    def cycle_device(audio_names: dict | None = None, hidden: list[str] | None = None) -> None:
-        """Make the next output the default, skipping the ones hidden in Audio routing."""
-        sinks = AudioSystem.poll_all(audio_names).get("sinks", [])
+    def ordered(sinks: list[dict], order: list[str] | None) -> list[dict]:
+        """Sinks in the order set in Audio routing (raw names). Any not in it (a
+        device plugged in since, or none ordered yet) follow at the bottom in
+        the system's own order."""
+        if not order:
+            return list(sinks)
+        rank = {name: i for i, name in enumerate(order)}
+        return sorted(sinks, key=lambda s: rank.get(s["raw_name"], len(rank)))   # stable
+
+    @staticmethod
+    def cycle_device(audio_names: dict | None = None, hidden: list[str] | None = None,
+                     order: list[str] | None = None) -> None:
+        """Make the next output the default, in the Audio routing order and
+        skipping the ones hidden there."""
+        sinks = AudioSystem.ordered(AudioSystem.poll_all(audio_names).get("sinks", []), order)
         skip = set(hidden or ())
         if not any(s["raw_name"] not in skip for s in sinks):
             return
 
-        # Walk on from the active sink in list order (also when the active one is
+        # Walk on from the active sink in that order (also when the active one is
         # hidden), so a turn always lands on the next visible output.
         active_id = AudioSystem.get_active_sink_id(sinks)
         start = next((i for i, s in enumerate(sinks) if s["id"] == active_id), -1)

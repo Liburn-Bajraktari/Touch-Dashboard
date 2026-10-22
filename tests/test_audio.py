@@ -96,6 +96,33 @@ def test_cycle_device_skips_hidden_outputs(active, hidden, expected):
     run.assert_called_once_with(["wpctl", "set-default", expected])
 
 
+@pytest.mark.parametrize("order, expected", [
+    ([], ["Speakers", "HDMI", "Headset"]),                         # none set: the system's order
+    (["Headset", "Speakers", "HDMI"], ["Headset", "Speakers", "HDMI"]),
+    (["Headset"], ["Headset", "Speakers", "HDMI"]),                # the rest follow, in system order
+    (["Gone", "HDMI"], ["HDMI", "Speakers", "Headset"]),           # unplugged names are passed over
+])
+def test_sinks_follow_the_audio_routing_order(order, expected):
+    assert [s["raw_name"] for s in AudioSystem.ordered(_sinks("HDMI"), order)] == expected
+
+
+def test_a_new_device_goes_to_the_bottom():
+    sinks = _sinks("HDMI") + [{"id": "60", "raw_name": "USB DAC", "name": "USB", "is_active": False}]
+    order = ["Headset", "HDMI", "Speakers"]
+    assert [s["raw_name"] for s in AudioSystem.ordered(sinks, order)][-1] == "USB DAC"
+
+
+@pytest.mark.parametrize("active, expected", [
+    ("Headset", "40"),    # Headset -> Speakers in the order Headset, Speakers, HDMI
+    ("HDMI", "42"),       # wraps round to Headset
+])
+def test_cycle_device_follows_the_order(active, expected):
+    with patch.object(AudioSystem, "poll_all", return_value={"sinks": _sinks(active)}), \
+         patch.object(AudioSystem, "run") as run:
+        AudioSystem.cycle_device({}, [], ["Headset", "Speakers", "HDMI"])
+    run.assert_called_once_with(["wpctl", "set-default", expected])
+
+
 def test_cycle_device_with_every_output_hidden_does_nothing():
     with patch.object(AudioSystem, "poll_all", return_value={"sinks": _sinks("HDMI")}), \
          patch.object(AudioSystem, "run") as run:

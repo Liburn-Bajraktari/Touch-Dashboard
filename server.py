@@ -280,6 +280,7 @@ DEFAULT_CONFIG: dict = {
     "soundboard_volume": 100,
     "audio_names": {},
     "hidden_audio_devices": [],   # raw sink names the output switch skips
+    "audio_order": [],            # raw sink names, first to last; others follow at the bottom
     "soundpad_buttons": [],
     "local_buttons": [],
     "sounds_path": "",
@@ -287,6 +288,8 @@ DEFAULT_CONFIG: dict = {
     "theme": "graphite",      # preset id from static/themes.js
     "theme_ground": "#000000",  # that preset's ground, painted by the desktop window before load
     "play_key_cover": True,   # the play key takes the cover's colour; off, the theme's accent
+    "idle_dim_min": 5,        # burn-in care on tablets: dim the home screen after this many idle minutes (0: never)
+    "idle_clock_min": 15,     # ... and show the full-screen clock after this many (0: never)
     "device_av_controls": True,  # paired tablets may toggle Discord camera / screen share
 }
 
@@ -959,7 +962,8 @@ async def hardware_loop():
         if "audio" in jobs:
             last_audio_check = curr
         if isinstance(audio_data, dict):
-            curr_sinks = audio_data["sinks"]
+            curr_sinks = AudioSystem.ordered(audio_data["sinks"], config.get("audio_order"))
+            # A device added or removed, or the order changed in Audio routing.
             if [s["raw_name"] for s in curr_sinks] != [s["raw_name"] for s in last_audio_devs]:
                 last_audio_devs = curr_sinks
                 await ws_manager.broadcast({"type": "hw_scan_results", "data": curr_sinks})
@@ -1044,6 +1048,31 @@ async def hardware_loop():
             pass
 
 
+def _weather_from_owm(data: dict) -> dict:
+    """OpenWeatherMap's current weather (metric) as the page gets it. temp and
+    desc are on every screen; the rest feeds the full-screen clock and is None
+    where OpenWeatherMap leaves it out. temp_min / temp_max are not passed on:
+    they are the spread across the city right now, not a day's high and low."""
+    main, wind, sun = data.get("main") or {}, data.get("wind") or {}, data.get("sys") or {}
+
+    def whole(value, scale=1.0):
+        return round(value * scale) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    city = data.get("name")
+    return {
+        "temp":       round(main["temp"]),
+        "desc":       data["weather"][0]["description"].title(),
+        "feels_like": whole(main.get("feels_like")),
+        "humidity":   whole(main.get("humidity")),
+        "wind_kmh":   whole(wind.get("speed"), 3.6),        # m/s in metric units
+        "sunrise":    whole(sun.get("sunrise")),             # UTC epoch seconds
+        "sunset":     whole(sun.get("sunset")),
+        "tz":         whole(data.get("timezone")),           # the city's offset from UTC, seconds
+        "city":       city if isinstance(city, str) and city else None,
+        "timestamp":  int(time.time()),
+    }
+
+
 async def fetch_weather():
     global last_weather_data
 
@@ -1062,11 +1091,7 @@ async def fetch_weather():
             )
             data = res.json()
             if "main" in data:
-                last_weather_data = {
-                    "temp":      round(data["main"]["temp"]),
-                    "desc":      data["weather"][0]["description"].title(),
-                    "timestamp": int(time.time()),
-                }
+                last_weather_data = _weather_from_owm(data)
                 def _write_weather(data):
                     with open(WEATHER_CACHE_FILE, "w") as f:
                         json.dump(data, f)
@@ -1232,9 +1257,11 @@ async def _current_sinks() -> list[dict]:
     config_sync's "hw" only feeds the Audio routing tab (raw names), so a save
     does not need three fresh wpctl processes to rebuild it.
     """
+    order = config.get("audio_order")
     if last_audio_devs:
-        return last_audio_devs
-    return await asyncio.to_thread(AudioSystem.get_hardware_sinks, config.get("audio_names", {}))
+        return AudioSystem.ordered(last_audio_devs, order)   # the order may have just changed
+    sinks = await asyncio.to_thread(AudioSystem.get_hardware_sinks, config.get("audio_names", {}))
+    return AudioSystem.ordered(sinks, order)
 
 
 async def _make_config_sync(sinks: list[dict], initial_disc: dict | None = None) -> dict:
@@ -1265,7 +1292,7 @@ async def _make_config_sync(sinks: list[dict], initial_disc: dict | None = None)
 # What a paired device may read of the config: display and live-control state.
 # An allowlist, so a new secret added to the config later is never sent by default.
 DEVICE_CFG_KEYS = (
-    "theme", "play_key_cover", "audio_names", "hidden_audio_devices", "disc_vc_enabled", "disc_sort_speakers",
+    "theme", "play_key_cover", "idle_dim_min", "idle_clock_min", "audio_names", "hidden_audio_devices", "disc_vc_enabled", "disc_sort_speakers",
     "show_mouse_batt", "show_hw_stats", "spot_enabled", "weather_enabled", "disc_enabled",
     "audio_enabled", "sb_enabled", "soundboard_volume", "soundboard_feedback", "device_av_controls",
 )
@@ -2119,6 +2146,7 @@ async def _await_pair_decision(ws: WebSocket, req: security.PendingPair) -> str:
 
 async def _send_initial_state(client: Client) -> None:
     hw = await asyncio.to_thread(AudioSystem.get_hardware_sinks, config.get("audio_names", {}))
+    hw = AudioSystem.ordered(hw, config.get("audio_order"))
     syncs = await _config_sync_by_role(_initial_disc(), sinks=hw)
     await client.ws.send_text(_dumps(syncs[client.role]))
 
@@ -2241,8 +2269,9 @@ async def _ws_save_config(client: Client, msg: dict) -> None:
     old_wx_api, old_wx_city   = config.get("weather_api"), config.get("weather_city")
     old_spot_id               = config.get("spot_id")
 
-    if "hidden_audio_devices" in data:
-        data["hidden_audio_devices"] = _clean_hidden_devices(data["hidden_audio_devices"])
+    for key in ("hidden_audio_devices", "audio_order"):
+        if key in data:
+            data[key] = _clean_sink_names(data[key])
     if "macros" in data:
         data["macros"] = _live_macros(data["macros"])
     for key, id_key in (("macros", "id"), ("local_buttons", "uid"), ("soundpad_buttons", "uid")):
@@ -2250,6 +2279,9 @@ async def _ws_save_config(client: Client, msg: dict) -> None:
             data[key] = _with_ids(data[key], id_key)
     if "device_av_controls" in data:
         data["device_av_controls"] = data["device_av_controls"] is True
+    for key, choices in IDLE_CHOICES.items():
+        if key in data:
+            data[key] = _idle_minutes(key, data[key], choices)
     with CONFIG_LOCK:
         config.update(data)
     await asyncio.to_thread(save_config)
@@ -2804,7 +2836,7 @@ async def _handle_action(ws: WebSocket, action: str):
     # ── audio ─────────────────────────────────────────────────────────────────
     if action == "audio_cycle":
         await asyncio.to_thread(AudioSystem.cycle_device, config.get("audio_names", {}),
-                                config.get("hidden_audio_devices", []))
+                                config.get("hidden_audio_devices", []), config.get("audio_order", []))
         return
 
     if action == "audio_mute_spk":
@@ -2976,8 +3008,19 @@ def launch_desktop(host: str = "0.0.0.0", port: int = 8888) -> None:
     )
 
 
-def _clean_hidden_devices(value) -> list[str]:
-    """hidden_audio_devices from a client: distinct raw sink names, bounded."""
+# Burn-in care on tablets (Settings → General → Screen care): minutes, 0 = never.
+IDLE_CHOICES = {"idle_dim_min": (0, 2, 5, 10), "idle_clock_min": (0, 10, 15, 30)}
+
+
+def _idle_minutes(key: str, value, choices: tuple[int, ...]) -> int:
+    """An idle delay from a client: one of the offered choices, else the default."""
+    if isinstance(value, int) and not isinstance(value, bool) and value in choices:
+        return value
+    return DEFAULT_CONFIG[key]
+
+
+def _clean_sink_names(value) -> list[str]:
+    """hidden_audio_devices / audio_order from a client: distinct raw sink names, bounded."""
     if not isinstance(value, list):
         return []
     names = [v for v in value if isinstance(v, str) and 0 < len(v) <= 256]

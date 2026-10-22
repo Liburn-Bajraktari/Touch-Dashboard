@@ -27,6 +27,7 @@ Touch Dashboard is a piece of studio hardware that happens to be made of pixels:
 | Mute, live, speaking | **Lit keys and LEDs**: the state is light, and on rich displays it spills |
 | System load | Display tiles with a live trace of the last minute |
 | Choices (key type, icon, app, sound) | A **selector tray**: a recessed well of options; the chosen one rises out of it as a keycap |
+| The clock, full screen | A **desk clock**: the time large, the weather in detail, what is playing and the call, straight on the dark ground, drifting a little each minute |
 | Questions and notices | A **dialog plate**: its glyph lit in a small display window, a sentence-case title, then the keys that answer it |
 | Key and pad editors | The key or pad itself, drawn exactly as on the console, beside the selectors that change it |
 
@@ -54,7 +55,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 2. **Displays hold the numbers.** Values that change live (levels, battery, load, device names) sit in recessed display windows in tabular figures. Static labels sit on the plate.
 3. **Sentence case.** "Now playing", "Output device", "Save & apply". Proper names keep their capitals ("Command Center").
 4. **Value balance.** Large neighbouring surfaces (ground, plates, keys, wells, displays) stay within 1.5:1 of each other (tested); the extreme values belong to text and small details. On a light theme, near-black is for text and icons only, never containers or readouts (Daylight: under 1 % of the screen).
-5. **Lit keys share one recipe.** A key that is on (live, muted, screen share) is a bright status fill with dark ink, like a backlit cap. Mute is no exception: it is a lit red key, not a dark red one with white ink.
+5. **Lit keys share one recipe.** A key that is on (live, muted, camera on) is a bright status fill with dark ink, like a backlit cap. Mute is no exception: it is a lit red key, not a dark red one with white ink.
 6. **Honest data. Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
 7. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted" (the fader stays at its level, as on a desk: only its slot goes dark); Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
 8. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
@@ -121,6 +122,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `backdrop-opacity` | 0.5 | Daylight 0.32 |
 | `on-bright`, `on-deep` | near-black, white | Ink chosen for the cover-coloured play key |
 | `mask` | opaque black | The solid part of a `mask-image` gradient (only its alpha counts): the marquee's edge fade |
+| `dim` | black | Laid over a screen at partial opacity to dim it for burn-in care (idle home screen, lock screen, full-screen clock); on a light theme it darkens the ground too |
 | `spring`, `spring-bounce` | CSS `linear()` curves | §7 |
 | `dur-fast`, `dur`, `dur-spring`, `ease` | 110, 180, 460 ms; ease-out | |
 
@@ -145,7 +147,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Use | Curve | Duration |
 |---|---|---|
 | Key release, encoder turn, switch knob, pad press, theme card | `spring-bounce` (ζ ≈ 0.55, 12.5 % overshoot) | 460–620 ms |
-| Fader settle, modal open, Now Playing scale, clock digits | `spring` (ζ ≈ 0.75, 3 %) | 280–560 ms |
+| Fader settle, modal open (rich only: on lite a dialog appears at once, §8), Now Playing scale, clock digits | `spring` (ζ ≈ 0.75, 3 %) | 280–560 ms |
 | Press-in, colour changes | `ease`, `dur-fast` | 110 ms |
 | Progress bar | linear, 1 s, leading the true position by 1 s so it glides | — |
 | Now playing marquee | rests 2.5 s, then 32 px/s: linear on rich, whole-pixel steps on lite (§8) | one lap per copy width |
@@ -172,6 +174,7 @@ Measured in a headless copy of the desktop window. Before these rules, the windo
 1. **A layout that reaches the page root.** Changing in-flow text does this: a figure, a time, a label. `contain` does not stop it here. **Live figures** (anything that changes every second, or on every frame of a drag) sit in a `.live` box: a fixed height `--live-h`, with the text in an absolutely positioned `.live-v` child. That box is a layout boundary, so a new figure repaints only itself. The fader readouts, track times, load figures and speed test figures use it.
 2. **Any change to an element's `box-shadow`**, even a colour on an inset shadow. So on the lite tier a key presses by transform and lights by fill only. The press shade and the lit-key glow change shadows on the rich tier only, under `:where([data-fx="rich"])`, which keeps the specificity unchanged. A state that must show a ring uses a pseudo-element that is shown and hidden (the speaking ring), not a shadow.
 3. **An `opacity` crossing 1**, which gives the element a layer of its own. Toggle `visibility` instead (the mute slash).
+4. **Any change under a full-screen dialog** (or the full-screen clock, which holds the dashboard the same way). With a dialog open, even an 8 px box changing behind it costs a ~50 ms repaint of the whole window (measured: an empty transparent full-screen layer does it too). So on the lite tier, while any `.modal-overlay.active` is open, the dashboard behind it holds still (`holdDashboard()`, `html[data-held]`): `sys_data` waits in `pendingSysData` (only sign-in status and the lock screen still apply), the progress timer and the marquee pause, and CSS animations behind it stop. It catches up when the last dialog closes. Dialogs there also open without the fade and spring (each frame of those cost ~80 ms: Settings opened at ~12 fps for 0.6 s; now one ~57 ms frame) and without the card's two large blurred shadows (~15 ms of every frame).
 
 Background, ink colour, corner radius, `visibility` and `transform` changes are cheap.
 
@@ -185,6 +188,14 @@ Always, on both tiers:
 - Never CSS-transition a property GSAP also tweens (key opacity during the soundboard transition).
 - The cover backdrop is the cover drawn into an 8×8 canvas and stretched: a blur with no filter cost.
 - Write text with `textContent`; never read `innerText` in an update path.
+
+### Burn-in care (OLED)
+
+A tablet can show the console for hours. What stays still for long burns in, so:
+
+- **Full-screen views** (the lock screen, the full-screen clock) sit on the dark ground with no plates. Every minute their content moves to a new spot, spread evenly over the free space around it (a Halton sequence, never off screen), and after five minutes the screen dims by half. Nothing on them changes faster than the minute apart from the music.
+- **The home screen**, on tablets: it shifts by a pixel or two every three minutes, dims after a few idle minutes (the first touch only wakes it; it never presses a key), and later shows the full-screen clock. Both delays are in Settings → General → Screen care.
+- Dimming lays `--dim` over the screen, so a light theme's ground darkens too. On the lite tier these changes jump instead of gliding.
 
 ## 9. Presets
 

@@ -248,7 +248,24 @@ def test_save_config_cleans_hidden_audio_devices(client):
                                  "data": {"hidden_audio_devices": ["HDMI", "HDMI", 5, "", "x" * 300, "Headset"]}})
             sync = _receive_until(websocket, "config_sync")
     assert sync["data"]["cfg"]["hidden_audio_devices"] == ["HDMI", "Headset"]
-    assert server._clean_hidden_devices("HDMI") == []
+    assert server._clean_sink_names("HDMI") == []
+    _restore_config(original)
+
+
+def test_saved_output_order_reaches_every_screen(client):
+    """Audio routing's order: config_sync's hw comes sorted; devices not in it go last."""
+    import server
+    original = dict(server.config)
+    sinks = [{"id": str(i), "raw_name": n, "name": n, "custom_name": "", "is_active": n == "HDMI"}
+             for i, n in enumerate(["Speakers", "HDMI", "Headset", "USB DAC"], start=40)]
+    with patch("server.save_config"), patch("server.last_audio_devs", sinks):
+        with _admin_ws(client) as websocket:
+            assert websocket.receive_json()["type"] == "config_sync"
+            websocket.send_json({"type": "save_config",
+                                 "data": {"audio_order": ["Headset", "Headset", 7, "HDMI", "Speakers"]}})
+            sync = _receive_until(websocket, "config_sync")
+    assert sync["data"]["cfg"]["audio_order"] == ["Headset", "HDMI", "Speakers"]
+    assert [s["raw_name"] for s in sync["data"]["hw"]] == ["Headset", "HDMI", "Speakers", "USB DAC"]
     _restore_config(original)
 
 
@@ -293,6 +310,39 @@ def test_update_check_says_when_it_could_not_check():
         assert result["checked"] is True
     finally:
         server.update_available, server.latest_version, server.update_apk_url, server.update_notes = saved
+
+
+def test_idle_screen_care_settings_are_checked_and_reach_tablets(client):
+    import server
+    original = dict(server.config)
+    with patch("server.save_config"):
+        with _admin_ws(client) as websocket:
+            sync = websocket.receive_json()["data"]["cfg"]
+            assert (sync["idle_dim_min"], sync["idle_clock_min"]) == (5, 15)
+            websocket.send_json({"type": "save_config", "data": {"idle_dim_min": 10, "idle_clock_min": 0}})
+            sync = _receive_until(websocket, "config_sync")["data"]["cfg"]
+            assert (sync["idle_dim_min"], sync["idle_clock_min"]) == (10, 0)
+            websocket.send_json({"type": "save_config", "data": {"idle_dim_min": 3, "idle_clock_min": "15"}})
+            sync = _receive_until(websocket, "config_sync")["data"]["cfg"]
+            assert (sync["idle_dim_min"], sync["idle_clock_min"]) == (5, 15)   # not offered: defaults
+    assert {"idle_dim_min", "idle_clock_min"} <= set(server.DEVICE_CFG_KEYS)
+    server.config.clear()
+    server.config.update(original)
+
+
+def test_weather_carries_the_full_screen_clock_details():
+    import server
+    owm = {"name": "Pristina", "timezone": 7200,
+           "weather": [{"description": "few clouds"}],
+           "main": {"temp": 17.6, "feels_like": 16.4, "humidity": 64, "temp_min": 12.0, "temp_max": 21.0},
+           "wind": {"speed": 3.4}, "sys": {"sunrise": 1761109080, "sunset": 1761147720}}
+    w = server._weather_from_owm(owm)
+    assert (w["temp"], w["desc"], w["feels_like"], w["humidity"]) == (18, "Few Clouds", 16, 64)
+    assert w["wind_kmh"] == 12 and w["tz"] == 7200 and w["city"] == "Pristina"
+    assert (w["sunrise"], w["sunset"]) == (1761109080, 1761147720)
+    assert "temp_min" not in w and "temp_max" not in w     # not a day's high and low
+    sparse = server._weather_from_owm({"weather": [{"description": "mist"}], "main": {"temp": 3}})
+    assert sparse["feels_like"] is None and sparse["wind_kmh"] is None and sparse["city"] is None
 
 
 def test_retired_clip_macros_are_dropped():

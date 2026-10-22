@@ -62,6 +62,12 @@ class DiscordIPC:
         self.voice_state    = {"mute": False, "deaf": False, "video": False, "screenshare": False}
         self.voice_channel: dict | None = None
         self.pre_deafen_mute = False
+        # Channel tracking (see _request_channel): the signed-in user's id, the
+        # channel whose voice events we are subscribed to, and whether a fresh
+        # snapshot of it is on its way (events are dropped until it lands).
+        self.user_id: str | None = None
+        self._vc_sub: str | None = None
+        self._vc_pending = False
 
         # Hooks set by the server to trigger a data push after state changes
         self.on_state_change = None   # asyncio-safe callable
@@ -208,6 +214,9 @@ class DiscordIPC:
     def close(self) -> None:
         self.connected = False
         self._close_transport()
+        # Subscriptions end with the connection; the next one starts over.
+        self._vc_sub = None
+        self._vc_pending = False
 
     # ── authentication ─────────────────────────────────────────────────────────
 
@@ -255,6 +264,10 @@ class DiscordIPC:
             "nonce": str(uuid.uuid4()),
         })
         res = self.recv()
+        if res and res.get("evt") != "ERROR":
+            # Who we are: a VOICE_STATE_DELETE for this id means we left the channel.
+            uid = ((res.get("data") or {}).get("user") or {}).get("id")
+            self.user_id = str(uid) if uid else None
         if res and res.get("evt") == "ERROR":
             logger.error(f"Discord auth error: {_redact(res)}")
             self.access_token = ""
@@ -269,7 +282,7 @@ class DiscordIPC:
                     "VIDEO_STATE_UPDATE", "SCREENSHARE_STATE_UPDATE"):
             self.send(1, {"cmd": "SUBSCRIBE", "evt": evt, "args": {}, "nonce": str(uuid.uuid4())})
         self.send(1, {"cmd": "GET_VOICE_SETTINGS",        "args": {}, "nonce": "GET_VOICE"})
-        self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
+        self._request_channel()
         self.auth_pending = False
 
     # ── IPC event loop ─────────────────────────────────────────────────────────
@@ -321,6 +334,9 @@ class DiscordIPC:
                     self._config_save("")
                 self.auth_pending = True
                 self._trigger()
+            elif cmd == "GET_SELECTED_VOICE_CHANNEL":
+                logger.error(f"Discord IPC error: {_redact(res)}")
+                self._vc_pending = False
             elif nonce == "AUTHORIZE_REQ":
                 logger.error(f"Discord IPC AUTHORIZE failed (restricted scopes?): {res}. Falling back to browser.")
                 if self.on_auth_error:
@@ -356,51 +372,47 @@ class DiscordIPC:
             self._trigger()
             return
 
-        # Voice channel
-        if cmd == "GET_SELECTED_VOICE_CHANNEL" or evt == "VOICE_CHANNEL_SELECT":
-            cid = data.get("id") or data.get("channel_id")
+        # Voice channel. Discord's VOICE_STATE_* events carry no channel id, so
+        # the client must be subscribed to exactly one channel at a time: on any
+        # change it unsubscribes from the old channel, subscribes to the new one,
+        # and only then takes a snapshot. Until that snapshot lands, voice events
+        # are dropped, so none from the old channel leak into the new list.
+        if evt == "VOICE_CHANNEL_SELECT":
+            cid = data.get("channel_id")
             if not cid:
-                # Leaving the call ends the camera and screen share with it.
-                self.voice_channel = None
-                self.voice_state["video"] = False
-                self.voice_state["screenshare"] = False
-                self._trigger()
+                self._leave_channel()
                 return
-            if evt == "VOICE_CHANNEL_SELECT":
-                self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
-                return
-            # Build voice_channel from the full data returned by GET_SELECTED_VOICE_CHANNEL
-            self.voice_channel = {
-                "id": data.get("id"), "name": data.get("name"),
-                "guild_id": data.get("guild_id"), "guild_name": None, "users": {},
-            }
-            cid_str = str(data.get("id"))
-            for sub_evt in ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE", "VOICE_STATE_DELETE",
-                            "SPEAKING_START", "SPEAKING_STOP"):
-                self.send(1, {"cmd": "SUBSCRIBE", "evt": sub_evt,
-                               "args": {"channel_id": cid_str}, "nonce": str(uuid.uuid4())})
-            if data.get("guild_id"):
-                self.send(1, {"cmd": "GET_GUILD",
-                               "args": {"guild_id": str(data["guild_id"]), "timeout": 3},
-                               "nonce": "GET_GUILD_VC"})
-            for vs in data.get("voice_states", []):
-                user = vs.get("user", {})
-                uid = str(user.get("id") or "")
-                if uid:
-                    vstate = vs.get("voice_state", {})
-                    self.voice_channel["users"][uid] = {
-                        "id": uid,
-                        "name": vs.get("nick") or user.get("global_name") or user.get("username"),
-                        "avatar": user.get("avatar"),
-                        "mute": vstate.get("mute") or vstate.get("self_mute"),
-                        "deaf": vstate.get("deaf") or vstate.get("self_deaf"),
-                        "speaking": False,
-                    }
-            self._trigger()
+            self._subscribe_channel(str(cid))
+            self._request_channel()
             return
 
+        if cmd == "GET_SELECTED_VOICE_CHANNEL":
+            cid = data.get("id")
+            if not cid:
+                self._leave_channel()
+                return
+            cid = str(cid)
+            if cid != self._vc_sub:
+                # Moved without a VOICE_CHANNEL_SELECT (Discord does not always
+                # send one when someone else moves you): subscribe, then look again.
+                self._subscribe_channel(cid)
+                self._request_channel()
+                return
+            self._vc_pending = False
+            self._apply_channel(data)
+            return
+
+        if evt in ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE", "VOICE_STATE_DELETE",
+                   "SPEAKING_START", "SPEAKING_STOP"):
+            if self._vc_pending or not self.voice_channel:
+                return
+            # Newer clients name the channel; anything for another one is stale.
+            ev_cid = data.get("channel_id")
+            if ev_cid and str(ev_cid) != str(self.voice_channel.get("id")):
+                return
+
         # Voice state changes
-        if evt in ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE") and self.voice_channel:
+        if evt in ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE"):
             user = data.get("user", {})
             uid  = str(user.get("id") or "")
             if uid:
@@ -413,14 +425,18 @@ class DiscordIPC:
             self._trigger()
             return
 
-        if evt == "VOICE_STATE_DELETE" and self.voice_channel:
+        if evt == "VOICE_STATE_DELETE":
             uid = str((data.get("user") or {}).get("id") or "")
+            if uid and uid == self.user_id:
+                # We left this channel: moved by someone, or hung up. Ask where we are now.
+                self._request_channel()
+                return
             if uid in self.voice_channel["users"]:
                 del self.voice_channel["users"][uid]
             self._trigger()
             return
 
-        if evt in ("SPEAKING_START", "SPEAKING_STOP") and self.voice_channel:
+        if evt in ("SPEAKING_START", "SPEAKING_STOP"):
             uid = str(data.get("user_id") or "")
             if uid in self.voice_channel["users"]:
                 self.voice_channel["users"][uid]["speaking"] = (evt == "SPEAKING_START")
@@ -434,6 +450,73 @@ class DiscordIPC:
                     self.voice_channel["guild_name"] = data.get("name")
                     self._trigger()
             return
+
+    # ── voice channel tracking ─────────────────────────────────────────────────
+
+    _CHANNEL_EVENTS = ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE", "VOICE_STATE_DELETE",
+                       "SPEAKING_START", "SPEAKING_STOP")
+
+    def _request_channel(self) -> None:
+        """Ask which channel we are in; voice events wait for the answer."""
+        self._vc_pending = True
+        self.send(1, {"cmd": "GET_SELECTED_VOICE_CHANNEL", "args": {}, "nonce": "GET_VC"})
+
+    def _set_channel_events(self, cmd: str, cid: str) -> None:
+        for evt in self._CHANNEL_EVENTS:
+            self.send(1, {"cmd": cmd, "evt": evt, "args": {"channel_id": cid}, "nonce": str(uuid.uuid4())})
+
+    def _subscribe_channel(self, cid: str) -> None:
+        """Listen to cid's voice events, and only to them."""
+        if cid == self._vc_sub:
+            return
+        if self._vc_sub:
+            self._set_channel_events("UNSUBSCRIBE", self._vc_sub)
+        self._set_channel_events("SUBSCRIBE", cid)
+        self._vc_sub = cid
+
+    def _leave_channel(self) -> None:
+        """Not in a call: stop listening; the camera and screen share end with the call."""
+        if self._vc_sub:
+            self._set_channel_events("UNSUBSCRIBE", self._vc_sub)
+        self._vc_sub = None
+        self._vc_pending = False
+        self.voice_channel = None
+        self.voice_state["video"] = False
+        self.voice_state["screenshare"] = False
+        self._trigger()
+
+    def _apply_channel(self, data: dict) -> None:
+        """Replace the channel with Discord's snapshot of it. A refresh of the
+        same channel keeps the server name and who is speaking."""
+        prev = self.voice_channel or {}
+        same = str(prev.get("id")) == str(data.get("id"))
+        same_guild = bool(data.get("guild_id")) and str(prev.get("guild_id")) == str(data.get("guild_id"))
+        users: dict[str, dict] = {}
+        for vs in data.get("voice_states", []):
+            user = vs.get("user", {})
+            uid = str(user.get("id") or "")
+            if not uid:
+                continue
+            vstate = vs.get("voice_state", {})
+            users[uid] = {
+                "id": uid,
+                "name": vs.get("nick") or user.get("global_name") or user.get("username"),
+                "avatar": user.get("avatar"),
+                "mute": vstate.get("mute") or vstate.get("self_mute"),
+                "deaf": vstate.get("deaf") or vstate.get("self_deaf"),
+                "speaking": bool(same and prev.get("users", {}).get(uid, {}).get("speaking")),
+            }
+        self.voice_channel = {
+            "id": data.get("id"), "name": data.get("name"),
+            "guild_id": data.get("guild_id"),
+            "guild_name": prev.get("guild_name") if same_guild else None,
+            "users": users,
+        }
+        if data.get("guild_id") and not same_guild:
+            self.send(1, {"cmd": "GET_GUILD",
+                          "args": {"guild_id": str(data["guild_id"]), "timeout": 3},
+                          "nonce": "GET_GUILD_VC"})
+        self._trigger()
 
     # ── voice controls ─────────────────────────────────────────────────────────
 

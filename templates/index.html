@@ -262,7 +262,8 @@
         .batt-slide,
         .sb-vol-row,
         .dlg-glyph,
-        .menu-version {
+        .menu-version,
+        .reconnect-status {
             --well: var(--display);
             --well-ink: var(--display-ink);
             --well-ink-2: var(--display-ink-2);
@@ -2453,6 +2454,25 @@
             height: auto;
         }
 
+        /* The Linux window (lite, CPU-painted): a dialog's fade and spring cost
+           ~80 ms a frame there, so opening Settings played at ~12 fps for 0.6 s
+           (measured). Dialogs appear at once instead, and the card drops its two
+           large blurred shadows (~15 ms of every frame under it): on the dark
+           scrim they barely show. Its lit top edge and outline stay. */
+        :where([data-fx="lite"]) .modal-overlay,
+        :where([data-fx="lite"]) .modal-card {
+            transition: none;
+        }
+
+        :where([data-fx="lite"]) .modal-card {
+            box-shadow: inset 0 1px 0 var(--rim), inset 0 0 0 var(--panel-line-w) var(--panel-line);
+        }
+
+        /* Behind a dialog in that window, nothing animates (see holdDashboard). */
+        :where([data-held]) :is(.top-bar, #view-wrapper) * {
+            animation-play-state: paused !important;
+        }
+
         .modal-title {
             margin: 0;
             font-size: 2rem;
@@ -2628,6 +2648,19 @@
         .pair-actions .btn {
             width: 100%;
             height: 4.4rem;
+        }
+
+        /* Reconnecting (the Android app): when the next attempt comes, in a display. */
+        .reconnect-status {
+            --live-h: 2.4rem;
+            padding: 0.9rem 1rem;
+            border-radius: calc(var(--radius-key) * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            color: var(--well-ink);
+            font-size: var(--fs-md);
+            font-weight: 500;
+            text-align: center;
         }
 
         #pair-modal[data-step="form"] .pair-step-wait,
@@ -2873,8 +2906,11 @@
             margin-top: 1rem;
         }
 
+        /* Never squashed: when a tab is taller than the panel, the column's items
+           shrink to fit, and this key (min-height 0) collapsed under its label. */
         .settings-save {
             align-self: flex-end;
+            flex-shrink: 0;
             margin-top: auto;
             margin-bottom: 0.25rem;
         }
@@ -2973,11 +3009,38 @@
             align-items: center;
         }
 
+        /* Position, device, short name, move up / down, hide. The order is the
+           output switch's: its LEDs and the order a turn steps through. */
         .audio-dev-row {
-            grid-template-columns: 1fr 1fr auto;
-            padding: 0.6rem 0.6rem 0.6rem 1.1rem;
+            grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto auto;
+            padding: 0.6rem 0.6rem 0.6rem 0.9rem;
             background: var(--surface-2);
             border-radius: calc(var(--radius-key) * var(--sq));
+        }
+
+        .dev-pos {
+            min-width: 1.6rem;
+            color: var(--text-3);
+            font-size: var(--fs-sm);
+            font-weight: var(--weight-strong);
+            text-align: center;
+        }
+
+        .dev-order {
+            display: flex;
+            gap: 0.35rem;
+        }
+
+        .dev-move {
+            width: 3.2rem;
+            height: 3.2rem;
+            min-height: 0;
+            padding: 0;
+        }
+
+        .dev-move svg.lucide {
+            width: 1.5rem;
+            height: 1.5rem;
         }
 
         /* Hidden from the output switch: struck through, not just dimmed, and the
@@ -3749,12 +3812,16 @@
             width: 100%;
         }
 
-        /* Moved once a minute by JS while locked (burn-in protection, no continuous animation). */
+        /* Moved once a minute while locked (burn-in care, see makeWanderer): a
+           2 s glide on rich displays, a jump on the CPU-painted Linux window. */
         .lock-drift {
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 4rem;
+        }
+
+        :where([data-fx="rich"]) .lock-drift {
             transition: transform 2s var(--ease);
         }
 
@@ -3842,6 +3909,346 @@
             font-weight: 500;
         }
 
+        /* ── Full-screen clock ────────────────────────────────────────────────
+           Tapping the time and weather panel opens it; a tap anywhere goes back.
+           It shares the lock screen's dark ground, light and burn-in drift, but
+           is a separate layer under it: the lock screen still covers everything
+           and cannot be tapped away. Content sits straight on the ground (no
+           plates), so an OLED panel keeps most of its pixels off. */
+        #clock-view {
+            position: fixed;
+            inset: 0;
+            z-index: 9990;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: radial-gradient(64rem 44rem at 50% 38%, var(--ambient), transparent 72%), var(--ground);
+            color: var(--text);
+            cursor: pointer;
+            -webkit-user-select: none;
+            user-select: none;
+            outline: none;
+        }
+
+        .cv-inner {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+        }
+
+        /* Nudged once a minute (burn-in). Glides on rich displays; jumps on the
+           CPU-painted Linux window, where a 2 s glide repaints the whole screen. */
+        .cv-drift {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3.4rem;
+            max-width: calc(100vw - 4rem);
+        }
+
+        :where([data-fx="rich"]) .cv-drift {
+            transition: transform 2s var(--ease);
+        }
+
+        .cv-clock {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        #cv-time {
+            display: flex;
+            font-size: 16rem;
+            font-weight: var(--weight-clock);
+            letter-spacing: -0.045em;
+            line-height: 0.88;
+        }
+
+        :where([data-fx="lite"]) #cv-time .dg.roll {
+            animation: none;
+        }
+
+        #cv-date {
+            color: var(--text-2);
+            font-size: var(--fs-xl);
+            font-weight: 500;
+            letter-spacing: -0.01em;
+        }
+
+        .cv-info {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6rem;
+            flex-wrap: wrap;
+        }
+
+        .cv-weather {
+            display: flex;
+            align-items: center;
+            gap: 4rem;
+        }
+
+        .cv-now {
+            display: flex;
+            align-items: center;
+            gap: 1.4rem;
+        }
+
+        .cv-now > svg.lucide {
+            width: 5.2rem;
+            height: 5.2rem;
+            color: var(--accent-text);
+            stroke-width: 1.4;
+            flex-shrink: 0;
+        }
+
+        #cv-w-temp {
+            font-size: 4.4rem;
+            font-weight: var(--weight-strong);
+            line-height: 1;
+        }
+
+        #cv-w-desc {
+            margin-top: 0.3rem;
+            color: var(--text-2);
+            font-size: var(--fs-md);
+        }
+
+        .cv-sub {
+            color: var(--text-3);
+            font-size: var(--fs-sm);
+        }
+
+        .cv-details {
+            display: grid;
+            grid-template-columns: repeat(3, auto);
+            gap: 1.6rem 3rem;
+            margin: 0;
+        }
+
+        .cv-details > div {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .cv-details dt {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            color: var(--text-3);
+            font-size: var(--fs-sm);
+        }
+
+        .cv-details dt svg.lucide {
+            width: 1.3rem;
+            height: 1.3rem;
+        }
+
+        .cv-details dd {
+            margin: 0;
+            color: var(--text);
+            font-size: var(--fs-lg);
+            font-weight: 500;
+        }
+
+        .cv-media {
+            display: flex;
+            align-items: center;
+            gap: 1.6rem;
+            max-width: 42rem;
+            min-width: 0;
+        }
+
+        #cv-art {
+            width: 9rem;
+            height: 9rem;
+            flex-shrink: 0;
+            object-fit: cover;
+            border-radius: calc(var(--radius-media) * var(--sq));
+            box-shadow: 0 1.2rem 2.4rem -1rem var(--dyn-shadow, var(--depth));
+        }
+
+        .cv-media-text {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            min-width: 0;
+        }
+
+        .cv-label {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            color: var(--text-3);
+            font-size: var(--fs-sm);
+        }
+
+        .cv-label svg.lucide {
+            width: 1.3rem;
+            height: 1.3rem;
+        }
+
+        #cv-np-title,
+        #cv-np-artist {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        #cv-np-title {
+            font-size: var(--fs-lg);
+            font-weight: var(--weight-strong);
+        }
+
+        #cv-np-artist {
+            font-size: var(--fs-md);
+            color: var(--text-2);
+        }
+
+        .cv-call {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            color: var(--text-2);
+            font-size: var(--fs-md);
+        }
+
+        .cv-call svg {
+            width: 1.7rem;
+            height: 1.7rem;
+            color: var(--positive);
+        }
+
+        .cv-hint {
+            margin: 0;
+            color: var(--text-3);
+            font-size: var(--fs-sm);
+        }
+
+        :where([data-fx="rich"]) .cv-hint {
+            transition: opacity 0.8s var(--ease);
+        }
+
+        :where([data-fx="rich"]) .cv-hint.is-gone {
+            opacity: 0;
+        }
+
+        :where([data-fx="lite"]) .cv-hint.is-gone {
+            visibility: hidden;
+        }
+
+        /* Portrait or narrow: one column. */
+        @media (max-aspect-ratio: 1/1) {
+            #cv-time {
+                font-size: min(16rem, 24vw);
+            }
+
+            .cv-info,
+            .cv-weather {
+                flex-direction: column;
+                gap: 3rem;
+            }
+        }
+
+        /* The panel that opens it: the whole panel is the key; a small glyph says so. */
+        .time-weather-panel {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .time-weather-panel:focus-visible {
+            outline: 2px solid var(--focus);
+            outline-offset: 3px;
+        }
+
+        .tw-expand {
+            position: absolute;
+            top: 1.1rem;
+            right: 1.1rem;
+            width: 1.5rem;
+            height: 1.5rem;
+            color: var(--text-3);
+            pointer-events: none;
+        }
+
+        /* ── Burn-in care (OLED) ──────────────────────────────────────────────
+           The lock screen and the full-screen clock dim after a few minutes; the
+           home screen dims when nobody touches it (tablets). Dimming is a layer
+           of --dim, so a light theme's ground darkens too. */
+        #lock-overlay::after,
+        #clock-view::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--dim);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #lock-overlay[data-dimmed]::after,
+        #clock-view[data-dimmed]::after {
+            opacity: 0.5;
+        }
+
+        :where([data-fx="rich"]) #lock-overlay::after,
+        :where([data-fx="rich"]) #clock-view::after {
+            transition: opacity 4s var(--ease);
+        }
+
+        /* Over the home screen, under the clock, the lock screen and dialogs.
+           While on, it takes the first touch, which only wakes the screen. */
+        .idle-dim {
+            position: fixed;
+            inset: 0;
+            z-index: 9980;
+            background: var(--dim);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .idle-dim.is-on {
+            opacity: 0.62;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        .idle-dim.is-waking {
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        :where([data-fx="rich"]) .idle-dim {
+            transition: opacity 0.25s var(--ease), visibility 0.25s;
+        }
+
+        :where([data-fx="rich"]) .idle-dim.is-on {
+            transition-duration: 3s;
+        }
+
+        /* Pixel shift: the home screen moves a pixel or two every few minutes
+           (html[data-shift], --shift-x/y, set by homeCare on tablets only). The
+           translate property composes with GSAP's transforms instead of
+           replacing them; it is not set at all where the shift is off. */
+        :where([data-shift]) :is(.top-bar, #view-wrapper) {
+            translate: var(--shift-x, 0px) var(--shift-y, 0px);
+        }
+
+        /* Choices inside a settings row: a compact selector tray. */
+        .setting-row .picker.is-segmented {
+            flex-shrink: 0;
+        }
+
+        .setting-row .picker.is-segmented .pick {
+            min-height: 3.2rem;
+            padding: 0 1rem;
+            white-space: nowrap;
+        }
+
         /* ── Lite effects tier (WebKitGTK desktop window) ─────────────────── */
         [data-fx="lite"] {
             transition: none;
@@ -3891,6 +4298,52 @@
                     <div id="lock-overlay-icon"></div>
                     <div id="lock-overlay-label">PC locked</div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- Home screen dimmed when idle (burn-in care on tablets) --- -->
+    <div id="idle-dim" class="idle-dim" aria-hidden="true"></div>
+
+    <!-- --- Full-screen clock: tap the time and weather panel; a tap anywhere goes back --- -->
+    <div id="clock-view" role="dialog" aria-modal="true" aria-label="Clock. Tap anywhere to go back." tabindex="-1"
+        hidden>
+        <div class="cv-inner" id="cv-inner">
+            <div class="cv-drift" id="cv-drift">
+                <div class="cv-clock">
+                    <div id="cv-time" class="num">00:00</div>
+                    <div id="cv-date"></div>
+                </div>
+                <div class="cv-info">
+                    <section class="cv-weather" id="cv-weather" aria-label="Weather">
+                        <div class="cv-now">
+                            <i data-lucide="cloud" id="cv-w-icon"></i>
+                            <div>
+                                <div id="cv-w-temp" class="num">&mdash;&deg;</div>
+                                <div id="cv-w-desc">&mdash;</div>
+                                <div id="cv-w-city" class="cv-sub"></div>
+                            </div>
+                        </div>
+                        <dl class="cv-details" id="cv-w-details">
+                            <div><dt><i data-lucide="thermometer"></i>Feels like</dt><dd id="cv-w-feels" class="num">&mdash;</dd></div>
+                            <div><dt><i data-lucide="droplets"></i>Humidity</dt><dd id="cv-w-humidity" class="num">&mdash;</dd></div>
+                            <div><dt><i data-lucide="wind"></i>Wind</dt><dd id="cv-w-wind" class="num">&mdash;</dd></div>
+                            <div><dt><i data-lucide="sunrise"></i>Sunrise</dt><dd id="cv-w-sunrise" class="num">&mdash;</dd></div>
+                            <div><dt><i data-lucide="sunset"></i>Sunset</dt><dd id="cv-w-sunset" class="num">&mdash;</dd></div>
+                        </dl>
+                    </section>
+                    <section class="cv-media" id="cv-media" aria-label="Now playing" hidden>
+                        <img id="cv-art" alt="" hidden>
+                        <div class="cv-media-text">
+                            <div class="cv-label"><i data-lucide="music"></i><span id="cv-np-state">Now playing</span></div>
+                            <div id="cv-np-title"></div>
+                            <div id="cv-np-artist"></div>
+                        </div>
+                    </section>
+                </div>
+                <div class="cv-call" id="cv-call" hidden><svg aria-hidden="true"><use href="#icon-discord" /></svg><span
+                        id="cv-call-text"></span></div>
+                <p class="cv-hint" id="cv-hint">Tap anywhere to go back</p>
             </div>
         </div>
     </div>
@@ -4000,6 +4453,22 @@
                 <button class="btn btn-ghost btn-pill pair-step-wait" id="pair-cancel-btn">Cancel</button>
                 <button class="btn btn-ghost btn-pill pair-step-form" id="pair-change-pc-btn" style="display: none;">
                     Use another PC</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- Reconnecting (the Android app) --- -->
+    <div id="reconnect-modal" class="modal-overlay">
+        <div class="modal-card is-compact dlg-card" data-tone="warning" role="alertdialog" aria-modal="true"
+            aria-labelledby="reconnect-title" aria-describedby="reconnect-text">
+            <div class="dlg-glyph" aria-hidden="true"><i data-lucide="wifi-off"></i></div>
+            <h3 class="modal-title" id="reconnect-title">Reconnecting to your PC</h3>
+            <p class="modal-text" id="reconnect-text"></p>
+            <div class="reconnect-status num" role="status" aria-live="polite"><span class="live"><span class="live-v"
+                        id="reconnect-countdown"></span></span></div>
+            <div class="pair-actions">
+                <button class="btn btn-primary btn-pill" id="reconnect-now-btn">Try now</button>
+                <button class="btn btn-ghost btn-pill" id="reconnect-change-btn">Use another PC</button>
             </div>
         </div>
     </div>
@@ -4164,6 +4633,35 @@
                                     class="slider"></span></label>
                         </div>
                     </div>
+
+                    <h3 class="settings-h">Screen care</h3>
+                    <p class="settings-sub">Keeps an OLED tablet from burning in. Applies on tablets and other devices,
+                        not in this window.</p>
+                    <div class="setting-group">
+                        <div class="setting-row">
+                            <div><label class="title" id="cfg-idle-dim-label">Dim when idle</label><label class="desc">After
+                                    nobody has touched it for a while. The first touch only wakes it.</label></div>
+                            <div class="picker is-segmented" id="cfg-idle-dim" role="radiogroup"
+                                aria-labelledby="cfg-idle-dim-label">
+                                <button class="pick" role="radio" data-v="0">Off</button>
+                                <button class="pick" role="radio" data-v="2">2 min</button>
+                                <button class="pick" role="radio" data-v="5">5 min</button>
+                                <button class="pick" role="radio" data-v="10">10 min</button>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <div><label class="title" id="cfg-idle-clock-label">Full-screen clock when idle</label><label
+                                    class="desc">Shows the drifting clock instead of the dashboard. A tap brings the
+                                    dashboard back. Needs the clock and weather widget.</label></div>
+                            <div class="picker is-segmented" id="cfg-idle-clock" role="radiogroup"
+                                aria-labelledby="cfg-idle-clock-label">
+                                <button class="pick" role="radio" data-v="0">Off</button>
+                                <button class="pick" role="radio" data-v="10">10 min</button>
+                                <button class="pick" role="radio" data-v="15">15 min</button>
+                                <button class="pick" role="radio" data-v="30">30 min</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="tab-themes" class="tab-content">
@@ -4301,8 +4799,9 @@
 
                 <div id="tab-aud" class="tab-content">
                     <h3 class="settings-h">Audio routing</h3>
-                    <p class="settings-sub">Output devices found on this PC. Give one a short name (up to 10
-                        characters) to show on the output switch, or hide it so the switch skips it.</p>
+                    <p class="settings-sub">Output devices on this PC, in the output switch's order. Move one up or
+                        down, give it a short name (up to 10 characters), or hide it so the switch skips it. A device
+                        plugged in later goes to the bottom.</p>
                     <div id="audio-devices-list"></div>
                 </div>
 
@@ -4632,13 +5131,15 @@
                         <button class="btn" id="btn-disc-cam" onclick="act('disc_cam')" aria-label="Camera"><i
                                 data-lucide="video"></i></button>
                         <button class="btn" id="btn-disc-screen" onclick="act('disc_screen')"
-                            aria-label="Screen share"><i data-lucide="monitor-up"></i></button>
+                            aria-label="Start or stop screen sharing"><i data-lucide="monitor-up"></i></button>
                     </div>
                 </section>
             </div>
 
             <div class="col">
-                <section class="card panel time-weather-panel" aria-label="Time and weather">
+                <section class="card panel time-weather-panel" role="button" tabindex="0"
+                    aria-label="Time and weather. Show the clock full screen.">
+                    <i data-lucide="maximize-2" class="tw-expand" aria-hidden="true"></i>
                     <div class="clock">
                         <div id="time" class="clock-time num">00:00</div>
                         <div class="clock-date num">
@@ -5098,10 +5599,122 @@
             // Proper thin client disconnect handling
             if (window.Android && typeof window.Android.disconnect === 'function') {
                 window.Android.disconnect();
+            } else if (failedIp && connectSource === 'auto') {
+                scheduleReconnect(failedIp);
             } else {
                 showIpModal(message, failedIp);
             }
         }
+
+        // --- Reconnecting (the Android app) ---
+        // A dropped link (the PC restarting after an update, Wi-Fi, the tablet
+        // waking up) comes back by itself: attempts after 1, 2 and 3 s, then
+        // every 5 s, counted down on screen, and at once when the app returns to
+        // the front or the network comes back. Only a PC the app reached before
+        // is retried (connectSource 'auto'); an address typed into the form that
+        // fails goes back to the form with the error.
+        const RECONNECT_DELAYS_S = [1, 2, 3, 5];
+        let connectSource = 'auto';   // 'manual': the address form started this attempt
+        let reconnect = null;         // {ip, attempt, timer, tick, at} while retrying
+
+        function scheduleReconnect(ip) {
+            if (!reconnect) {
+                reconnect = { ip, attempt: 0, timer: null, tick: null, at: 0 };
+                hideIpModal();
+                setText(document.getElementById('reconnect-text'),
+                    `The connection to the PC at ${ip} dropped. It comes back by itself once the PC can be reached.`);
+                document.getElementById('reconnect-modal').classList.add('active');
+            }
+            clearReconnectTimers();
+            if (document.hidden) {           // in the background: wait for the app to return
+                setReconnectStatus('Waiting for the app to return…');
+                return;
+            }
+            const delay = RECONNECT_DELAYS_S[Math.min(reconnect.attempt, RECONNECT_DELAYS_S.length - 1)];
+            reconnect.at = Date.now() + delay * 1000;
+            reconnect.timer = setTimeout(reconnectNow, delay * 1000);
+            const show = () => {
+                const left = Math.max(1, Math.ceil((reconnect.at - Date.now()) / 1000));
+                setReconnectStatus(`Trying again in ${left} s`);
+            };
+            show();
+            reconnect.tick = setInterval(show, 1000);
+        }
+
+        function reconnectNow() {
+            if (!reconnect) return;
+            clearReconnectTimers();
+            reconnect.attempt++;
+            setReconnectStatus('Connecting…');
+            connectSource = 'auto';
+            connectDashboardSocket(reconnect.ip);
+        }
+
+        function clearReconnectTimers() {
+            if (!reconnect) return;
+            clearTimeout(reconnect.timer);
+            clearInterval(reconnect.tick);
+            reconnect.timer = reconnect.tick = null;
+        }
+
+        function stopReconnect() {
+            if (!reconnect) return;
+            clearReconnectTimers();
+            reconnect = null;
+            document.getElementById('reconnect-modal').classList.remove('active');
+        }
+
+        function setReconnectStatus(text) {
+            setText(document.getElementById('reconnect-countdown'), text);
+        }
+
+        // Back in front, or the network returned: try now and start the steps over.
+        function reconnectSoon() {
+            if (!reconnect || document.hidden || socket) return;
+            reconnect.attempt = 0;
+            reconnectNow();
+        }
+        // A link can die without a close event (the tablet slept, Wi-Fi changed).
+        // The PC sends sys_data at least once a second, so silence while the app
+        // is in front means it is gone: drop it and reconnect.
+        const LINK_SILENCE_MS = 6000;
+        let lastMessageAt = 0;
+        if (isCapacitorRuntime()) {
+            setInterval(() => {
+                if (authState !== 'authed' || document.hidden || !socket) return;
+                if (Date.now() - lastMessageAt > LINK_SILENCE_MS) {
+                    console.warn('No data from the PC for', LINK_SILENCE_MS / 1000, 's: reconnecting');
+                    authState = 'idle';
+                    handleSocketFailure(currentServerIp);
+                }
+            }, 2000);
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            // Messages queued while in the background arrive now: judge silence from here.
+            if (!document.hidden) lastMessageAt = Date.now();
+            if (!reconnect) return;
+            if (document.hidden) {
+                clearReconnectTimers();
+                if (!socket) setReconnectStatus('Waiting for the app to return…');
+            } else {
+                reconnectSoon();
+            }
+        });
+        window.addEventListener('online', reconnectSoon);
+
+        document.getElementById('reconnect-now-btn').addEventListener('click', () => {
+            if (!reconnect) return;
+            if (socket) closePendingSocket();   // an attempt still waiting: start a fresh one
+            reconnect.attempt = 0;
+            reconnectNow();
+        });
+        document.getElementById('reconnect-change-btn').addEventListener('click', () => {
+            const ip = reconnect ? reconnect.ip : currentServerIp;
+            stopReconnect();
+            closePendingSocket();
+            showIpModal('', ip);
+        });
 
         // pairName: open a pairing request under that name instead of authenticating.
         function connectDashboardSocket(serverIp = '', pairName = null) {
@@ -5157,6 +5770,7 @@
                 authState = 'idle';
                 if (event.code === WS_UNAUTHORIZED) {
                     // Not paired, or removed on the PC: pair (again).
+                    stopReconnect();
                     forgetToken();
                     myRole = '';
                     delete document.documentElement.dataset.role;
@@ -5185,6 +5799,10 @@
             myDeviceName = d.name || '';
             document.documentElement.dataset.role = myRole;
             hidePairModal();
+            // Let in: retrying is over, and a later drop retries by itself.
+            stopReconnect();
+            connectSource = 'auto';
+            lastMessageAt = Date.now();
             setLinkState(true);
             // Remember only a PC that let us in.
             if (isCapacitorRuntime()) localStorage.setItem(SERVER_IP_KEY, currentServerIp);
@@ -5309,7 +5927,8 @@
                 showIpModal('Enter the desktop IP address', input.value);
                 return;
             }
-            document.getElementById('ip-error').innerText = 'Connecting...';
+            document.getElementById('ip-error').textContent = 'Connecting…';
+            connectSource = 'manual';
             connectDashboardSocket(ip);
         }
 
@@ -5874,6 +6493,8 @@
             setText(document.getElementById('lock-w-desc'), desc);
             setWeatherGlyph('w-icon', icon);
             setWeatherGlyph('lock-w-icon', icon);
+            latestWeather = d;
+            renderClockViewWeather(d);
         }
 
         function setFeedbackButton(on) {
@@ -6042,6 +6663,7 @@
         function startProgressTimer() {
             if (npTimer || !npClock || !npClock.playing || document.hidden) return;
             npTimer = setInterval(() => {
+                if (dashboardHeld) return;   // the next tick after the dialog catches up
                 dom.npFill.classList.toggle('is-ticking', progressGlides);
                 renderProgress(progressGlides);
             }, 1000);
@@ -6099,6 +6721,7 @@
             let raf = 0, lastFrame = 0, frameMs = 16;
             let built = '', builtText = null;   // what the running lap was made for
             let paused = false;
+            const pausedFor = new Set();        // 'lock', 'dialog': paused while any applies
 
             function plain(line) {
                 if (line.copies || line.label.textContent !== line.text) line.label.textContent = line.text;
@@ -6253,8 +6876,11 @@
                 fit();
             }
 
-            // Under the lock screen nothing shows, but the lite tier would still repaint every step.
-            function pause(on) {
+            // Under the lock screen or a dialog nothing shows, but the lite tier
+            // would still repaint every step.
+            function pause(on, reason = 'lock') {
+                if (on) pausedFor.add(reason); else pausedFor.delete(reason);
+                on = pausedFor.size > 0;
                 if (paused === on) return;
                 paused = on;
                 if (lite) {
@@ -6637,6 +7263,7 @@
 
         function attachSocketMessageHandler(targetSocket) {
             targetSocket.onmessage = (event) => {
+                lastMessageAt = Date.now();
                 const msg = JSON.parse(event.data);
                 const d = msg.data;
 
@@ -6692,6 +7319,8 @@
                     const c = d.cfg;
                     if (window.TDTheme) TDTheme.apply(c.theme || TDTheme.defaultId);
                     setPlayKeyCover(c.play_key_cover !== false);
+                    setPickedMinutes('cfg-idle-dim', typeof c.idle_dim_min === 'number' ? c.idle_dim_min : 5);
+                    setPickedMinutes('cfg-idle-clock', typeof c.idle_clock_min === 'number' ? c.idle_clock_min : 15);
                     macros = c.macros || [];
                     if (!c.macros) {
                         macros = [
@@ -6740,6 +7369,7 @@
 
                     const spotEnabled = applyToggle('spot_enabled', 'cfg-spot-enabled', 'btn-tab-spotify', '.spotify');
                     const weatherEnabled = applyToggle('weather_enabled', 'cfg-weather-enabled', 'btn-tab-weather', '.time-weather-panel');
+                    if (!weatherEnabled) closeClockView();
                     const discEnabled = applyToggle('disc_enabled', 'cfg-disc-enabled', 'btn-tab-discord', '#discord-panel');
                     applyToggle('audio_enabled', 'cfg-audio-enabled', 'btn-tab-aud', null);
 
@@ -7012,35 +7642,160 @@
             if (dom.battZap.style.display !== zap) dom.battZap.style.display = zap;
         }
 
+        // --- Burn-in care (OLED) ---
+        // Full-screen views (the lock screen, the full-screen clock): every minute
+        // the content moves to a new spot in the free space around it, spread
+        // evenly over time (a Halton sequence: a random walk keeps coming back to
+        // the same few spots), and after a few minutes the screen dims.
+        const WANDER_MS = 60000, WANDER_MAX_REM = 6, WANDER_DIM_AFTER_MS = 5 * 60000;
+
+        function halton(i, base) {
+            let f = 1, r = 0;
+            while (i > 0) { f /= base; r += f * (i % base); i = Math.floor(i / base); }
+            return r;
+        }
+
+        // field: the full-screen layer (dimmed); el: the content that moves.
+        // It opens centred and starts moving after a minute.
+        function makeWanderer(field, el) {
+            let step = 0, timer = null, dimTimer = null;
+            function move() {
+                step++;
+                const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+                // Layout sizes (transform-free): the room left around the content.
+                const roomX = Math.max(0, (field.clientWidth - el.offsetWidth) / 2 * 0.85);
+                const roomY = Math.max(0, (field.clientHeight - el.offsetHeight) / 2 * 0.85);
+                const rx = Math.min(WANDER_MAX_REM * rem, roomX), ry = Math.min(WANDER_MAX_REM * rem, roomY);
+                const x = (halton(step, 2) * 2 - 1) * rx, y = (halton(step, 3) * 2 - 1) * ry;
+                el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+            }
+            return {
+                start() {
+                    this.stop();
+                    step = 1 + Math.floor(Math.random() * 97);   // not the same path every time
+                    timer = setInterval(move, WANDER_MS);
+                    dimTimer = setTimeout(() => field.toggleAttribute('data-dimmed', true), WANDER_DIM_AFTER_MS);
+                },
+                stop() {
+                    clearInterval(timer);
+                    clearTimeout(dimTimer);
+                    timer = dimTimer = null;
+                    field.removeAttribute('data-dimmed');
+                    el.style.transform = '';
+                },
+            };
+        }
+
+        // The home screen, on tablets and other devices (not the PC's own
+        // window, which its own screen saver looks after): a pixel or two of
+        // shift every few minutes so edges and labels do not burn lines, a dim
+        // after idle_dim_min without a touch (the first touch only wakes it, so a
+        // sleepy tap cannot press a key), and the full-screen clock after
+        // idle_clock_min. Locked, the lock screen looks after itself.
+        const homeCare = (() => {
+            const SHIFT_MS = 3 * 60000, CHECK_MS = 10000;
+            // A small loop, one pixel at a time, out to two.
+            const SHIFTS = [[0, 0], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
+                [2, 0], [2, 1], [1, 2], [0, 2], [-1, 2], [-2, 1], [-2, 0], [-2, -1], [-1, -2], [0, -2], [1, -2], [2, -1]];
+            const dimEl = document.getElementById('idle-dim');
+            const root = document.documentElement;
+            let lastTouch = Date.now(), dimmed = false, shiftAt = 0, shiftStep = 0, wakeTimer = null;
+
+            const active = () => isCapacitorRuntime() || myRole === 'device';
+            const minutes = (key, fallback) => {
+                const v = globalCfg ? globalCfg[key] : undefined;
+                return typeof v === 'number' ? v : fallback;
+            };
+
+            function setDim(on) {
+                if (dimmed === on) return;
+                dimmed = on;
+                dimEl.classList.toggle('is-on', on);
+                if (!on) {
+                    // Keep catching this touch until it ends, so it does not land on a key.
+                    dimEl.classList.add('is-waking');
+                    clearTimeout(wakeTimer);
+                    wakeTimer = setTimeout(() => dimEl.classList.remove('is-waking'), 600);
+                }
+            }
+
+            function wake() {
+                lastTouch = Date.now();
+                setDim(false);
+            }
+
+            function shift(on) {
+                if (!on) {
+                    if (shiftAt) {
+                        root.removeAttribute('data-shift');
+                        root.style.removeProperty('--shift-x');
+                        root.style.removeProperty('--shift-y');
+                        shiftAt = 0;
+                    }
+                    return;
+                }
+                if (Date.now() - shiftAt < SHIFT_MS) return;
+                shiftAt = Date.now();
+                root.setAttribute('data-shift', '');
+                shiftStep = (shiftStep + 1) % SHIFTS.length;
+                const [x, y] = SHIFTS[shiftStep];
+                root.style.setProperty('--shift-x', x + 'px');
+                root.style.setProperty('--shift-y', y + 'px');
+            }
+
+            function check() {
+                const on = active();
+                shift(on);
+                if (!on) { setDim(false); return; }
+                if (document.hidden || root.hasAttribute('data-pc-locked')) return;
+                const idle = Date.now() - lastTouch;
+                const dimAfter = minutes('idle_dim_min', 5) * 60000;
+                const clockAfter = minutes('idle_clock_min', 15) * 60000;
+                if (clockAfter && idle >= clockAfter && !clockViewOpen
+                        && !document.querySelector('.modal-overlay.active')) {
+                    openClockView();   // does nothing while the clock panel is switched off
+                    if (clockViewOpen) {
+                        setDim(false);   // the clock looks after itself now
+                        return;
+                    }
+                }
+                if (dimAfter && idle >= dimAfter && !clockViewOpen) setDim(true);
+            }
+
+            ['pointerdown', 'keydown', 'wheel'].forEach(type =>
+                document.addEventListener(type, wake, { capture: true, passive: true }));
+            document.addEventListener('pointerup', () => {
+                clearTimeout(wakeTimer);
+                wakeTimer = setTimeout(() => dimEl.classList.remove('is-waking'), 50);
+            }, { passive: true });
+            // Back from the background: as if just touched.
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+            setInterval(check, CHECK_MS);
+            return { wake, check };
+        })();
+
         // --- System Data Rendering ---
         // ── PC Lock Screensaver Overlay ──────────────────────────────────────
         // Expands from the time/weather panel's position to fullscreen.
         // GSAP is available globally (loaded at top of <head>).
         (function initLockOverlay() {
             let _isLocked = false;
-            let _driftTimer = null;
-            // Burn-in protection: nudge the lock screen content once a minute.
-            const DRIFT_MS = 60000, DRIFT_REM = 1.5;
-
-            function drift() {
-                const el = document.getElementById('lock-drift');
-                if (!el) return;
-                const dx = ((Math.random() * 2) - 1) * DRIFT_REM;
-                const dy = ((Math.random() * 2) - 1) * DRIFT_REM;
-                el.style.transform = `translate(${dx.toFixed(2)}rem, ${dy.toFixed(2)}rem)`;
-            }
+            // Burn-in care: the content wanders and the screen dims (makeWanderer).
+            const wander = makeWanderer(document.getElementById('lock-overlay'), document.getElementById('lock-drift'));
 
             window.setLockOverlay = function setLockOverlay(locked) {
                 if (locked === _isLocked) return;
                 _isLocked = locked;
-                npMarquee.pause(locked);
+                npMarquee.pause(locked, 'lock');
+                document.documentElement.toggleAttribute('data-pc-locked', locked);
+                if (!locked) homeCare.wake();   // back from the lock: the dashboard is wanted
 
                 const overlay = document.getElementById('lock-overlay');
                 if (!overlay) return;
 
                 if (locked) {
                     setIcon(document.getElementById('lock-overlay-icon'), 'lock');
-                    if (!_driftTimer) _driftTimer = setInterval(drift, DRIFT_MS);
+                    wander.start();
 
                     // Measure the time/weather panel to animate FROM its position.
                     const srcEl = document.querySelector('.time-weather-panel');
@@ -7068,7 +7823,7 @@
                         { scale: 1, y: 0, opacity: 1, duration: 0.65, delay: 0.1, ease: 'power2.out' }
                     );
                 } else {
-                    if (_driftTimer) { clearInterval(_driftTimer); _driftTimer = null; }
+                    wander.stop();
                     gsap.to(overlay, {
                         opacity: 0,
                         duration: 0.45,
@@ -7085,8 +7840,192 @@
             };
         }());
 
+        // A cover's address as an <img> can load it. In the app the server is
+        // remote, so relative paths (/api/local_art) need its address; a local
+        // player rewrites the same file, so those get a cache-buster.
+        function artSrc(url) {
+            let finalUrl = url;
+            if (isCapacitorRuntime() && finalUrl.startsWith('/')) finalUrl = 'http://' + dashboardServerHost + finalUrl;
+            if (finalUrl.includes('/api/local_art')) finalUrl += (finalUrl.includes('?') ? '&' : '?') + '_cb=' + Date.now();
+            return finalUrl;
+        }
+
+        // --- Full-screen clock (tap the time and weather panel) ---
+        // A bigger clock, the weather in detail, what is playing and the Discord
+        // call; a tap anywhere goes back. Burn-in: the lock screen's dark ground,
+        // the layout drifts a little once a minute, and apart from the music
+        // nothing changes more often than the minute. It is not the lock screen:
+        // that one sits above it, shows the PC is locked and cannot be dismissed.
+        const CLOCK_HINT_MS = 4000, CLOCK_TAP_GUARD_MS = 350;
+        const fmtLongDate = new Intl.DateTimeFormat([], { weekday: 'long', day: 'numeric', month: 'long' });
+        const fmtCityTime = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' });
+        const clockView = document.getElementById('clock-view');
+        const clockPanel = document.querySelector('.time-weather-panel');
+        let clockViewOpen = false, clockViewAt = 0, clockHintTimer = null;
+        const clockWander = makeWanderer(clockView, document.getElementById('cv-drift'));
+        let latestSysData = null, latestWeather = null;   // the newest, for opening
+
+        // The panel's rectangle as a clip-path, to grow from and shrink back into.
+        function clockPanelClip() {
+            const r = clockPanel.getBoundingClientRect();
+            const vw = window.innerWidth, vh = window.innerHeight;
+            const pct = (v, total) => (v / total * 100).toFixed(2) + '%';
+            const radius = getComputedStyle(clockPanel).borderTopLeftRadius || '0px';
+            return `inset(${pct(r.top, vh)} ${pct(vw - r.right, vw)} ${pct(vh - r.bottom, vh)} ${pct(r.left, vw)} round ${radius})`;
+        }
+
+        function openClockView() {
+            if (clockViewOpen || clockPanel.style.display === 'none') return;
+            clockViewOpen = true;
+            clockViewAt = performance.now();
+            renderClockViewTime();
+            renderClockViewWeather(latestWeather || {});
+            renderClockViewLive(latestSysData);
+            const hint = document.getElementById('cv-hint');
+            hint.classList.remove('is-gone');
+            clearTimeout(clockHintTimer);
+            clockHintTimer = setTimeout(() => hint.classList.add('is-gone'), CLOCK_HINT_MS);
+            clockWander.start();
+            npMarquee.pause(true, 'clock');   // hidden behind the clock
+            clockView.hidden = false;
+            holdDashboard();
+            clockView.focus({ preventScroll: true });
+            if (document.documentElement.dataset.fx === 'rich') {
+                gsap.killTweensOf([clockView, '#cv-inner']);
+                gsap.fromTo(clockView, { clipPath: clockPanelClip() },
+                    { clipPath: 'inset(0% 0% 0% 0% round 0px)', duration: 0.55, ease: 'power3.out', clearProps: 'clipPath' });
+                gsap.fromTo('#cv-inner', { scale: 0.9, y: 18, autoAlpha: 0 },
+                    { scale: 1, y: 0, autoAlpha: 1, duration: 0.5, delay: 0.08, ease: 'power3.out', clearProps: 'transform,opacity,visibility' });
+            }
+        }
+
+        function closeClockView() {
+            if (!clockViewOpen) return;
+            clockViewOpen = false;
+            clearTimeout(clockHintTimer);
+            clockHintTimer = null;
+            npMarquee.pause(false, 'clock');
+            const done = () => {
+                if (clockViewOpen) return;   // opened again meanwhile
+                clockView.hidden = true;
+                clockWander.stop();
+                gsap.set([clockView, '#cv-inner'], { clearProps: 'clipPath,transform,opacity,visibility' });
+                holdDashboard();
+            };
+            if (document.documentElement.dataset.fx === 'rich') {
+                gsap.killTweensOf([clockView, '#cv-inner']);
+                gsap.to('#cv-inner', { scale: 0.94, autoAlpha: 0, duration: 0.25, ease: 'power2.in' });
+                gsap.to(clockView, { clipPath: clockPanelClip(), duration: 0.42, ease: 'power3.inOut', onComplete: done });
+            } else {
+                done();
+            }
+            if (document.activeElement === clockView) clockPanel.focus({ preventScroll: true });
+        }
+
+        function renderClockViewTime() {
+            if (!clockViewOpen) return;
+            const now = new Date();
+            setClockDigits(document.getElementById('cv-time'), fmtTime.format(now));
+            setText(document.getElementById('cv-date'), fmtLongDate.format(now));
+        }
+
+        // A sunrise or sunset in the city's own time (OpenWeatherMap's offset), or
+        // this device's when an older server sent none.
+        function cityTime(epoch, tz) {
+            if (typeof epoch !== 'number') return '—';
+            return typeof tz === 'number' ? fmtCityTime.format(new Date((epoch + tz) * 1000))
+                : fmtTime.format(new Date(epoch * 1000));
+        }
+
+        function renderClockViewWeather(w) {
+            if (!clockViewOpen) return;
+            const hasTemp = w.temp !== undefined && w.temp !== null && w.temp !== '--';
+            setText(document.getElementById('cv-w-temp'), hasTemp ? w.temp + '°' : '—°');
+            setText(document.getElementById('cv-w-desc'), w.desc && w.desc !== '--' ? w.desc : '—');
+            setWeatherGlyph('cv-w-icon', weatherIconFor(w.desc));
+            const city = document.getElementById('cv-w-city');
+            setText(city, w.city || '');
+            city.hidden = !w.city;
+            const num = v => typeof v === 'number';
+            const details = [
+                ['cv-w-feels', num(w.feels_like) ? w.feels_like + '°' : null],
+                ['cv-w-humidity', num(w.humidity) ? w.humidity + '%' : null],
+                ['cv-w-wind', num(w.wind_kmh) ? w.wind_kmh + ' km/h' : null],
+                ['cv-w-sunrise', num(w.sunrise) ? cityTime(w.sunrise, w.tz) : null],
+                ['cv-w-sunset', num(w.sunset) ? cityTime(w.sunset, w.tz) : null],
+            ];
+            details.forEach(([id, text]) => setText(document.getElementById(id), text ?? '—'));
+            // No details at all (no reading yet, or a server from before them): no empty grid.
+            document.getElementById('cv-w-details').hidden = !hasTemp || details.every(([, text]) => text === null);
+        }
+
+        function renderClockViewLive(d) {
+            if (!clockViewOpen || !d) return;
+            const media = document.getElementById('cv-media');
+            const sp = d.spotify;
+            const playing = sp && (sp.status === 'Playing' || sp.status === 'Paused')
+                && !(globalCfg && globalCfg.spot_enabled === false);
+            media.hidden = !playing;
+            if (playing) {
+                setText(document.getElementById('cv-np-state'), sp.status === 'Paused' ? 'Paused' : 'Now playing');
+                setText(document.getElementById('cv-np-title'), sp.title || '—');
+                setText(document.getElementById('cv-np-artist'), sp.artist || '');
+                const img = document.getElementById('cv-art');
+                const art = sp.art_url || '';
+                if (art === 'WAITING') {
+                    // keep the previous cover while a local player writes the new one
+                } else if (art.trim() && art !== 'None') {
+                    if (img.dataset.src !== art) {
+                        img.dataset.src = art;
+                        const src = artSrc(art);
+                        img.src = src;
+                        // The dashboard is held behind the clock in the Linux window:
+                        // the room's light still follows the new cover.
+                        if (dashboardHeld) sampleArt(src);
+                    }
+                    img.hidden = false;
+                } else {
+                    img.hidden = true;
+                    delete img.dataset.src;
+                    img.removeAttribute('src');
+                }
+            }
+            const call = document.getElementById('cv-call');
+            const vc = d.discord && d.discord.connected && d.discord.voice_channel;
+            const showCall = !!vc && !(globalCfg && (globalCfg.disc_enabled === false || globalCfg.disc_vc_enabled === false));
+            call.hidden = !showCall;
+            if (showCall) {
+                const n = Object.keys(vc.users || {}).length;
+                const where = [vc.guild_name, vc.name].filter(Boolean).join(' · ') || 'Voice channel';
+                setText(document.getElementById('cv-call-text'), `In a call · ${where} · ${n} ${n === 1 ? 'person' : 'people'}`);
+            }
+        }
+
+        clockPanel.addEventListener('click', openClockView);
+        clockPanel.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openClockView(); }
+        });
+        // Any tap goes back; the first instant after opening is ignored so the
+        // tap that opened it cannot also close it.
+        clockView.addEventListener('click', () => {
+            if (performance.now() - clockViewAt >= CLOCK_TAP_GUARD_MS) closeClockView();
+        });
+
         function updateSysDataDOM(d) {
+            latestSysData = d;
             if (!_pageVisible) { pendingSysData = d; return; }
+            if (dashboardHeld) {
+                // Behind a dialog or the full-screen clock only what can be seen
+                // changes: sign-in status in Settings, the lock screen and the clock.
+                // The rest waits for it to close.
+                pendingSysData = d;
+                requestAnimationFrame(() => {
+                    if (d.pc_locked !== undefined) window.setLockOverlay(!!d.pc_locked);
+                    updateServiceStatus(d);
+                    renderClockViewLive(d);
+                });
+                return;
+            }
             requestAnimationFrame(() => {
                 // Lock-state screensaver
                 if (d.pc_locked !== undefined) {
@@ -7135,17 +8074,7 @@
                     } else if (newArtUrl.trim() !== "" && newArtUrl !== "None") {
                         if (artImg.getAttribute('data-src') !== newArtUrl) {
                             artImg.setAttribute('data-src', newArtUrl);
-
-                            let finalUrl = newArtUrl;
-                            // In Capacitor/native mode the server is remote; relative paths
-                            // like /api/local_art need the full server URL prefix
-                            if (isCapacitorRuntime() && finalUrl.startsWith('/')) {
-                                finalUrl = 'http://' + dashboardServerHost + finalUrl;
-                            }
-                            if (finalUrl.includes('/api/local_art')) {
-                                finalUrl += (finalUrl.includes('?') ? '&' : '?') + '_cb=' + Date.now();
-                            }
-
+                            const finalUrl = artSrc(newArtUrl);
                             artImg.src = finalUrl;
                             artImg.style.display = 'block';
                             sampleArt(finalUrl);
@@ -7209,9 +8138,6 @@
                     if (globalCfg && globalCfg.disc_enabled === false) {
                         setDiscordPanelVisible(false);
                     } else {
-                        currentDiscordAuthUrl = d.discord.auth_url || "";
-                        isDiscordConnected = !!d.discord.connected;
-
                         if (d.discord.connected && !d.discord.auth_pending) {
                             discordDisconnectCount = 0;
                             setDiscordPanelVisible(true);
@@ -7228,53 +8154,14 @@
                                 if (dom.btnDiscMute) dom.btnDiscMute.classList.toggle('muted', visuallyMuted);
                                 if (dom.btnDiscDeaf) dom.btnDiscDeaf.classList.toggle('muted', deaf);
                             }
-                            if (Date.now() > discordVidLock) {
-                                if (dom.btnDiscCam)    dom.btnDiscCam.classList.toggle('vid-active',    !!d.discord.video);
-                                if (dom.btnDiscScreen) dom.btnDiscScreen.classList.toggle('vid-active', !!d.discord.screenshare);
+                            // The camera key shows Discord's state. Screen share has
+                            // none to show (see act): it is a push key, never lit.
+                            if (Date.now() > discordVidLock && dom.btnDiscCam) {
+                                dom.btnDiscCam.classList.toggle('vid-active', !!d.discord.video);
                             }
                         } else {
                             discordDisconnectCount++;
                             if (discordDisconnectCount >= 3) setDiscordPanelVisible(false);
-                        }
-
-                        if (d.discord.authorized) {
-                            setDisplay(dom.btnDiscAuth, 'none');
-                            if (dom.discGroup) {
-                                setDisplay(dom.discGroup, 'flex');
-                                const statusEl = dom.discGroup.querySelector('div');
-                                if (statusEl) {
-                                    const connState = d.discord.connected ? 'online' : 'offline';
-                                    if (statusEl.getAttribute('data-conn-state') !== connState) {
-                                        statusEl.setAttribute('data-conn-state', connState);
-                                        const label = d.discord.connected ? 'Connected' : 'Offline';
-                                        statusEl.innerHTML = '<svg aria-hidden="true"><use href="#icon-discord"/></svg>' + label;
-                                    }
-                                }
-                            }
-                        } else {
-                            setDisplay(dom.btnDiscAuth, 'flex');
-                            if (dom.discGroup) setDisplay(dom.discGroup, 'none');
-                        }
-
-                        if (dom.discWarning) {
-                            const showWarning = (d.discord.vesktop_ipc_warning || (d.discord.connected && !d.discord.auth_pending && !d.discord.voice_supported)) ? 'flex' : 'none';
-                            if (dom.discWarning.style.display !== showWarning) {
-                                dom.discWarning.style.display = showWarning;
-                            }
-                            if (showWarning === 'flex') {
-                                const titleEl = dom.discWarning.querySelector('p');
-                                const detailEl = document.getElementById('disc-warning-detail');
-                                const hintEl = document.getElementById('disc-warning-hint');
-                                if (d.discord.vesktop_ipc_warning) {
-                                    if (titleEl) titleEl.textContent = 'Vesktop detected';
-                                    if (detailEl) detailEl.textContent = 'Vesktop (arRPC) does not support Discord Voice Control.';
-                                    if (hintEl) hintEl.textContent = 'Use the official Discord app or Vencord instead.';
-                                } else {
-                                    if (titleEl) titleEl.textContent = 'Voice control unavailable';
-                                    if (detailEl) detailEl.textContent = 'Voice control needs authorization. Your token may have expired.';
-                                    if (hintEl) hintEl.textContent = 'Tap Clear authorization below, then Authorize Discord to sign in again.';
-                                }
-                            }
                         }
 
                         if (d.discord.voice_channel && (!globalCfg || globalCfg.disc_vc_enabled !== false)) {
@@ -7392,16 +8279,91 @@
                     setDiscordPanelVisible(false);
                 }
 
-                if (d.spotify && d.spotify.status !== 'Auth_Required') {
-                    setDisplay(dom.btnSpotAuth, 'none');
-                    setDisplay(dom.spotGroup, 'flex');
-                } else {
-                    setDisplay(dom.btnSpotAuth, 'flex');
-                    setDisplay(dom.spotGroup, 'none');
-                }
-
+                updateServiceStatus(d);
+                renderClockViewLive(d);
             });
         }
+
+        // Sign-in state for Discord and Spotify, shown in Settings. Kept apart
+        // from the dashboard so it stays current while Settings covers it.
+        function updateServiceStatus(d) {
+            if (d.discord && !(globalCfg && globalCfg.disc_enabled === false)) {
+                currentDiscordAuthUrl = d.discord.auth_url || "";
+                isDiscordConnected = !!d.discord.connected;
+
+                if (d.discord.authorized) {
+                    setDisplay(dom.btnDiscAuth, 'none');
+                    if (dom.discGroup) {
+                        setDisplay(dom.discGroup, 'flex');
+                        const statusEl = dom.discGroup.querySelector('div');
+                        if (statusEl) {
+                            const connState = d.discord.connected ? 'online' : 'offline';
+                            if (statusEl.getAttribute('data-conn-state') !== connState) {
+                                statusEl.setAttribute('data-conn-state', connState);
+                                const label = d.discord.connected ? 'Connected' : 'Offline';
+                                statusEl.innerHTML = '<svg aria-hidden="true"><use href="#icon-discord"/></svg>' + label;
+                            }
+                        }
+                    }
+                } else {
+                    setDisplay(dom.btnDiscAuth, 'flex');
+                    if (dom.discGroup) setDisplay(dom.discGroup, 'none');
+                }
+
+                if (dom.discWarning) {
+                    const showWarning = (d.discord.vesktop_ipc_warning || (d.discord.connected && !d.discord.auth_pending && !d.discord.voice_supported)) ? 'flex' : 'none';
+                    if (dom.discWarning.style.display !== showWarning) {
+                        dom.discWarning.style.display = showWarning;
+                    }
+                    if (showWarning === 'flex') {
+                        const titleEl = dom.discWarning.querySelector('p');
+                        const detailEl = document.getElementById('disc-warning-detail');
+                        const hintEl = document.getElementById('disc-warning-hint');
+                        if (d.discord.vesktop_ipc_warning) {
+                            if (titleEl) titleEl.textContent = 'Vesktop detected';
+                            if (detailEl) detailEl.textContent = 'Vesktop (arRPC) does not support Discord Voice Control.';
+                            if (hintEl) hintEl.textContent = 'Use the official Discord app or Vencord instead.';
+                        } else {
+                            if (titleEl) titleEl.textContent = 'Voice control unavailable';
+                            if (detailEl) detailEl.textContent = 'Voice control needs authorization. Your token may have expired.';
+                            if (hintEl) hintEl.textContent = 'Tap Clear authorization below, then Authorize Discord to sign in again.';
+                        }
+                    }
+                }
+            }
+
+            if (d.spotify && d.spotify.status !== 'Auth_Required') {
+                setDisplay(dom.btnSpotAuth, 'none');
+                setDisplay(dom.spotGroup, 'flex');
+            } else {
+                setDisplay(dom.btnSpotAuth, 'flex');
+                setDisplay(dom.spotGroup, 'none');
+            }
+        }
+
+        // --- A dialog or the full-screen clock over the dashboard (the Linux window) ---
+        // There (lite tier, CPU-painted) anything that changes under a
+        // full-screen layer repaints the whole window, ~50 ms a time (measured:
+        // even a 8 px box did). So while a dialog is open the dimmed dashboard
+        // behind it holds still: live data waits in pendingSysData, the progress
+        // timer and the title marquee pause, CSS animations stop (html[data-held]).
+        // It catches up as soon as the last dialog closes.
+        let dashboardHeld = false;
+        function holdDashboard() {
+            const held = document.documentElement.dataset.fx === 'lite'
+                && (clockViewOpen || !!document.querySelector('.modal-overlay.active'));
+            if (held === dashboardHeld) return;
+            dashboardHeld = held;
+            document.documentElement.toggleAttribute('data-held', held);
+            npMarquee.pause(held, 'dialog');
+            if (!held && pendingSysData && _pageVisible && !isAnimating) {
+                updateSysDataDOM(pendingSysData);
+                pendingSysData = null;
+            }
+        }
+        const dialogWatch = new MutationObserver(holdDashboard);
+        document.querySelectorAll('.modal-overlay').forEach(el =>
+            dialogWatch.observe(el, { attributes: true, attributeFilter: ['class'] }));
 
         // --- Soundboard View ---
         let spOrigin = {};
@@ -8120,19 +9082,57 @@
                 const raw = escapeHtml(d.raw_name);
                 const isHidden = hidden.has(d.raw_name);
                 return `
-                    <div class="hw-row audio-dev-row${isHidden ? ' is-hidden' : ''}">
+                    <div class="hw-row audio-dev-row${isHidden ? ' is-hidden' : ''}" data-raw="${raw}">
+                        <span class="dev-pos num" aria-hidden="true"></span>
                         <div class="raw" title="${raw}">${raw}</div>
                         <input type="text" class="audio-name-input" data-raw="${raw}" placeholder="Short name" value="${escapeHtml(val)}" maxlength="10" aria-label="Short name for ${raw}" autocomplete="off">
+                        <div class="dev-order" role="group" aria-label="Position of ${raw}">
+                            <button type="button" class="btn dev-move" data-dir="-1" aria-label="Move ${raw} up"><i data-lucide="chevron-up"></i></button>
+                            <button type="button" class="btn dev-move" data-dir="1" aria-label="Move ${raw} down"><i data-lucide="chevron-down"></i></button>
+                        </div>
                         <button type="button" class="btn dev-hide" data-raw="${raw}" aria-pressed="${isHidden}"
                             aria-label="Hide ${raw} from the output switch" title="${isHidden ? 'Hidden from the output switch' : 'Shown on the output switch'}"><i data-lucide="${isHidden ? 'eye-off' : 'eye'}"></i></button>
                     </div>
                 `;
             }).join('');
             renderIcons(container);
+            syncAudioOrder();
         }
 
-        // Hide / show a device in Audio routing; saved with the rest on "Save & apply".
+        // Positions and which moves are possible, after a render or a move.
+        function syncAudioOrder() {
+            const rows = [...document.querySelectorAll('#audio-devices-list .audio-dev-row')];
+            rows.forEach((row, i) => {
+                setText(row.querySelector('.dev-pos'), String(i + 1));
+                row.querySelector('.dev-move[data-dir="-1"]').disabled = i === 0;
+                row.querySelector('.dev-move[data-dir="1"]').disabled = i === rows.length - 1;
+            });
+        }
+
+        // The order to save: the rows as shown, while a device that is unplugged
+        // right now keeps its place among them (it is not in the list to move).
+        function mergeAudioOrder(saved, shown) {
+            const present = new Set(shown);
+            const queue = [...shown];
+            const merged = saved.map(name => (present.has(name) ? queue.shift() : name));
+            return [...merged, ...queue];
+        }
+
+        // Hide / show or move a device in Audio routing; saved with the rest on "Save & apply".
         document.getElementById('audio-devices-list').addEventListener('click', e => {
+            const move = e.target.closest('.dev-move');
+            if (move) {
+                const row = move.closest('.audio-dev-row');
+                const up = move.dataset.dir === '-1';
+                const other = up ? row.previousElementSibling : row.nextElementSibling;
+                if (!other) return;
+                row.parentNode.insertBefore(up ? row : other, up ? other : row);
+                syncAudioOrder();
+                // Moving a row drops focus; keep it on the key so it can be pressed again.
+                const again = row.querySelector(`.dev-move[data-dir="${move.dataset.dir}"]`);
+                (again.disabled ? row.querySelector('.dev-move:not(:disabled)') : again)?.focus({ preventScroll: true });
+                return;
+            }
             const key = e.target.closest('.dev-hide');
             if (!key) return;
             const hide = key.getAttribute('aria-pressed') !== 'true';
@@ -8140,6 +9140,23 @@
             key.title = hide ? 'Hidden from the output switch' : 'Shown on the output switch';
             key.closest('.audio-dev-row').classList.toggle('is-hidden', hide);
             setIcon(key, hide ? 'eye-off' : 'eye');
+        });
+
+        // Screen care (Settings → General): one choice per row, saved with Save & apply.
+        function setPickedMinutes(id, value) {
+            const picks = [...document.querySelectorAll(`#${id} .pick`)];
+            const match = picks.some(b => Number(b.dataset.v) === value);
+            picks.forEach(b => b.setAttribute('aria-checked', String(match && Number(b.dataset.v) === value)));
+        }
+        function pickedMinutes(id) {
+            const on = document.querySelector(`#${id} .pick[aria-checked="true"]`);
+            return on ? Number(on.dataset.v) : undefined;
+        }
+        ['cfg-idle-dim', 'cfg-idle-clock'].forEach(id => {
+            document.getElementById(id).addEventListener('click', (e) => {
+                const b = e.target.closest('.pick');
+                if (b) setPickedMinutes(id, Number(b.dataset.v));
+            });
         });
 
         function saveConfig() {
@@ -8155,7 +9172,10 @@
             const hidden_audio_devices = (globalCfg.hidden_audio_devices || []).filter(raw => !present.has(raw));
             document.querySelectorAll('.dev-hide[aria-pressed="true"]').forEach(key => hidden_audio_devices.push(key.dataset.raw));
 
-            const data = { audio_names: audio_names, hidden_audio_devices: hidden_audio_devices };
+            const shown = [...document.querySelectorAll('#audio-devices-list .audio-dev-row')].map(r => r.dataset.raw);
+            const audio_order = mergeAudioOrder(globalCfg.audio_order || [], shown);
+
+            const data = { audio_names: audio_names, hidden_audio_devices: hidden_audio_devices, audio_order: audio_order };
             CONFIG_FIELDS.forEach(([elId, key]) => data[key] = document.getElementById(elId).value);
             data.disc_vc_enabled = document.getElementById('cfg-disc-vc').checked;
             data.disc_sort_speakers = document.getElementById('cfg-disc-sort-speakers').checked;
@@ -8170,6 +9190,8 @@
             data.disc_enabled = document.getElementById('cfg-disc-enabled').checked;
             data.audio_enabled = document.getElementById('cfg-audio-enabled').checked;
             data.sb_enabled = document.getElementById('cfg-sb-enabled').checked;
+            data.idle_dim_min = pickedMinutes('cfg-idle-dim');
+            data.idle_clock_min = pickedMinutes('cfg-idle-clock');
 
             data[clipSource === 'local' ? 'local_buttons' : 'soundpad_buttons'] = spBtns;
             sendSocket('save_config', data);
@@ -8443,12 +9465,14 @@
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
             const isOpen = id => document.getElementById(id).classList.contains('active');
+            // Dialogs sit above the full-screen clock, so they close first.
             if (dlgCurrent) answerDialog(!dlgCurrent.opts.cancel);
             else if (isOpen('macro-modal')) closeMacroModal();
             else if (isOpen('device-modal')) closeDeviceMenu();
             else if (isOpen('sp-modal')) closeSpModal();
             else if (isOpen('update-modal')) document.getElementById('update-modal').classList.remove('active');
             else if (isOpen('modal')) document.getElementById('modal').classList.remove('active');
+            else if (clockViewOpen) closeClockView();
             else if (document.getElementById('win-menu').classList.contains('is-open')) closeWinMenu();
         });
 
@@ -8656,6 +9680,7 @@
 
         document.addEventListener('touchend', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
+            if (e.target.closest('.time-weather-panel, #clock-view')) { lastTapTime = 0; maxTouches = 0; return; }
 
             if (e.touches.length > 0) return;
 
@@ -8681,6 +9706,7 @@
 
         document.addEventListener('dblclick', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
+            if (e.target.closest('.time-weather-panel, #clock-view')) return;
             if (e.pointerType === 'touch' || window.matchMedia("(pointer: coarse)").matches) return;
             if (window.pywebview) return;
             openSettings();
@@ -8765,12 +9791,28 @@
                 const now = Date.now();
                 if (now - discToggleAt[a] < DISC_TOGGLE_GAP_MS) return;
                 discToggleAt[a] = now;
-                discordVidLock = now + 1500;
-                const key = a === 'disc_cam' ? dom.btnDiscCam : dom.btnDiscScreen;
-                if (key) key.classList.toggle('vid-active');
+                if (a === 'disc_cam') {
+                    discordVidLock = now + 1500;
+                    if (dom.btnDiscCam) dom.btnDiscCam.classList.toggle('vid-active');
+                } else {
+                    // Discord does not say whether a screen share is running, so this
+                    // key cannot show it: it is a push key. Each press visibly sinks
+                    // and springs back (even a quick tap), and never stays lit.
+                    pressKey(dom.btnDiscScreen);
+                }
             }
 
             sendSocket('action', a);
+        }
+
+        // A momentary key: down for a beat, then the key's own spring brings it back
+        // (the press's haptic tick comes from the shared pointerdown handler).
+        const KEY_STRIKE_MS = 140;
+        function pressKey(key) {
+            if (!key) return;
+            key.classList.add('active-btn');
+            clearTimeout(key._strike);
+            key._strike = setTimeout(() => key.classList.remove('active-btn'), KEY_STRIKE_MS);
         }
 
         function runSpeedtest() {
@@ -8819,6 +9861,7 @@
                 setText(elMonth, month);
                 setText(elWeekday, weekday);
             }
+            renderClockViewTime();
         }
 
         function scheduleClock() {
