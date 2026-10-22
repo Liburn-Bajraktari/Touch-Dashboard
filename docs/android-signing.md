@@ -1,6 +1,6 @@
 # Building and signing the Android app
 
-The Android app lives in `android/`: a manifest, resources and a few Java classes (`MainActivity`, the WebView shell; `AppUpdater` and `InstallResultReceiver`, the self-updater). `scripts/build-android.sh` builds it with the Android SDK's own tools, without Gradle, and `scripts/release.sh --apk` runs that script for every release.
+The Android app lives in `android/`: a manifest, resources and a few Java classes (`MainActivity`, the WebView shell; `AppUpdater`, `UpdateFileProvider` and `PackageReplacedReceiver`, the self-updater). `scripts/build-android.sh` builds it with the Android SDK's own tools, without Gradle, and `scripts/release.sh --apk` runs that script for every release.
 
 ## What you need
 
@@ -63,7 +63,8 @@ Then write `~/.config/touch-dashboard/android-release.properties` with the four 
 2. The page compares them with the app's version (`window.TDAndroid.info()`, also in the user agent as `TouchDashboard/x.y.z`) and offers or requires the update.
 3. `TDAndroid.update(tag)` hands only the tag to the app. `AppUpdater` downloads `SHA256SUMS` and `TouchDashboard-<tag>.apk` from this repository's release over HTTPS, checks the checksum, the package name, that the version is newer and that the signing certificate matches its own.
 4. If Android does not yet let the app install packages, it opens that switch ("Install unknown apps") and waits for the user to come back.
-5. It writes the APK into a `PackageInstaller` session and commits it; Android shows its update dialog (always: a silent update would close the dashboard mid-use), installs the update and closes the app.
+5. It hands the APK to Android's package installer as a sideloaded file (`ACTION_INSTALL_PACKAGE` with a read-only `content://dev.touchdashboard.app.updates/...` URI from `UpdateFileProvider`). Android asks to confirm, installs, and ends on "App installed" with an **Open** button. A `PackageInstaller` session was used before and is not: its dialog just closes, and the replaced app, killed by the update, never comes back.
+6. `PackageReplacedReceiver` also tries to reopen the app on `MY_PACKAGE_REPLACED`, only after an update the app started (a marker file). Android 10 and newer usually refuse that background start; the installer's **Open** button is the dependable way back. If the dashboard comes back to the front with the update still pending, it was cancelled or failed, and the page says so.
 
 ## Testing on a device
 

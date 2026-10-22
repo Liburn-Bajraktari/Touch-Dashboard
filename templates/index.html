@@ -588,10 +588,73 @@
             color: var(--well-ink-2);
         }
 
-        .batt-slide > svg.lucide {
+        .batt-dev {
+            position: relative;
+            display: inline-flex;
+        }
+
+        .batt-dev svg.lucide {
             width: 1.6rem;
             height: 1.6rem;
             stroke-width: 1.75;
+        }
+
+        /* No mouse: the mute keys' slash through the glyph, so it reads without
+           colour. Always there, only shown (a new pseudo-element would re-lay out). */
+        .batt-dev::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2rem;
+            height: 0.16rem;
+            border-radius: 2px;
+            background: currentColor;
+            box-shadow: 0 0 0 0.12rem var(--well);
+            transform: translate(-50%, -50%) rotate(-45deg);
+            visibility: hidden;
+        }
+
+        .batt-slide[data-batt="missing"] .batt-dev::after {
+            visibility: visible;
+        }
+
+        /* No battery graphic without a level: a glyph says why instead. */
+        .batt-slide[data-batt="missing"] .batt-widget,
+        .batt-slide[data-batt="unread"] .batt-widget,
+        .batt-slide[data-batt="wired"] .batt-widget {
+            display: none;
+        }
+
+        .batt-glyph {
+            display: none;
+            color: var(--well-ink);
+        }
+
+        .batt-slide[data-batt="unread"] .batt-glyph,
+        .batt-slide[data-batt="wired"] .batt-glyph {
+            display: inline-flex;
+        }
+
+        .batt-slide[data-batt="unread"] .batt-glyph {
+            color: var(--warning);
+        }
+
+        .batt-glyph svg.lucide {
+            width: 1.5rem;
+            height: 1.5rem;
+            stroke-width: 1.75;
+        }
+
+        .batt-slide[data-batt="missing"] .batt-pct,
+        .batt-slide[data-batt="unread"] .batt-pct,
+        .batt-slide[data-batt="wired"] .batt-pct {
+            font-size: var(--fs-sm);
+        }
+
+        .batt-slide[data-batt="missing"] .batt-pct,
+        .batt-slide[data-batt="unread"] .batt-pct {
+            color: var(--well-ink-2);
         }
 
         .batt-widget {
@@ -659,11 +722,6 @@
             white-space: nowrap;
         }
 
-        .batt-pct svg.lucide {
-            width: 1.4rem;
-            height: 1.4rem;
-            vertical-align: middle;
-        }
 
         /* Speed test: a display window with a half gauge and the two figures. */
         .speed-widget {
@@ -686,13 +744,15 @@
             transition-duration: var(--dur-fast);
         }
 
+        /* A live meter: a lit arc and its tip follow the speed on a log scale
+           (ticks at 1, 10 and 100 Mbps), a short lit segment searches while a
+           server is found, the active line counts and the waiting one pulses.
+           Arc, tip and dots move by stroke-dashoffset / transform only; every
+           figure sits in a .live box (DESIGN.md §8). */
         .gauge {
             position: relative;
             width: 5.2rem;
             height: 2.6rem;
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
         }
 
         .gauge svg {
@@ -704,20 +764,88 @@
         }
 
         .gauge-track {
-            stroke: var(--surface-3);
+            stroke: var(--line-strong);
+        }
+
+        .gauge-ticks line {
+            stroke: var(--well-ink-2);
+            stroke-width: 1.4;
+            stroke-linecap: round;
         }
 
         .gauge-arc {
             stroke: var(--well-ink-2);
-            transition: stroke var(--dur) var(--ease), stroke-dashoffset 0.1s linear;
+            transition: stroke var(--dur) var(--ease), stroke-dashoffset 0.3s linear;
         }
 
-        .gauge-val {
-            position: relative;
-            bottom: -0.25rem;
+        .speed-widget[data-phase="down"] .gauge-arc,
+        .speed-widget[data-phase="up"] .gauge-arc,
+        .speed-widget[data-phase="done"] .gauge-arc,
+        .speed-widget[data-phase="connect"] .gauge-arc,
+        .speed-widget[data-phase="ping"] .gauge-arc {
+            stroke: var(--well-accent);
+        }
+
+        .speed-widget[data-phase="error"] .gauge-arc {
+            stroke: var(--negative);
+        }
+
+        /* Finding a server: a short lit segment runs to and fro along the track. */
+        .speed-widget[data-phase="connect"] .gauge-arc,
+        .speed-widget[data-phase="ping"] .gauge-arc {
+            stroke-dasharray: 18 108;
+            transition: stroke var(--dur) var(--ease);
+            animation: gauge-search 1.1s var(--ease) infinite alternate;
+        }
+
+        @keyframes gauge-search {
+            from { stroke-dashoffset: 0; }
+            to { stroke-dashoffset: -107.66; }
+        }
+
+        .gauge-tip {
+            transform: rotate(var(--tip-a, -90deg));
+            transform-origin: 50px 50px;
+            transform-box: view-box;
+            transition: transform 0.3s linear;
+        }
+
+        .gauge-tip circle {
+            fill: var(--well-ink);
+            stroke: var(--well-accent);
+            stroke-width: 2.6;
+            visibility: hidden;
+        }
+
+        .speed-widget[data-phase="down"] .gauge-tip circle,
+        .speed-widget[data-phase="up"] .gauge-tip circle,
+        .speed-widget[data-phase="done"] .gauge-tip circle {
+            visibility: visible;
+        }
+
+        /* The result settles onto the download figure with a spring. */
+        .speed-widget[data-phase="done"] .gauge-tip {
+            transition: transform var(--dur-spring) var(--spring-bounce);
+        }
+
+        .speed-widget[data-phase="done"] .gauge-arc {
+            transition: stroke var(--dur) var(--ease), stroke-dashoffset var(--dur-spring) var(--spring);
+        }
+
+        .gauge-read {
+            --live-h: 1.2rem;
+            position: absolute;
+            left: 0;
+            bottom: -0.3rem;
+            width: 100%;
+            text-align: center;
             font-size: var(--fs-xs);
             font-weight: var(--weight-strong);
             color: var(--well-ink);
+        }
+
+        .speed-widget[data-phase="error"] .gauge-read {
+            color: var(--negative-text);
         }
 
         .speed-lines {
@@ -750,12 +878,67 @@
             stroke-width: 2.5;
         }
 
-        .speed-dl-icon {
+        .speed-line svg.lucide {
+            color: var(--well-ink-2);
+            transition: color var(--dur) var(--ease);
+        }
+
+        /* The line being measured is lit: arrow and figure take the level colour. */
+        .speed-line[data-state="live"] svg.lucide,
+        .speed-line[data-state="live"] .live-v {
             color: var(--well-accent);
         }
 
-        .speed-ul-icon {
+        .speed-line[data-state="idle"] .live-v {
             color: var(--well-ink-2);
+        }
+
+        [data-fx="rich"] .speed-line[data-state="live"] svg.lucide {
+            animation: speed-flow 0.7s var(--ease) infinite alternate;
+        }
+
+        [data-fx="rich"] #speed-line-ul[data-state="live"] svg.lucide {
+            animation-name: speed-flow-up;
+        }
+
+        @keyframes speed-flow { from { transform: translateY(-0.12rem); } to { transform: translateY(0.12rem); } }
+        @keyframes speed-flow-up { from { transform: translateY(0.12rem); } to { transform: translateY(-0.12rem); } }
+
+        /* Waiting for its turn: three dots pulse where the figure will appear. */
+        .speed-wait {
+            position: absolute;
+            top: 0;
+            right: 0;
+            height: var(--live-h);
+            display: flex;
+            align-items: center;
+            gap: 0.2rem;
+            visibility: hidden;
+        }
+
+        .speed-wait span {
+            width: 0.34rem;
+            height: 0.34rem;
+            border-radius: 50%;
+            background: var(--well-ink-2);
+            transform: scale(0.55);
+            animation: speed-wait 1s var(--ease) infinite;
+        }
+
+        .speed-wait span:nth-child(2) { animation-delay: 0.15s; }
+        .speed-wait span:nth-child(3) { animation-delay: 0.3s; }
+
+        @keyframes speed-wait {
+            0%, 70%, 100% { transform: scale(0.55); }
+            35% { transform: scale(1); }
+        }
+
+        .speed-line[data-state="wait"] .speed-wait {
+            visibility: visible;
+        }
+
+        .speed-line[data-state="wait"] .live-v {
+            visibility: hidden;
         }
 
         #btn-shutdown {
@@ -3721,8 +3904,8 @@
         <div class="section bar-left">
             <button class="btn btn-top" id="btn-back" onclick="toggleSoundpad(false)" aria-label="Back to dashboard"><i
                     data-lucide="arrow-left"></i></button>
-            <div id="batt-slide" class="batt-slide" title="Mouse battery">
-                <i data-lucide="mouse"></i>
+            <div id="batt-slide" class="batt-slide" data-batt="missing" title="No mouse found" aria-label="No mouse found">
+                <span class="batt-dev"><i data-lucide="mouse"></i></span>
                 <div class="batt-widget" id="batt-widget">
                     <div class="batt-body">
                         <div class="batt-fill" id="batt-fill"></div>
@@ -3730,7 +3913,8 @@
                     </div>
                     <div class="batt-cap"></div>
                 </div>
-                <span class="batt-pct num" id="batt-pct">&mdash;</span>
+                <span class="batt-glyph" id="batt-glyph"></span>
+                <span class="batt-pct num" id="batt-pct">No mouse</span>
                 <!-- Hidden span kept for DOM references -->
                 <span id="mouse-batt" hidden>--</span>
             </div>
@@ -3742,23 +3926,29 @@
         </div>
         <div class="section bar-right">
             <div id="top-right-normal" class="bar-cluster">
-                <button class="speed-widget" id="speed-out" onclick="runSpeedtest()" title="Run speed test"
-                    aria-label="Run speed test">
+                <button class="speed-widget" id="speed-out" data-phase="idle" onclick="runSpeedtest()"
+                    title="Run speed test" aria-label="Run speed test">
                     <span class="gauge">
                         <svg viewBox="0 0 100 50" aria-hidden="true">
                             <path class="gauge-track" d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke-width="12"
                                 stroke-linecap="round" />
+                            <g class="gauge-ticks" id="speed-ticks"></g>
                             <path id="speed-gauge-arc" class="gauge-arc" d="M 10 50 A 40 40 0 0 1 90 50" fill="none"
                                 stroke-width="12" stroke-linecap="round" stroke-dasharray="125.66"
                                 stroke-dashoffset="125.66" />
+                            <g class="gauge-tip" id="speed-tip"><circle cx="50" cy="10" r="4.2" /></g>
                         </svg>
-                        <span id="speed-gauge-val" class="gauge-val">Test</span>
+                        <span class="live gauge-read"><span class="live-v" id="speed-gauge-val">Test</span></span>
                     </span>
                     <span class="speed-lines num">
-                        <span class="speed-line"><i data-lucide="arrow-down" class="speed-dl-icon"></i><span
-                                class="live speed-v"><span class="live-v" id="s-dl">&mdash;</span></span><span class="unit">Mbps</span></span>
-                        <span class="speed-line"><i data-lucide="arrow-up" class="speed-ul-icon"></i><span
-                                class="live speed-v"><span class="live-v" id="s-ul">&mdash;</span></span><span class="unit">Mbps</span></span>
+                        <span class="speed-line" id="speed-line-dl" data-state="idle"><i data-lucide="arrow-down"></i><span
+                                class="live speed-v"><span class="live-v" id="s-dl">&mdash;</span><span class="speed-wait"
+                                    aria-hidden="true"><span></span><span></span><span></span></span></span><span
+                                class="unit">Mbps</span></span>
+                        <span class="speed-line" id="speed-line-ul" data-state="idle"><i data-lucide="arrow-up"></i><span
+                                class="live speed-v"><span class="live-v" id="s-ul">&mdash;</span><span class="speed-wait"
+                                    aria-hidden="true"><span></span><span></span><span></span></span></span><span
+                                class="unit">Mbps</span></span>
                     </span>
                 </button>
                 <button class="btn btn-top" id="btn-shutdown" title="Turn off PC" aria-label="Turn off PC"
@@ -4751,6 +4941,8 @@
             sysCpu: document.getElementById('sys-cpu'),
             sysRam: document.getElementById('sys-ram'),
             mouseBatt: document.getElementById('mouse-batt'),
+            battSlide: document.getElementById('batt-slide'),
+            battGlyph: document.getElementById('batt-glyph'),
             battWidget: document.getElementById('batt-widget'),
             battFill: document.getElementById('batt-fill'),
             battPct: document.getElementById('batt-pct'),
@@ -4805,6 +4997,7 @@
             speedUl: document.getElementById('s-ul'),
             gaugeArc: document.getElementById('speed-gauge-arc'),
             gaugeVal: document.getElementById('speed-gauge-val'),
+            speedOut: document.getElementById('speed-out'),
             iconSpotPlay: document.getElementById('icon-spot-play'),
             iconSpotPause: document.getElementById('icon-spot-pause'),
             wrapTitle: document.getElementById('wrapper-title'),
@@ -4814,16 +5007,129 @@
 
         // --- Speed test gauge ---
         const GAUGE_LENGTH = 125.66;
-        function setGauge(stroke, progress, label) {
-            if (!dom.gaugeArc || !dom.gaugeVal) return;
-            dom.gaugeArc.style.stroke = stroke;
-            dom.gaugeArc.style.strokeDashoffset = (GAUGE_LENGTH * (1 - Math.max(0, Math.min(1, progress)))).toString();
-            setText(dom.gaugeVal, label);
+        // --- Speed test: a live meter (see the .gauge styles) ---
+        // Phases on #speed-out[data-phase]: idle, connect, ping, down, up, done,
+        // error. Each line has data-state: idle, wait, live or done.
+        const SPEED_SCALE_MAX = 1000;            // Mbps at the top of the log scale
+        const SPEED_TICKS = [1, 10, 100];       // the arc's own ends are 0 and 1000
+        const speedTest = { phase: 'idle', live: false, ping: null, server: '', down: null, up: null, busyTimer: null };
+        const speedLines = { down: document.getElementById('speed-line-dl'), up: document.getElementById('speed-line-ul') };
+        const speedTip = document.getElementById('speed-tip');
+
+        function speedFraction(mbps) {
+            const v = Math.max(0, Number(mbps) || 0);
+            return Math.min(1, Math.log10(1 + v) / Math.log10(1 + SPEED_SCALE_MAX));
         }
-        function formatSpeed(v) {
-            if (v === 'ERR') return 'Err';
-            if (v === 'BUSY') return 'Busy';
-            return String(v);
+        (function drawSpeedTicks() {
+            const g = document.getElementById('speed-ticks');
+            if (!g) return;
+            // Printed inside the arc, so the figures below never meet them.
+            g.innerHTML = SPEED_TICKS.map(m => {
+                const a = Math.PI * (1 - speedFraction(m));
+                const x = r => (50 + r * Math.cos(a)).toFixed(2), y = r => (50 - r * Math.sin(a)).toFixed(2);
+                return `<line x1="${x(27)}" y1="${y(27)}" x2="${x(31)}" y2="${y(31)}" />`;
+            }).join('');
+        })();
+
+        // The arc and its tip at `fraction` (0..1) of the scale.
+        function setMeter(fraction) {
+            const f = Math.max(0, Math.min(1, fraction));
+            if (dom.gaugeArc) dom.gaugeArc.style.strokeDashoffset = (GAUGE_LENGTH * (1 - f)).toFixed(2);
+            if (speedTip) speedTip.style.setProperty('--tip-a', (-90 + 180 * f).toFixed(1) + 'deg');
+        }
+        // A test that goes silent (connection lost mid-test) must not lock the button.
+        const SPEED_SILENCE_MS = 90000;
+        function speedHeard() {
+            clearTimeout(speedTest.watchdog);
+            if (['connect', 'ping', 'down', 'up'].includes(speedTest.phase)) {
+                speedTest.watchdog = setTimeout(() => onSpeedResult({ down: 'ERR', up: 'ERR' }), SPEED_SILENCE_MS);
+            }
+        }
+        function setSpeedPhase(phase, label) {
+            speedTest.phase = phase;
+            if (dom.speedOut && dom.speedOut.dataset.phase !== phase) dom.speedOut.dataset.phase = phase;
+            setText(dom.gaugeVal, label);
+            speedHeard();
+        }
+        function setSpeedLine(step, state, value) {
+            const line = speedLines[step];
+            if (line && line.dataset.state !== state) line.dataset.state = state;
+            if (value !== undefined) setText(step === 'down' ? dom.speedDl : dom.speedUl, value);
+        }
+        // Live figures: whole numbers from 100 Mbps, one decimal below.
+        function fmtMbps(v) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return '\u2014';
+            return n >= 100 ? String(Math.round(n)) : n.toFixed(1);
+        }
+        function speedSummary() {
+            const parts = [];
+            if (speedTest.down !== null) parts.push(`download ${speedTest.down} Mbps`);
+            if (speedTest.up !== null) parts.push(`upload ${speedTest.up} Mbps`);
+            if (speedTest.ping !== null) parts.push(`ping ${speedTest.ping} ms`);
+            const text = parts.length ? 'Last test: ' + parts.join(', ') + (speedTest.server ? ` (${speedTest.server})` : '') + '. Tap to test again.' : 'Run speed test';
+            if (dom.speedOut) { dom.speedOut.title = text; dom.speedOut.setAttribute('aria-label', text); }
+        }
+
+        function onSpeedProgress(d) {
+            if (d.step === 'connect') {
+                setSpeedPhase('connect', 'Server');
+            } else if (d.step === 'ping') {
+                if (typeof d.ping === 'number') speedTest.ping = Math.round(d.ping);
+                if (d.server) speedTest.server = d.server;
+                setSpeedPhase('ping', speedTest.ping !== null ? speedTest.ping + ' ms' : 'Ping');
+            } else if (d.step === 'down' || d.step === 'up') {
+                if (speedTest.phase !== d.step) {
+                    setSpeedPhase(d.step, d.step === 'down' ? 'Down' : 'Up');
+                    setSpeedLine(d.step, 'live');
+                    speedTest.live = false;
+                    setMeter(0);
+                }
+                // Servers without live readings: the meter shows how far the phase is.
+                if (!speedTest.live) setMeter(d.progress);
+                speedHeard();
+            }
+        }
+        function onSpeedLive(d) {
+            if (d.step !== 'down' && d.step !== 'up') return;
+            speedHeard();
+            if (speedTest.phase !== d.step) {
+                setSpeedPhase(d.step, d.step === 'down' ? 'Down' : 'Up');
+            }
+            speedTest.live = true;
+            setSpeedLine(d.step, 'live', fmtMbps(d.mbps));
+            setMeter(speedFraction(d.mbps));
+        }
+        function onSpeedIntermediate(d) {
+            if (d.down === undefined || d.down === null) return;
+            speedTest.down = d.down;
+            setSpeedLine('down', 'done', String(d.down));
+        }
+        function onSpeedResult(d) {
+            clearTimeout(speedTest.busyTimer);
+            if (d.down === 'BUSY') {
+                // Another screen started a test: say so, then follow that test.
+                const label = dom.gaugeVal ? dom.gaugeVal.textContent : '';
+                setText(dom.gaugeVal, 'Busy');
+                speedTest.busyTimer = setTimeout(() => setText(dom.gaugeVal, label), 1800);
+                return;
+            }
+            if (d.down === 'ERR') {
+                setSpeedPhase('error', 'Error');
+                setSpeedLine('down', 'idle', '\u2014');
+                setSpeedLine('up', 'idle', '\u2014');
+                setMeter(1);
+                return;
+            }
+            speedTest.down = d.down;
+            speedTest.up = d.up;
+            if (typeof d.ping === 'number') speedTest.ping = Math.round(d.ping);
+            if (d.server) speedTest.server = d.server;
+            setSpeedLine('down', 'done', String(d.down));
+            setSpeedLine('up', 'done', String(d.up));
+            setSpeedPhase('done', speedTest.ping !== null ? speedTest.ping + ' ms' : 'Done');
+            setMeter(speedFraction(d.down));
+            speedSummary();
         }
 
         // --- Weather: pick the glyph from OpenWeather's description ---
@@ -5607,7 +5913,7 @@
                     break;
                 case 'confirm':
                     setUpdateProgress('Waiting for you to confirm', 1);
-                    message.textContent = 'Tap Update in Android\'s dialog. Touch Dashboard closes while it installs; open it again from the home screen.';
+                    message.textContent = 'Tap Update in Android\'s installer. When it says the app is installed, tap Open to come straight back.';
                     btn.disabled = true;
                     break;
                 case 'installed':
@@ -5617,7 +5923,7 @@
                     break;
                 case 'cancelled':
                     setUpdateProgress('Cancelled', null, { error: true });
-                    message.textContent = 'The update was cancelled. Nothing changed.';
+                    message.textContent = 'The update was not installed. Nothing changed.';
                     idle('Try again');
                     break;
                 case 'failed':
@@ -5684,7 +5990,6 @@
                     macros = c.macros || [];
                     if (!c.macros) {
                         macros = [
-                            { type: 'macro', action_data: "['KEY_LEFTALT', 'KEY_F10']", display_name: 'CLIP', icon_url: 'lucide-clapperboard' },
                             { type: 'plugin', action_data: 'app_soundpad', display_name: 'SOUNDBOARD', icon_url: 'lucide-music' },
                             { type: 'app', action_data: 'terminal', display_name: 'TERM', icon_url: 'lucide-terminal' },
                             { type: 'app', action_data: 'browser', display_name: 'BROWSER', icon_url: 'lucide-globe' },
@@ -5841,23 +6146,16 @@
                     requestAnimationFrame(() => renderWeather(d));
                 }
                 else if (msg.type === 'speedtest_result') {
-                    requestAnimationFrame(() => {
-                        setText(dom.speedDl, formatSpeed(d.down));
-                        setText(dom.speedUl, formatSpeed(d.up));
-                        setGauge('var(--text-3)', 1, 'Done');
-                    });
+                    requestAnimationFrame(() => onSpeedResult(d));
                 }
                 else if (msg.type === 'speedtest_intermediate') {
-                    requestAnimationFrame(() => {
-                        if (d.down) setText(dom.speedDl, formatSpeed(d.down));
-                    });
+                    requestAnimationFrame(() => onSpeedIntermediate(d));
                 }
                 else if (msg.type === 'speedtest_progress') {
-                    requestAnimationFrame(() => {
-                        if (d.step === 'ping') setGauge('var(--warning)', 0, 'Ping');
-                        else if (d.step === 'down') setGauge('var(--accent)', d.progress, 'Down');
-                        else if (d.step === 'up') setGauge('var(--text-2)', d.progress, 'Up');
-                    });
+                    requestAnimationFrame(() => onSpeedProgress(d));
+                }
+                else if (msg.type === 'speedtest_live') {
+                    requestAnimationFrame(() => onSpeedLive(d));
                 }
                 else if (msg.type === 'local_sounds_list') {
                     const select = document.getElementById('sp-id-select');
@@ -5957,76 +6255,67 @@
 
         // --- Battery Widget ---
         // Accepts the new dict {pct, state, model, vendor} or legacy string "73%" / "73" / "--".
+        // The mouse pill has one look per state (data-batt on #batt-slide):
+        //   missing   no mouse found: the mouse glyph struck through, "No mouse"
+        //   unread    a mouse, but no battery reading: warning battery, "No reading"
+        //   wired     on a cable and not charging: cable glyph, "Wired"
+        //   charging  stepping fill and a bolt, with the level
+        //   level     the battery fill, coloured by level
         function updateBattWidget(batt) {
-            if (!dom.battWidget || !dom.battFill || !dom.battPct || !dom.battZap) return;
+            if (!dom.battSlide || !dom.battFill || !dom.battPct) return;
 
-            let pct = null;
-            let state = 'unknown';
-            let connType = 'unknown';
-
+            let pct = null, state = 'unknown', connType = 'unknown', model = '';
             if (batt && typeof batt === 'object') {
                 pct = (batt.pct !== undefined && batt.pct !== null) ? Number(batt.pct) : null;
                 state = batt.state || 'unknown';
                 connType = batt.connection_type || 'unknown';
+                model = String(batt.model || batt.vendor || '').trim();
             } else if (typeof batt === 'string') {
-                // Legacy string fallback (e.g. "73%", "73", "--")
+                // Servers from before the battery dict sent "73%", "73" or "--".
                 const raw = batt.replace('%', '').trim();
                 pct = (raw && raw !== '--') ? parseFloat(raw) : null;
             }
+            const hasLevel = pct !== null && !isNaN(pct);
+            const charging = state === 'charging';
 
-            const isWired = (connType === 'usb' || state === 'wired');
-            const isCharging = (state === 'charging');
-            const isUnknown = (pct === null || isNaN(pct));
+            let view;
+            if (charging) view = 'charging';
+            else if (state === 'wired' || connType === 'usb') view = 'wired';
+            else if (hasLevel) view = 'level';
+            else if (model) view = 'unread';
+            else view = 'missing';
 
-            if (isWired) {
-                dom.battFill.style.setProperty('--batt-color', 'var(--positive)');
-                dom.battFill.style.width = '100%';
-                dom.battWidget.classList.remove('charging');
-                dom.battZap.style.display = 'none';
+            const level = hasLevel ? Math.round(Math.min(100, Math.max(0, pct))) : null;
+            const name = model || 'Mouse';
+            const LABELS = {
+                missing: ['No mouse', 'No mouse found'],
+                unread: ['No reading', `${name}: battery level unavailable`],
+                wired: ['Wired', `${name} connected by cable`],
+                charging: [level !== null ? level + '%' : 'Charging', `${name}: ${level !== null ? level + '%, ' : ''}charging`],
+                level: [level + '%', `${name}: ${level}% battery`],
+            };
+            const [label, description] = LABELS[view];
 
-                // Render the USB glyph once, not on every 1 Hz tick.
-                setIcon(dom.battPct, 'usb');
-
-                if (dom.mouseBatt) dom.mouseBatt.innerText = "USB";
-                return;
+            if (dom.battSlide.dataset.batt !== view) dom.battSlide.dataset.batt = view;
+            if (dom.battSlide.title !== description) {
+                dom.battSlide.title = description;
+                dom.battSlide.setAttribute('aria-label', description);
             }
-            if (dom.battPct.dataset.icon) delete dom.battPct.dataset.icon;
+            if (view === 'wired') setIcon(dom.battGlyph, 'cable');
+            else if (view === 'unread') setIcon(dom.battGlyph, 'battery-warning');
+            setText(dom.battPct, label);
+            if (dom.mouseBatt) dom.mouseBatt.textContent = label;
 
+            if (view !== 'level' && view !== 'charging') return;
             // Level thresholds: under 20% is bad, up to 60% is a warning.
-            let color;
-            if (isUnknown) {
-                color = 'var(--surface-3)';
-            } else if (pct < 20) {
-                color = 'var(--negative)';
-            } else if (pct <= 60) {
-                color = 'var(--warning)';
-            } else {
-                color = 'var(--positive)';
-            }
-
-            // Apply fill width (0-100%). Charging animation is handled by CSS.
-            const fillPct = isUnknown ? 0 : Math.min(100, Math.max(0, pct));
-
+            const color = level === null ? 'var(--surface-3)'
+                : level < 20 ? 'var(--negative)' : level <= 60 ? 'var(--warning)' : 'var(--positive)';
             dom.battFill.style.setProperty('--batt-color', color);
-
-            if (!isCharging) {
-                dom.battFill.style.width = fillPct + '%';
-            }
-
-            // Toggle charging CSS class (drives @keyframes batt-charge-step)
-            dom.battWidget.classList.toggle('charging', isCharging);
-
-            // Percentage text; a missing reading is a dash, never "--%".
-            const label = isUnknown ? '—' : Math.round(pct) + '%';
-            if (dom.battPct.textContent !== label) dom.battPct.textContent = label;
-
-            // Lightning bolt icon visibility (charging indicator). The glyph was
-            // rendered at startup, so only its display changes here.
-            const zapDisplay = isCharging ? '' : 'none';
-            if (dom.battZap.style.display !== zapDisplay) dom.battZap.style.display = zapDisplay;
-
-            // Keep hidden span updated for backward-compat references
-            if (dom.mouseBatt) dom.mouseBatt.innerText = label;
+            // Charging steps its own fill (CSS); otherwise the fill is the level.
+            if (!charging) dom.battFill.style.width = (level ?? 0) + '%';
+            dom.battWidget.classList.toggle('charging', charging);
+            const zap = charging ? '' : 'none';
+            if (dom.battZap.style.display !== zap) dom.battZap.style.display = zap;
         }
 
         // --- System Data Rendering ---
@@ -6700,8 +6989,7 @@
                         </select>`;
             } else if (type === 'plugin') {
                 const opts = [
-                    { val: 'app_soundpad', lbl: 'Soundboard', icon: 'lucide-music' },
-                    { val: 'app_clip', lbl: 'Clip Recording', icon: 'lucide-clapperboard' }
+                    { val: 'app_soundpad', lbl: 'Soundboard', icon: 'lucide-music' }
                 ];
                 html = `<label for="macro-plugin-select">Plugin</label>
                         <select id="macro-plugin-select">
@@ -7512,9 +7800,12 @@
         }
 
         function runSpeedtest() {
-            setText(dom.speedDl, '\u2026');
-            setText(dom.speedUl, '\u2026');
-            setGauge('var(--text-3)', 0, 'Test');
+            if (['connect', 'ping', 'down', 'up'].includes(speedTest.phase)) return;   // one at a time
+            speedTest.live = false;
+            setSpeedPhase('connect', 'Server');
+            setSpeedLine('down', 'wait');
+            setSpeedLine('up', 'wait');
+            setMeter(0);
             sendSocket('run_speedtest');
         }
 

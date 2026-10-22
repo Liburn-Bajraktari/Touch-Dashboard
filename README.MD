@@ -36,9 +36,9 @@ The code itself is mostly AI-generated, but the logic is human-reviewed. It curr
 | **Now playing** | Cover art, title, artist, playing app and track progress, with previous / play-pause / next; long titles scroll. Works with Spotify (Web API) or any local player: MPRIS via `playerctl` on Linux, the system media controls on Windows. The cover's colour tints the play key, the progress bar and the light around the panels. |
 | **Audio mixer** | Two studio faders for speaker and microphone volume, each with a mute key, and a rotary encoder that switches the output device (one LED per device; hide the ones you never use). |
 | **Discord** | Mute, deafen, camera and screen share, the current voice channel, who is in it and who is speaking, and a leave-call key. |
-| **Macros & apps** | Nine display keys: launch apps, send keyboard shortcuts, open the soundboard or trigger clip recording. |
+| **Macros & apps** | Nine display keys: launch apps, send keyboard shortcuts or open the soundboard. |
 | **Soundboard** | Drum pads that play clips into your microphone (Linux, through PipeWire) or through Soundpad / a local folder (Windows). |
-| **System** | CPU, RAM and GPU load with a live trace of the last minute, mouse battery, a network speed test and a power-off key. |
+| **System** | CPU, RAM and GPU load with a live trace of the last minute, mouse battery (level, charging, wired or no mouse), a live network speed test (ping, download, upload) and a power-off key. |
 | **Clock & weather** | Time, date and current weather from OpenWeatherMap. |
 | **Lock screen** | When the PC locks, the tablet shows a large clock with the weather; it shifts slightly every minute to protect OLED screens. |
 | **Themes** | Graphite, Daylight, Ember, Phosphor, Amethyst and Midnight. A choice applies to every connected screen. |
@@ -162,7 +162,7 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 | Control playback | Previous, play/pause and next under the cover. |
 | Discord voice | Mute, deafen, camera and screen share keys; the red key next to the channel name leaves the call. |
 | Run a macro | Tap its key. |
-| Add or edit a macro | On the PC: tap **Add**, or press and hold a key for about half a second. A macro can launch an app, send a keyboard shortcut, run a pre-made action (terminal, browser, task manager) or a plugin (soundboard, clip recording). |
+| Add or edit a macro | On the PC: tap **Add**, or press and hold a key for about half a second. A macro can launch an app, send a keyboard shortcut, run a pre-made action (terminal, browser, task manager) or open the soundboard. |
 | Use the soundboard | Tap the **Soundboard** key. Tap a pad to play it; on the PC, press and hold to edit it; **Stop audio** stops playback. On Linux the bar at the top sets the soundboard volume and toggles hearing it yourself. |
 | Run a speed test | Tap the gauge at the top right. |
 | Turn off the PC | Tap the power key: it opens your desktop's shutdown prompt (KDE, GNOME, Xfce, Cinnamon, MATE or Windows). |
@@ -172,7 +172,7 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 ## Updating
 
 - **Desktop app:** it checks for new releases on start and every 30 minutes, and shows an update prompt in the desktop window and in a browser on the PC. **Update** downloads that release's installer and source archive, checks both against the release's `SHA256SUMS`, installs it in the background and restarts the app. A file that does not match stops the update.
-- **Android app:** it updates itself. When a newer app is released, the tablet offers **Update now** (or requires it, when the desktop app needs the newer version). The app downloads the APK from the GitHub release, checks it against the release's `SHA256SUMS` and checks that it is signed by the same key, then Android asks you to confirm. The first time, Android asks whether Touch Dashboard may install apps: turn on **Allow from this source** and come back. The app closes while Android installs it; open it again from the home screen.
+- **Android app:** it updates itself. When a newer app is released, the tablet offers **Update now** (or requires it, when the desktop app needs the newer version). The app downloads the APK from the GitHub release, checks it against the release's `SHA256SUMS` and checks that it is signed by the same key, then Android asks you to confirm. The first time, Android asks whether Touch Dashboard may install apps: turn on **Allow from this source** and come back. Android's installer then shows the update being installed and ends with **Open**, which brings you straight back to the dashboard.
 - **Android apps from v0.11.0 and older** cannot update themselves. They show how to install the new app by hand: download it in Chrome, uninstall the old app, install the new one and pair again. Apps from before pairing (older than v0.11.0) cannot connect any more and only show this prompt.
 
 ## Security

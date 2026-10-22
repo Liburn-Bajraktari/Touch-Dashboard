@@ -38,9 +38,20 @@
             </intent-filter>
         </activity>
 
-        <!-- PackageInstaller reports the session's result here (explicit PendingIntent only). -->
+        <!-- Shares a downloaded update with the package installer (read grant only). -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="dev.touchdashboard.app.updates"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <!-- Reopens the app after an update it started itself (where Android allows). -->
         <receiver
-            android:name=".InstallResultReceiver"
-            android:exported="false" />
+            android:name=".PackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

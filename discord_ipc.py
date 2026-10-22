@@ -8,6 +8,7 @@ and exposes mute/deafen controls.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import os
 import socket
@@ -18,6 +19,22 @@ import uuid
 import urllib.parse
 
 logger = logging.getLogger(__name__)
+
+
+def _event_active(data: dict, legacy_key: str) -> bool:
+    """A camera / screen share event's state: "active", or an older field name."""
+    for key in ("active", legacy_key, "enabled"):
+        if key in data:
+            return bool(data[key])
+    return False
+
+
+_TOKEN_IN_TEXT = re.compile(r"(access token:?\s*)[A-Za-z0-9._~+/-]{8,}", re.IGNORECASE)
+
+
+def _redact(res) -> str:
+    """An IPC reply for the log, without the access token Discord echoes in errors."""
+    return _TOKEN_IN_TEXT.sub(r"\1<redacted>", str(res))
 
 
 class DiscordIPC:
@@ -239,7 +256,7 @@ class DiscordIPC:
         })
         res = self.recv()
         if res and res.get("evt") == "ERROR":
-            logger.error(f"Discord auth error: {res}")
+            logger.error(f"Discord auth error: {_redact(res)}")
             self.access_token = ""
             if self._config_save:
                 self._config_save("")
@@ -309,7 +326,7 @@ class DiscordIPC:
                 if self.on_auth_error:
                     self.on_auth_error(self.get_auth_url())
             else:
-                logger.error(f"Discord IPC error: {res}")
+                logger.error(f"Discord IPC error: {_redact(res)}")
             return
 
         # Authorization via local IPC (in-app OAuth)
@@ -327,15 +344,15 @@ class DiscordIPC:
             return
 
         # Video / screenshare state
+        # Camera / screen share: Discord sends {"active": bool, ...} (screen share
+        # also pid/application) and only on a change; there is no GET for them.
         if evt == "VIDEO_STATE_UPDATE":
-            # data: {video_enabled: bool, ...}
-            self.voice_state["video"] = bool(data.get("video_enabled", data.get("enabled", False)))
+            self.voice_state["video"] = _event_active(data, "video_enabled")
             self._trigger()
             return
 
         if evt == "SCREENSHARE_STATE_UPDATE":
-            # data: {screenshare_enabled: bool, ...}
-            self.voice_state["screenshare"] = bool(data.get("screenshare_enabled", data.get("enabled", False)))
+            self.voice_state["screenshare"] = _event_active(data, "screenshare_enabled")
             self._trigger()
             return
 
@@ -343,7 +360,10 @@ class DiscordIPC:
         if cmd == "GET_SELECTED_VOICE_CHANNEL" or evt == "VOICE_CHANNEL_SELECT":
             cid = data.get("id") or data.get("channel_id")
             if not cid:
+                # Leaving the call ends the camera and screen share with it.
                 self.voice_channel = None
+                self.voice_state["video"] = False
+                self.voice_state["screenshare"] = False
                 self._trigger()
                 return
             if evt == "VOICE_CHANNEL_SELECT":

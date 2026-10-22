@@ -254,3 +254,71 @@ def test_update_check_skips_drafts_and_prereleases():
         assert server.latest_version == "v9.7.0"
     finally:
         server.update_available, server.latest_version, server.update_apk_url, server.update_notes = saved
+
+
+def test_retired_clip_macros_are_dropped():
+    """The clip recording plugin is gone: a saved key for it would do nothing."""
+    import server
+    macros = [{"type": "plugin", "action_data": "app_clip", "display_name": "CLIP"},
+              {"type": "plugin", "action_data": "app_soundpad", "display_name": "Soundboard"},
+              {"type": "macro", "action_data": ["KEY_LEFTALT", "KEY_F10"], "display_name": "CLIP"}]
+    kept = server._with_item_ids({"macros": macros})["macros"]
+    assert [m["action_data"] for m in kept] == ["app_soundpad", ["KEY_LEFTALT", "KEY_F10"]]
+    assert all(m.get("id") for m in kept)
+    assert "app_clip" not in server.MACRO_MODULES
+
+
+def test_speedtest_reports_ping_live_speed_and_result():
+    """connect → ping (with server) → live readings → intermediate → result."""
+    import asyncio
+    import itertools
+    import types
+    import server
+
+    class FakeSpeedtest:
+        results = types.SimpleNamespace(ping=12.44)
+
+        def get_best_server(self):
+            return {"sponsor": "Telekom", "name": "Pristina", "latency": 13.0}
+
+        def download(self, callback=None):
+            import time
+            for i in range(1, 4):
+                callback(i, 3)
+                time.sleep(0.3)   # long enough for live readings
+            return 418.3e6
+
+        def upload(self, callback=None):
+            import time
+            callback(1, 1)
+            time.sleep(0.3)
+            return 38.2e6
+
+    counter = itertools.count(0, 12_500_000)   # +12.5 MB per read
+    counters = lambda: types.SimpleNamespace(bytes_recv=next(counter), bytes_sent=next(counter))
+    sent = []
+
+    async def run():
+        server.speedtest_lock = asyncio.Lock()
+        with patch.object(server.speedtest_lib, "Speedtest", FakeSpeedtest), \
+             patch.object(server.psutil, "net_io_counters", counters), \
+             patch.object(server, "SPEEDTEST_LIVE_INTERVAL", 0.05), \
+             patch.object(server.ws_manager, "broadcast", new=AsyncMock(side_effect=lambda m, *a, **k: sent.append(m))):
+            await server._run_speedtest()
+            await asyncio.sleep(0.05)   # progress callbacks land via run_coroutine_threadsafe
+
+    saved_lock = server.speedtest_lock
+    try:
+        asyncio.run(run())
+    finally:
+        server.speedtest_lock = saved_lock
+    kinds = [m["type"] for m in sent]
+    progress = [m["data"] for m in sent if m["type"] == "speedtest_progress"]
+    assert progress[0]["step"] == "connect"
+    ping = next(p for p in progress if p["step"] == "ping")
+    assert ping["ping"] == 12.4 and ping["server"] == "Telekom, Pristina"
+    live = [m["data"] for m in sent if m["type"] == "speedtest_live"]
+    assert {d["step"] for d in live} == {"down", "up"} and all(d["mbps"] > 0 for d in live)
+    assert kinds.index("speedtest_intermediate") < kinds.index("speedtest_result")
+    assert sent[-1] == {"type": "speedtest_result",
+                        "data": {"down": 418.3, "up": 38.2, "ping": 12.4, "server": "Telekom, Pristina"}}

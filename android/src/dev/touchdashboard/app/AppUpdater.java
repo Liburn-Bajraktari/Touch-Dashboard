@@ -1,12 +1,10 @@
 package dev.touchdashboard.app;
 
 import android.app.Activity;
-import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
-import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.net.Uri;
@@ -18,7 +16,6 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -38,7 +35,7 @@ import java.util.regex.Pattern;
 
 /**
  * Self-update: download a release of this app from its GitHub releases, check
- * it, and hand it to PackageInstaller.
+ * it, and hand it to Android's package installer.
  *
  * The page only names a tag; the download address is fixed here, so a device
  * on the LAN cannot point the tablet at another file. The APK must match the
@@ -63,8 +60,6 @@ final class AppUpdater {
     private static final int MAX_SUMS_BYTES = 64 * 1024;
     private static final long PROGRESS_EVERY_MS = 200;
 
-    /** The updater of the live activity, for InstallResultReceiver. */
-    private static volatile AppUpdater active;
 
     private final Activity activity;
     private volatile Listener listener;
@@ -74,18 +69,18 @@ final class AppUpdater {
     private volatile File readyApk;
     private volatile String readyTag;
     private volatile boolean awaitingPermission;
+    /** The installer is open; seeing the activity again means no update happened. */
+    private volatile boolean awaitingInstall;
 
     AppUpdater(Activity activity, Listener listener) {
         this.activity = activity;
         this.listener = listener;
-        active = this;
         // A successful install replaces the process before it can tidy up.
         worker.execute(() -> clearDir(new File(activity.getCacheDir(), "updates")));
     }
 
     void detach() {
         listener = null;
-        if (active == this) active = null;
     }
 
     /** Start (or resume, after the permission screen) an update to `tag`. */
@@ -115,12 +110,22 @@ final class AppUpdater {
         });
     }
 
-    /** Back from the "Install unknown apps" screen: install if it was allowed. */
+    /**
+     * The activity is back in front: from the "Install unknown apps" screen
+     * (install if it was allowed), or from the installer, which means the
+     * update was cancelled or failed (a successful one replaces this process).
+     */
     void onHostResumed() {
+        if (awaitingInstall) {
+            awaitingInstall = false;
+            PackageReplacedReceiver.forgetUpdate(activity);
+            finish("cancelled", null, "The update was not installed");
+            return;
+        }
         if (!awaitingPermission || readyApk == null) return;
         if (canInstall()) {
             awaitingPermission = false;
-            worker.execute(this::commitSession);
+            launchInstaller();
         } else {
             emit("permission");
         }
@@ -154,7 +159,7 @@ final class AppUpdater {
             return;
         }
         awaitingPermission = false;
-        worker.execute(this::commitSession);
+        launchInstaller();
     }
 
     // ── Download and checks ─────────────────────────────────────────────────
@@ -213,71 +218,43 @@ final class AppUpdater {
         }
     }
 
-    // ── PackageInstaller ────────────────────────────────────────────────────
+    // ── Installing ──────────────────────────────────────────────────────────
 
-    private void commitSession() {
+    /**
+     * Hand the checked APK to Android's package installer, as a sideloaded
+     * file. Its screens end with "App installed" and an Open button, which a
+     * PackageInstaller session never shows: there the dialog just closes and
+     * the dashboard is gone. The APK is shared read-only through
+     * UpdateFileProvider. Android kills this process to replace the app; if
+     * the activity comes back instead, the update did not happen.
+     */
+    @SuppressWarnings("deprecation")
+    private void launchInstaller() {
         File apk = readyApk;
         if (apk == null) return;
-        PackageInstaller installer = activity.getPackageManager().getPackageInstaller();
-        PackageInstaller.SessionParams params =
-                new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-        params.setAppPackageName(activity.getPackageName());
-        params.setSize(apk.length());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Always show Android's "Update this app?" dialog: a silent update
-            // would close the dashboard without a word.
-            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED);
-        }
-        int sessionId = -1;
+        Uri uri = UpdateFileProvider.uriFor(apk);
+        // INSTALL_PACKAGE goes to the system installer itself (VIEW could offer
+        // other APK handlers); deprecated in API 29 but still the sideload path.
+        Intent install = new Intent(Intent.ACTION_INSTALL_PACKAGE)
+                .setDataAndType(uri, UpdateFileProvider.APK_TYPE)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .putExtra(Intent.EXTRA_RETURN_RESULT, false);
+        PackageReplacedReceiver.expectUpdate(activity);
         try {
-            sessionId = installer.createSession(params);
-            try (PackageInstaller.Session session = installer.openSession(sessionId)) {
-                try (InputStream in = new FileInputStream(apk);
-                     OutputStream out = session.openWrite("base.apk", 0, apk.length())) {
-                    byte[] buf = new byte[64 * 1024];
-                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
-                    session.fsync(out);
-                }
-                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags |= PendingIntent.FLAG_MUTABLE;
-                Intent result = new Intent(activity, InstallResultReceiver.class)
-                        .setPackage(activity.getPackageName());
-                PendingIntent pending = PendingIntent.getBroadcast(activity, sessionId, result, flags);
-                session.commit(pending.getIntentSender());
+            activity.startActivity(install);
+        } catch (ActivityNotFoundException e) {
+            try {
+                activity.startActivity(new Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(uri, UpdateFileProvider.APK_TYPE)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+            } catch (ActivityNotFoundException none) {
+                PackageReplacedReceiver.forgetUpdate(activity);
+                fail("install_failed", "No package installer on this device");
+                return;
             }
-            emit("confirm");
-        } catch (IOException | RuntimeException e) {
-            if (sessionId != -1) {
-                try {
-                    installer.abandonSession(sessionId);
-                } catch (RuntimeException ignored) {
-                    // Already gone.
-                }
-            }
-            fail("install_failed", e.toString());
         }
-    }
-
-    /** From InstallResultReceiver. */
-    static void onInstallStatus(Context context, int status, String message, Intent confirm) {
-        AppUpdater a = active;
-        switch (status) {
-            case PackageInstaller.STATUS_PENDING_USER_ACTION:
-                if (confirm != null) {
-                    confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    context.startActivity(confirm);
-                }
-                if (a != null) a.emit("confirm");
-                break;
-            case PackageInstaller.STATUS_SUCCESS:
-                if (a != null) a.finish("installed", null, null);
-                break;
-            case PackageInstaller.STATUS_FAILURE_ABORTED:
-                if (a != null) a.finish("cancelled", null, null);
-                break;
-            default:
-                if (a != null) a.finish("failed", "install_failed", message != null ? message : "status " + status);
-        }
+        awaitingInstall = true;
+        emit("confirm");
     }
 
     // ── HTTP ────────────────────────────────────────────────────────────────
@@ -442,6 +419,7 @@ final class AppUpdater {
     }
 
     private static final class UpdateError extends Exception {
+        private static final long serialVersionUID = 1L;
         final String code;
 
         UpdateError(String code, String message) {

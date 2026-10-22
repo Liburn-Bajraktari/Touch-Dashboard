@@ -314,8 +314,21 @@ def _with_ids(items, key: str) -> list:
     return out
 
 
+# Modules that no longer exist (clip recording); macros naming them are dropped
+# when the config loads or is saved.
+RETIRED_MODULES = frozenset({"app_clip"})
+
+
+def _live_macros(items):
+    """Drop macros that name a retired module: they would be keys that do nothing."""
+    if not isinstance(items, list):
+        return items
+    return [m for m in items if not (isinstance(m, dict) and m.get("type") in ("premade", "plugin")
+                                     and m.get("action_data") in RETIRED_MODULES)]
+
+
 def _with_item_ids(cfg: dict) -> dict:
-    return {**cfg, "macros": _with_ids(cfg.get("macros"), "id"),
+    return {**cfg, "macros": _with_ids(_live_macros(cfg.get("macros")), "id"),
             "local_buttons": _with_ids(cfg.get("local_buttons"), "uid"),
             "soundpad_buttons": _with_ids(cfg.get("soundpad_buttons"), "uid")}
 
@@ -1260,7 +1273,7 @@ DEVICE_SYNC_KEYS = (
     "features", "clip_source", "disc_init",
 )
 # Built-in modules a premade / plugin macro may name.
-MACRO_MODULES = frozenset({"app_term", "app_web", "app_task", "app_clip", "app_soundpad"})
+MACRO_MODULES = frozenset({"app_term", "app_web", "app_task", "app_soundpad"})
 
 
 def _clip_source(cfg: dict) -> str:
@@ -2172,7 +2185,7 @@ async def _ws_save_macros(client: Client, msg: dict) -> None:
     if not isinstance(msg.get("data"), list):
         raise TypeError("macros must be a list")
     with CONFIG_LOCK:
-        config["macros"] = _with_ids(msg["data"], "id")
+        config["macros"] = _with_ids(_live_macros(msg["data"]), "id")
     await asyncio.to_thread(save_config)
     await broadcast_config_sync()
 
@@ -2223,6 +2236,8 @@ async def _ws_save_config(client: Client, msg: dict) -> None:
 
     if "hidden_audio_devices" in data:
         data["hidden_audio_devices"] = _clean_hidden_devices(data["hidden_audio_devices"])
+    if "macros" in data:
+        data["macros"] = _live_macros(data["macros"])
     for key, id_key in (("macros", "id"), ("local_buttons", "uid"), ("soundpad_buttons", "uid")):
         if key in data:
             data[key] = _with_ids(data[key], id_key)
@@ -2420,7 +2435,7 @@ WS_HANDLERS = {
 }
 
 # Names a client may send as {"type": "action", "data": <name>}. Launchers
-# (app_term, app_clip, ...) are not here: they run only as a configured macro.
+# (app_term, app_soundpad, ...) are not here: they run only as a configured macro.
 CLIENT_ACTIONS = (
     "sys_power_off", "stop_local_audio",
     "spot_play", "spot_next", "spot_prev", "spot_clear_auth",
@@ -2442,7 +2457,43 @@ DEVICE_AV_ACTIONS = frozenset({"action:disc_cam", "action:disc_screen"})
 
 
 
+SPEEDTEST_LIVE_INTERVAL = 0.25   # s between live throughput readings
+SPEEDTEST_LIVE_SMOOTHING = 0.5   # weight of the newest reading (exponential average)
+
+
+async def _speedtest_live(step: str) -> None:
+    """Broadcast the live throughput of a speed test phase until cancelled.
+
+    Read from the network interface counters: the test saturates the link, so
+    they track it closely, and speedtest-cli itself reports nothing until a
+    phase ends. The figures shown at the end are speedtest-cli's own.
+    """
+    key = "bytes_recv" if step == "down" else "bytes_sent"
+
+    def read() -> tuple[float, int]:
+        return time.monotonic(), getattr(psutil.net_io_counters(), key)
+
+    last_t, last_b = await asyncio.to_thread(read)
+    smoothed = None
+    while True:
+        await asyncio.sleep(SPEEDTEST_LIVE_INTERVAL)
+        now_t, now_b = await asyncio.to_thread(read)
+        if now_t <= last_t:
+            continue
+        mbps = max(0, now_b - last_b) * 8 / (now_t - last_t) / 1e6
+        last_t, last_b = now_t, now_b
+        smoothed = mbps if smoothed is None else smoothed + SPEEDTEST_LIVE_SMOOTHING * (mbps - smoothed)
+        await ws_manager.broadcast({"type": "speedtest_live", "data": {"step": step, "mbps": round(smoothed, 1)}})
+
+
 async def _run_speedtest():
+    """Ping, download, upload, each reported as it happens.
+
+    speedtest_progress {step: connect|ping|down|up, progress, ping?, server?},
+    speedtest_live {step, mbps} about four times a second while a phase runs,
+    speedtest_intermediate {down} after the download, then speedtest_result
+    {down, up, ping, server}, or {down: "ERR"|"BUSY", up: ...}.
+    """
     if speedtest_lock is None:
         return
     if speedtest_lock.locked():
@@ -2450,40 +2501,44 @@ async def _run_speedtest():
                                      "data": {"down": "BUSY", "up": "BUSY"}})
         return
     async with speedtest_lock:
+        live = None
         try:
             loop = asyncio.get_running_loop()
-            
-            def dl_cb(i, total, start=False, **kwargs):
-                if total > 0:
-                    asyncio.run_coroutine_threadsafe(
-                        ws_manager.broadcast({"type": "speedtest_progress", "data": {"step": "down", "progress": i / total}}),
-                        loop
-                    )
-            
-            def ul_cb(i, total, start=False, **kwargs):
-                if total > 0:
-                    asyncio.run_coroutine_threadsafe(
-                        ws_manager.broadcast({"type": "speedtest_progress", "data": {"step": "up", "progress": i / total}}),
-                        loop
-                    )
 
+            def progress_cb(step):
+                def cb(i, total, start=False, **kwargs):
+                    if total > 0:
+                        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(
+                            {"type": "speedtest_progress", "data": {"step": step, "progress": i / total}}), loop)
+                return cb
+
+            await ws_manager.broadcast({"type": "speedtest_progress", "data": {"step": "connect", "progress": 0}})
             st   = await asyncio.to_thread(speedtest_lib.Speedtest)
-            await asyncio.to_thread(st.get_best_server)
-            await ws_manager.broadcast({"type": "speedtest_progress", "data": {"step": "ping", "progress": 1.0}})
-            
-            down = await asyncio.to_thread(st.download, callback=dl_cb)
-            
+            best = await asyncio.to_thread(st.get_best_server)
+            ping = round(float(st.results.ping or best.get("latency") or 0), 1)
+            server = ", ".join(x for x in (best.get("sponsor"), best.get("name")) if x)
+            await ws_manager.broadcast({"type": "speedtest_progress", "data": {
+                "step": "ping", "progress": 1.0, "ping": ping, "server": server}})
+
+            live = asyncio.create_task(_speedtest_live("down"))
+            down = await asyncio.to_thread(st.download, callback=progress_cb("down"))
+            live.cancel()
             await ws_manager.broadcast({"type": "speedtest_intermediate",
                                          "data": {"down": round(down / 1e6, 1)}})
-                                         
-            up   = await asyncio.to_thread(st.upload, callback=ul_cb)
-            
-            await ws_manager.broadcast({"type": "speedtest_result",
-                                         "data": {"down": round(down / 1e6, 1),
-                                                  "up":   round(up   / 1e6, 1)}})
+
+            live = asyncio.create_task(_speedtest_live("up"))
+            up = await asyncio.to_thread(st.upload, callback=progress_cb("up"))
+            live.cancel()
+
+            await ws_manager.broadcast({"type": "speedtest_result", "data": {
+                "down": round(down / 1e6, 1), "up": round(up / 1e6, 1), "ping": ping, "server": server}})
         except Exception:
+            logger.warning("Speed test failed", exc_info=True)
             await ws_manager.broadcast({"type": "speedtest_result",
                                          "data": {"down": "ERR", "up": "ERR"}})
+        finally:
+            if live is not None:
+                live.cancel()
 
 
 SOUNDPAD_INDEX_RE = re.compile(r"[0-9]{1,6}")
@@ -2713,10 +2768,6 @@ async def _handle_action(ws: WebSocket, action: str):
 
     if action == "app_task":
         await asyncio.to_thread(_launch_task_manager)
-        return
-
-    if action == "app_clip":
-        await asyncio.to_thread(MacroSystem.send_keys, 119)  # KEY_SYSRQ / Print Screen
         return
 
     if action == "app_soundpad":

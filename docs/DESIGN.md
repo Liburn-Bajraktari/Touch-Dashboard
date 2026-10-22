@@ -175,7 +175,7 @@ Always, on both tiers:
 - Each live figure sits in a `.live` box (above).
 - One sparkline point per server sample (`load_seq`): event-driven `sys_data` (Discord, volume read-backs) never adds history.
 - No `backdrop-filter`, no 3D transforms at rest, no `will-change` at rest.
-- No infinite animation except the speaking pulse (rich only, small), the charging battery (4 steps per 2 s) and the Now playing marquee, which only runs while a title overflows and pauses under the lock screen.
+- No infinite animation except the speaking pulse (rich only, small), the charging battery (4 steps per 2 s), the Now playing marquee, which only runs while a title overflows and pauses under the lock screen, and the speed test's search sweep, waiting dots and (rich only) flowing arrows, which run only during a test (measured on the Linux window: 12–16 % of a core for those ~20 s, 3 % idle).
 - Never CSS-transition a property GSAP also tweens (key opacity during the soundboard transition).
 - The cover backdrop is the cover drawn into an 8×8 canvas and stretched: a blur with no filter cost.
 - Write text with `textContent`; never read `innerText` in an update path.
