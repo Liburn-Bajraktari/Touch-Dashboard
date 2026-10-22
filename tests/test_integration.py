@@ -238,6 +238,29 @@ def test_disc_voice_sets_the_requested_state(client):
     _restore_config(original)
 
 
+@pytest.mark.parametrize("sharing, brought_forward", [(False, True), (True, False)])
+def test_screen_share_key_brings_discord_forward_to_start(client, sharing, brought_forward):
+    """Starting a share opens Discord's own picker, invisible in a tray window, so
+    Discord comes forward first; stopping one does not need it on screen."""
+    import server
+    original = dict(server.config)
+    ipc = server.DiscordIPC("1", "secret")
+    ipc.connected = True
+    ipc.voice_state["screenshare"] = sharing
+    order = []
+    ipc.toggle_screenshare = MagicMock(side_effect=lambda: order.append("toggle"))
+    with patch("server.disc_ipc_instance", ipc), patch("server.save_config"), \
+            patch("server.DISCORD_FRONT_DELAY_S", 0), \
+            patch("server._show_discord", side_effect=lambda: order.append("front")):
+        with _admin_ws(client) as websocket:
+            assert websocket.receive_json()["type"] == "config_sync"
+            websocket.send_json({"type": "action", "data": "disc_screen"})
+            websocket.send_json({"type": "set_theme", "data": {"id": "ember", "ground": "#0e0d0c"}})
+            _receive_until(websocket, "theme_state")
+    assert order == (["front", "toggle"] if brought_forward else ["toggle"])
+    _restore_config(original)
+
+
 def test_save_config_cleans_hidden_audio_devices(client):
     import server
     original = dict(server.config)

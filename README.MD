@@ -160,7 +160,7 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 | Mute | Tap the key under a fader, or pull the fader below 0. |
 | Switch output device | Tap the encoder. The lit LED shows which device is active; devices hidden in **Audio routing** are skipped. |
 | Control playback | Previous, play/pause and next under the cover. |
-| Discord voice | Mute, deafen, camera and screen share keys; the red key next to the channel name leaves the call. |
+| Discord voice | Mute, deafen, camera and screen share keys; the red key next to the channel name leaves the call. Screen share brings Discord to the front on the PC with its share picker, where you choose what to share (Discord cannot pick a screen by itself, and on Wayland the system always asks). |
 | Run a macro | Tap its key. |
 | Add or edit a macro | On the PC: tap **Add**, or press and hold a key for about half a second. A macro can launch an app, send a keyboard shortcut, run a pre-made action (terminal, browser, task manager) or open the soundboard. |
 | Use the soundboard | Tap the **Soundboard** key. Tap a pad to play it; on the PC, press and hold to edit it; **Stop audio** stops playback. On Linux the bar at the top sets the soundboard volume and toggles hearing it yourself. |

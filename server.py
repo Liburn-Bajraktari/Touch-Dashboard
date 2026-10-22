@@ -2806,7 +2806,19 @@ async def _handle_action(ws: WebSocket, action: str):
 
     if action == "disc_screen":
         if disc_ipc_instance and disc_ipc_instance.connected:
+            # Discord's TOGGLE_SCREENSHARE stops a share, streams a game it has
+            # detected, or else opens its own "share your screen" picker inside
+            # its window (choosing an app by pid is Windows-only, and on Wayland
+            # the system asks what to share anyway). In a minimized or tray window
+            # that picker is invisible, so starting a share brings Discord forward
+            # first. Stopping one needs nothing on screen.
+            starting = not disc_ipc_instance.voice_state.get("screenshare")
+            if starting:
+                await asyncio.to_thread(_show_discord)
+                await asyncio.sleep(DISCORD_FRONT_DELAY_S)
             disc_ipc_instance.toggle_screenshare()
+            logger.info("Discord: screen share %s", "toggled on: Discord brought forward for its picker"
+                        if starting else "toggled off")
         return
 
     # ── system apps ───────────────────────────────────────────────────────────
@@ -2853,6 +2865,23 @@ async def _handle_action(ws: WebSocket, action: str):
 
 
 # ─── App launch helpers ────────────────────────────────────────────────────────
+
+# Time for Discord to come forward (it hands the link to its running window)
+# before the share picker opens in it.
+DISCORD_FRONT_DELAY_S = 0.6
+
+
+def _show_discord() -> None:
+    """Bring the Discord app to the front through its discord:// link handler,
+    the way a web page opens it: the running app gets the link and shows itself."""
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile("discord://")  # type: ignore[attr-defined]
+        elif shutil.which("xdg-open"):
+            _popen(["xdg-open", "discord://"])
+    except OSError as e:
+        logger.debug(f"Could not bring Discord forward: {e}")
+
 
 def _popen(cmd: list[str], **kwargs):
     import typing
