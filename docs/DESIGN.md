@@ -56,7 +56,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 4. **Value balance.** Large neighbouring surfaces (ground, plates, keys, wells, displays) stay within 1.5:1 of each other (tested); the extreme values belong to text and small details. On a light theme, near-black is for text and icons only, never containers or readouts (Daylight: under 1 % of the screen).
 5. **Lit keys share one recipe.** A key that is on (live, muted, screen share) is a bright status fill with dark ink, like a backlit cap. Mute is no exception: it is a lit red key, not a dark red one with white ink.
 6. **Honest data. Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
-7. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted"; Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
+7. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted" (the fader stays at its level, as on a desk: only its slot goes dark); Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
 8. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
 9. **Touch first.** Targets of at least 44 CSS px on a tablet; hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps.
 

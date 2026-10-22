@@ -641,13 +641,44 @@ class AudioSystem:
         return None
 
     # ── mute ───────────────────────────────────────────────────────────────────
+    # A mute key presses the keyboard's own Mute / Mic mute key, so the desktop
+    # mutes the device and shows its "muted" popup, exactly like a keyboard.
+    # The level is left alone. Where nothing acts on the key (no desktop
+    # binding, no access to /dev/uinput) the device is muted directly.
+    MUTE_KEYS = {"@DEFAULT_AUDIO_SINK@": "KEY_MUTE", "@DEFAULT_AUDIO_SOURCE@": "KEY_MICMUTE"}
+    MUTE_CONFIRM_S = 0.6     # how long the desktop gets to act on the key
+    MUTE_POLL_S = 0.05
+    _mute_lock = threading.Lock()
 
     @staticmethod
     def toggle_mute(target: str, macro_send_keys_fn=None) -> None:
         if sys.platform.startswith("win"):
             _windows_toggle_mute(target, macro_send_keys_fn)
         else:
+            AudioSystem._linux_toggle_mute(target, macro_send_keys_fn)
+        # Push the new state now instead of on the next 1 s poll.
+        if AudioSystem.on_volume_applied:
+            try:
+                AudioSystem.on_volume_applied()
+            except Exception as e:
+                logger.debug(f"on_volume_applied: {e}")
+
+    @staticmethod
+    def _linux_toggle_mute(target: str, press_key=None) -> None:
+        # One at a time: two quick taps must not both read the same "before".
+        with AudioSystem._mute_lock:
+            was = AudioSystem.get_state(target).get("muted", False)
+            key = AudioSystem.MUTE_KEYS.get(target)
+            if press_key and key:
+                press_key(key)
+                deadline = time.monotonic() + AudioSystem.MUTE_CONFIRM_S
+                while time.monotonic() < deadline:
+                    time.sleep(AudioSystem.MUTE_POLL_S)
+                    if AudioSystem.get_state(target).get("muted", False) != was:
+                        return
+                logger.info("Nothing acted on %s; muting %s with wpctl (no on-screen popup)", key, target)
             AudioSystem.run(["wpctl", "set-mute", target, "toggle"])
+            AudioSystem.get_state(target)
 
 
     # ── application mute (discord) ─────────────────────────────────────────────

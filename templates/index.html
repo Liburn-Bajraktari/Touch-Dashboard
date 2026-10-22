@@ -1772,6 +1772,15 @@
             box-shadow: 0 0 1.1rem -0.1rem var(--accent);
         }
 
+        /* Muted: the cap stays at the level, the slot's light goes out. */
+        .slider-track-area.is-muted .slider-fill {
+            background: var(--line-strong);
+        }
+
+        [data-fx="rich"] .slider-track-area.is-muted .slider-fill {
+            box-shadow: none;
+        }
+
         /* Carrier spans the cap's travel; translating it by (1 − v) of its own
            height parks the cap at the value. */
         .fader-carrier {
@@ -8459,15 +8468,19 @@
 
             renderFaderScale(s.querySelector('.fader-scale'));
 
+            // Muting leaves the fader where it is, like a desk's mute key: the
+            // level is kept, the slot goes dark and the display says Muted.
             function set(pct, isMuted = false) {
-                currentPct = isMuted ? 0 : pct;
+                currentPct = pct;
                 // One custom property drives the lit slot and the cap (transforms only).
                 s.style.setProperty('--v', (currentPct / 100).toFixed(3));
                 const txt = isMuted ? 'Muted' : currentPct + '%';
                 if (v.textContent !== txt) {
                     v.textContent = txt;
                     v.classList.toggle('is-muted', isMuted);
+                    s.classList.toggle('is-muted', isMuted);
                     s.setAttribute('aria-valuenow', String(currentPct));
+                    s.setAttribute('aria-valuetext', txt);
                 }
             }
 

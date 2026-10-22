@@ -101,3 +101,50 @@ def test_cycle_device_with_every_output_hidden_does_nothing():
          patch.object(AudioSystem, "run") as run:
         AudioSystem.cycle_device({}, ["Speakers", "HDMI", "Headset"])
     run.assert_not_called()
+
+
+class _Wpctl:
+    """A fake wpctl: get-volume answers from `readings` (the last one repeats); calls are recorded."""
+
+    def __init__(self, *readings):
+        self.readings = list(readings)
+        self.calls = []
+
+    def __call__(self, cmd):
+        self.calls.append(cmd)
+        if cmd[:2] == ["wpctl", "get-volume"]:
+            return self.readings.pop(0) if len(self.readings) > 1 else self.readings[0]
+        return ""
+
+    @property
+    def set_mute_calls(self):
+        return [c for c in self.calls if c[:2] == ["wpctl", "set-mute"]]
+
+
+@pytest.mark.parametrize("target, key", [(SINK, "KEY_MUTE"), ("@DEFAULT_AUDIO_SOURCE@", "KEY_MICMUTE")])
+def test_mute_presses_the_os_mute_key(target, key):
+    """The desktop mutes (and shows its popup); the level stays and wpctl is not used."""
+    wpctl = _Wpctl("Volume: 0.64", "Volume: 0.64", "Volume: 0.64 [MUTED]")
+    pressed, pushed = [], []
+    AudioSystem.on_volume_applied = lambda: pushed.append(True)
+    with patch.object(AudioSystem, "run", side_effect=wpctl):
+        AudioSystem.toggle_mute(target, lambda *keys: pressed.extend(keys))
+    assert pressed == [key]
+    assert wpctl.set_mute_calls == []
+    assert AudioSystem.latest(target, {}) == {"vol": 64, "muted": True}
+    assert pushed == [True]
+
+
+def test_mute_falls_back_to_wpctl_when_nothing_acts_on_the_key():
+    wpctl = _Wpctl("Volume: 0.64")
+    with patch.object(AudioSystem, "run", side_effect=wpctl), \
+            patch.object(AudioSystem, "MUTE_CONFIRM_S", 0.12):
+        AudioSystem.toggle_mute(SINK, lambda *keys: None)
+    assert wpctl.set_mute_calls == [["wpctl", "set-mute", SINK, "toggle"]]
+
+
+def test_mute_without_a_keyboard_uses_wpctl():
+    wpctl = _Wpctl("Volume: 0.64")
+    with patch.object(AudioSystem, "run", side_effect=wpctl):
+        AudioSystem.toggle_mute(SINK, None)
+    assert wpctl.set_mute_calls == [["wpctl", "set-mute", SINK, "toggle"]]
