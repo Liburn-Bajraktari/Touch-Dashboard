@@ -2866,20 +2866,33 @@ async def _handle_action(ws: WebSocket, action: str):
 
 # ─── App launch helpers ────────────────────────────────────────────────────────
 
-# Time for Discord to come forward (it hands the link to its running window)
-# before the share picker opens in it.
+# Time for Discord to come forward (its launcher hands over to the running
+# window) before the share picker opens in it.
 DISCORD_FRONT_DELAY_S = 0.6
 
 
 def _show_discord() -> None:
-    """Bring the Discord app to the front through its discord:// link handler,
-    the way a web page opens it: the running app gets the link and shows itself."""
+    """Bring the running Discord app to the front without changing what it shows.
+
+    A discord:// link navigates: a bare one opens Discord's home route, the
+    Friends page. Started again with no link, Discord only shows and focuses its
+    window, so this starts the app registered for discord:// links with nothing
+    to open."""
     try:
         if sys.platform.startswith("win"):
-            os.startfile("discord://")  # type: ignore[attr-defined]
-        elif shutil.which("xdg-open"):
-            _popen(["xdg-open", "discord://"])
-    except OSError as e:
+            import winreg
+            # '"C:\...\app-1.0.x\Discord.exe" --url -- "%1"', written by Discord itself
+            command = winreg.QueryValue(winreg.HKEY_CLASSES_ROOT, r"discord\shell\open\command")
+            exe = re.match(r'\s*(?:"([^"]+)"|(\S+))', command)
+            if exe:
+                _popen([exe.group(1) or exe.group(2)])
+        elif shutil.which("xdg-mime") and shutil.which("gtk-launch"):
+            entry = subprocess.run(["xdg-mime", "query", "default", "x-scheme-handler/discord"],
+                                   capture_output=True, text=True, timeout=2).stdout.strip()
+            if entry.endswith(".desktop"):
+                # Exec=/usr/bin/discord --url -- %u: with no link, %u is dropped
+                _popen(["gtk-launch", entry])
+    except (OSError, subprocess.SubprocessError) as e:
         logger.debug(f"Could not bring Discord forward: {e}")
 
 

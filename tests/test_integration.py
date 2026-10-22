@@ -261,6 +261,26 @@ def test_screen_share_key_brings_discord_forward_to_start(client, sharing, broug
     _restore_config(original)
 
 
+@pytest.mark.parametrize("handler, launched", [
+    ("discord.desktop\n", ["gtk-launch", "discord.desktop"]),
+    ("com.discordapp.Discord.desktop\n", ["gtk-launch", "com.discordapp.Discord.desktop"]),
+    ("", None),
+])
+def test_bringing_discord_forward_opens_no_link(handler, launched):
+    """A discord:// link navigates Discord (a bare one to the Friends page), so its
+    link handler is started with no link: the running app only shows itself."""
+    import subprocess
+    import server
+    found = subprocess.CompletedProcess([], 0, stdout=handler, stderr="")
+    with patch("server.sys.platform", "linux"), \
+            patch("server.shutil.which", side_effect=lambda name: f"/usr/bin/{name}"), \
+            patch("server.subprocess.run", return_value=found) as run, \
+            patch("server._popen") as popen:
+        server._show_discord()
+    assert run.call_args.args[0] == ["xdg-mime", "query", "default", "x-scheme-handler/discord"]
+    assert (popen.call_args.args[0] if popen.called else None) == launched
+
+
 def test_save_config_cleans_hidden_audio_devices(client):
     import server
     original = dict(server.config)
