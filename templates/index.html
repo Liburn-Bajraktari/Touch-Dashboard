@@ -260,7 +260,9 @@
         .scribble,
         .speed-widget,
         .batt-slide,
-        .sb-vol-row {
+        .sb-vol-row,
+        .dlg-glyph,
+        .menu-version {
             --well: var(--display);
             --well-ink: var(--display-ink);
             --well-ink-2: var(--display-ink-2);
@@ -358,6 +360,17 @@
         .btn-danger {
             background: var(--negative-soft);
             color: var(--negative-text);
+        }
+
+        /* A destructive confirm is a lit red key, like mute (§3.5). */
+        .btn-destructive {
+            background: var(--negative);
+            color: var(--negative-ink);
+            box-shadow: inset 0 1px 0 var(--rim), 0 0.5rem 1.1rem -0.5rem var(--depth);
+        }
+
+        :where([data-fx="rich"]) .btn-destructive:active {
+            box-shadow: none;
         }
 
         .btn-pill {
@@ -2269,44 +2282,110 @@
             }
         }
 
+        /* The desktop window's menu: a small plate dropping from the title bar. */
         .win-menu {
             position: absolute;
             top: 3.5rem;
             left: 0.5rem;
-            width: 22rem;
-            padding: 1.25rem;
+            width: 26rem;
+            padding: 1rem;
+            display: none;
             flex-direction: column;
             gap: 0.8rem;
             background: linear-gradient(180deg, var(--surface-top), var(--surface));
-            border-radius: var(--radius-panel);
+            border-radius: calc(var(--radius-panel) * var(--sq));
             box-shadow: var(--shadow), var(--elev-1);
             z-index: 99999;
         }
 
-        .win-menu .btn-pill {
-            width: 100%;
+        .win-menu.is-open {
+            display: flex;
         }
 
-        #win-menu-version {
-            font-size: var(--fs-xs);
-            color: var(--text-3);
-            text-align: center;
-        }
-
-        .win-menu label {
+        .menu-head {
             display: flex;
             align-items: center;
-            gap: 0.8rem;
-            font-size: var(--fs-sm);
-            color: var(--text);
-            cursor: pointer;
-            padding-top: 0.4rem;
+            gap: 0.7rem;
+            padding: 0.3rem 0.4rem 0.2rem;
         }
 
-        .win-menu input[type="checkbox"] {
-            width: 1.4rem;
-            height: 1.4rem;
-            accent-color: var(--inverse);
+        .menu-head .brand-mark {
+            width: 1.8rem;
+            height: 1.8rem;
+        }
+
+        .menu-name {
+            flex: 1;
+            color: var(--text);
+            font-size: var(--fs-md);
+            font-weight: var(--weight-strong);
+        }
+
+        .menu-version {
+            padding: 0.3rem 0.65rem;
+            border-radius: calc(0.6rem * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            color: var(--well-ink-2);
+            font-size: var(--fs-xs);
+            font-weight: 500;
+        }
+
+        .menu-row {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+            width: 100%;
+            min-height: 4.4rem;
+            padding: 0 1.1rem;
+            border: 0;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
+            font-size: var(--fs-md);
+            font-weight: 500;
+            text-align: left;
+            cursor: pointer;
+            border-radius: inherit;
+        }
+
+        .menu-row + .menu-row {
+            box-shadow: inset 0 var(--line-w) 0 var(--line);
+        }
+
+        .menu-row > span {
+            flex: 1;
+        }
+
+        .menu-row svg.lucide {
+            width: 1.5rem;
+            height: 1.5rem;
+            color: var(--text-2);
+            flex-shrink: 0;
+        }
+
+        .menu-row:active {
+            background: var(--surface-3);
+        }
+
+        .menu-row:disabled {
+            color: var(--text-2);
+            cursor: progress;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+            .menu-row:hover {
+                background: var(--surface-3);
+            }
+        }
+
+        .win-menu .setting-row {
+            padding: 0.8rem 1.1rem;
+        }
+
+        .win-menu .setting-row label.title {
+            margin: 0;
+            font-size: var(--fs-sm);
         }
 
         /* ── Modals ───────────────────────────────────────────────────────── */
@@ -2405,6 +2484,56 @@
         .modal-close svg.lucide {
             width: 1.4rem;
             height: 1.4rem;
+        }
+
+        /* ── Dialog: confirm and notice ───────────────────────────────────── */
+        /* Stands in for the browser's alert() and confirm(), which neither the
+           desktop window nor the Android WebView can theme. It can open from
+           inside another dialog, so it sits above all of them. */
+        #td-dialog {
+            z-index: 100001;
+        }
+
+        .dlg-card {
+            gap: 0.9rem;
+            padding: 2.4rem 2.5rem 2.2rem;
+        }
+
+        .dlg-card .modal-actions {
+            padding-top: 1.2rem;
+        }
+
+        /* The glyph sits in a small display window, lit in the dialog's tone;
+           the title says the same thing in words. */
+        .dlg-glyph {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 4.6rem;
+            height: 4.6rem;
+            margin-bottom: 0.4rem;
+            border-radius: calc(var(--radius-key) * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            color: var(--well-accent);
+        }
+
+        .dlg-glyph svg.lucide {
+            width: 2.3rem;
+            height: 2.3rem;
+            stroke-width: 1.75;
+        }
+
+        [data-tone="positive"] .dlg-glyph {
+            color: var(--positive);
+        }
+
+        [data-tone="warning"] .dlg-glyph {
+            color: var(--warning);
+        }
+
+        [data-tone="danger"] .dlg-glyph {
+            color: var(--negative);
         }
 
         /* IP connect */
@@ -2538,6 +2667,12 @@
             height: 3.2rem;
             min-height: 0;
             padding: 0 1.1rem;
+        }
+
+        /* Sent for removal: the new list from the server replaces it. */
+        .device-row.is-removing,
+        .device-row.is-removing input {
+            color: var(--text-3);
         }
 
         .devices-empty {
@@ -3174,81 +3309,406 @@
             line-height: 1.35;
         }
 
-        /* Soundboard + macro editors */
-        #sp-modal-card,
-        #macro-modal-card {
-            width: min(46rem, calc(100vw - 2rem));
+        /* ── Editors: a key (macro or app) and a soundboard pad ─────────── */
+        /* The object being edited sits on the left exactly as it will look on
+           the console; what it does and how it looks are chosen on the right. */
+        .editor-card {
+            width: min(70rem, calc(100vw - 2rem));
             height: auto;
-            max-height: 92vh;
-            gap: 1.25rem;
+            max-height: 94vh;
+            gap: 1.6rem;
+            padding: 2.4rem 2.6rem 2.2rem;
         }
 
-        .sp-save-valid {
-            background: var(--inverse) !important;
-            color: var(--inverse-ink) !important;
-            opacity: 1 !important;
+        .editor-card .modal-title {
+            padding-right: 3.6rem;
         }
 
-        #sp-save-btn:not(.sp-save-valid) {
+        .editor-body {
+            display: grid;
+            grid-template-columns: 18rem minmax(0, 1fr);
+            gap: 2.4rem;
+            align-items: start;
+        }
+
+        .editor-side,
+        .editor-main {
+            display: flex;
+            flex-direction: column;
+            gap: 1.4rem;
+            min-width: 0;
+        }
+
+        /* The preview: the real key markup, inert, at the size of a grid key. */
+        .key-preview {
+            position: relative;
+            display: flex;
+            width: 100%;
+            aspect-ratio: 1 / 0.86;
+            pointer-events: none;
+        }
+
+        .key-preview > .btn {
+            flex: 1;
+            height: auto;
+            min-height: 0;
+            padding: 0;
+        }
+
+        .key-preview .key-screen svg.lucide {
+            width: 3.4rem;
+            height: 3.4rem;
+        }
+
+        .key-preview .key-screen img {
+            width: 3.2rem;
+            height: 3.2rem;
+        }
+
+        .key-preview .key-label {
+            font-size: var(--fs-sm);
+        }
+
+        .key-preview .sp-btn {
+            aspect-ratio: auto;
+        }
+
+        .editor-hint {
+            margin: -0.4rem 0 0;
             color: var(--text-3);
+            font-size: var(--fs-xs);
+            line-height: 1.4;
         }
 
-        #sp-error-msg {
+        .editor-hint.is-error {
+            margin: 0;
             color: var(--negative-text);
             font-size: var(--fs-sm);
-            text-align: center;
             font-weight: 500;
         }
 
+        #macro-preview-glyph {
+            display: flex;
+        }
+
+        /* A selector: a recessed tray of options; the chosen one rises out of
+           it as a keycap. The raised cap is a pseudo-element toggled with
+           visibility, so choosing never changes a box-shadow (§8). */
+        .picker {
+            display: grid;
+            gap: 0.3rem;
+            padding: 0.3rem;
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            border-radius: calc(var(--radius-key) * var(--sq));
+        }
+
+        .pick {
+            position: relative;
+            isolation: isolate;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.55rem;
+            min-width: 0;
+            min-height: 3.8rem;
+            padding: 0 0.9rem;
+            border: 0;
+            border-radius: calc((var(--radius-key) - 0.3rem) * var(--sq));
+            background: transparent;
+            color: var(--well-ink-2);
+            font: inherit;
+            font-size: var(--fs-sm);
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform var(--dur-spring) var(--spring-bounce), color var(--dur-fast) var(--ease);
+        }
+
+        .pick::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            border-radius: inherit;
+            background: linear-gradient(180deg, var(--key-top), var(--surface-2));
+            box-shadow: var(--elev-2);
+            visibility: hidden;
+        }
+
+        .pick[aria-checked="true"] {
+            color: var(--text);
+        }
+
+        .pick[aria-checked="true"]::before {
+            visibility: visible;
+        }
+
+        .pick:active {
+            transform: scale(0.95);
+            transition-duration: var(--dur-fast);
+        }
+
+        .pick:focus-visible {
+            outline: 2px solid var(--focus);
+            outline-offset: 2px;
+        }
+
+        .pick svg.lucide {
+            width: 1.5rem;
+            height: 1.5rem;
+            flex-shrink: 0;
+            stroke-width: 1.75;
+        }
+
+        .pick-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+            .pick:hover {
+                color: var(--well-ink);
+            }
+        }
+
+        /* Segments: what the key does. */
+        .picker.is-segmented {
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(0, 1fr);
+        }
+
+        /* Icons: a square key per glyph. */
+        .picker.is-icons {
+            grid-template-columns: repeat(auto-fill, minmax(3.9rem, 1fr));
+        }
+
+        .picker.is-icons .pick {
+            aspect-ratio: 1;
+            min-height: 0;
+            padding: 0;
+        }
+
+        .picker.is-icons .pick svg.lucide {
+            width: 1.8rem;
+            height: 1.8rem;
+        }
+
+        /* Modules: a few labelled choices. */
+        .picker.is-tiles {
+            grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+        }
+
+        .picker.is-tiles .pick {
+            flex-direction: column;
+            gap: 0.45rem;
+            min-height: 6.4rem;
+        }
+
+        .picker.is-tiles .pick svg.lucide {
+            width: 2rem;
+            height: 2rem;
+        }
+
+        /* Lists: apps, sound files. Rows, scrolled inside the tray. */
+        .picker.is-list {
+            grid-template-columns: minmax(0, 1fr);
+            align-content: start;
+            height: 15.5rem;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+
+        .picker.is-list .pick {
+            justify-content: flex-start;
+            min-height: 3.6rem;
+            padding: 0 1rem;
+            text-align: left;
+        }
+
+        .pick-sub {
+            margin-left: auto;
+            padding-left: 1rem;
+            max-width: 45%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--well-ink-2);
+            font-size: var(--fs-xs);
+            font-weight: 400;
+        }
+
+        .picker-empty {
+            padding: 1.2rem 1rem;
+            color: var(--well-ink-2);
+            font-size: var(--fs-sm);
+            line-height: 1.4;
+        }
+
+        /* A search field sitting on its list. */
+        .search-field {
+            position: relative;
+        }
+
+        .search-field > svg.lucide {
+            position: absolute;
+            top: 50%;
+            left: 1.1rem;
+            width: 1.4rem;
+            height: 1.4rem;
+            transform: translateY(-50%);
+            color: var(--text-3);
+            pointer-events: none;
+        }
+
+        .search-field input {
+            padding-left: 3.3rem;
+        }
+
+        /* Keystrokes: keycaps printed in a display, the way the shortcut reads. */
         .record-row {
             display: flex;
-            gap: 1rem;
+            gap: 0.8rem;
+            align-items: stretch;
+        }
+
+        .keys-read {
+            flex: 1;
+            display: flex;
+            flex-wrap: wrap;
             align-items: center;
+            gap: 0.5rem;
+            min-height: 4.6rem;
+            padding: 0.6rem 0.9rem;
+            border-radius: calc(var(--radius-key) * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            color: var(--well-ink-2);
+            font-size: var(--fs-sm);
+        }
+
+        .keys-read .kbd {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 2.8rem;
+            height: 2.8rem;
+            padding: 0 0.7rem;
+            border-radius: 0.55rem;
+            background: linear-gradient(180deg, var(--key-top), var(--surface-2));
+            box-shadow: var(--elev-2);
+            color: var(--text);
+            font-size: var(--fs-sm);
+            font-weight: var(--weight-strong);
+            white-space: nowrap;
+        }
+
+        .keys-read .kbd-plus {
+            color: var(--well-ink-2);
+        }
+
+        .keys-read .keys-empty {
+            color: var(--well-ink-2);
         }
 
         #macro-record-btn {
             flex: 0 0 auto;
             width: auto;
-            padding: 0 1.4rem;
-            height: 3.8rem;
             min-height: 0;
+            padding: 0 1.5rem;
+            font-size: var(--fs-sm);
+            font-weight: var(--weight-strong);
         }
 
+        #macro-record-btn svg.lucide {
+            width: 1.3rem;
+            height: 1.3rem;
+        }
+
+        /* Recording is a lit key, like mute. */
         #macro-record-btn.is-recording {
             background: var(--negative);
             color: var(--negative-ink);
         }
 
-        #macro-record-out {
-            flex: 1;
+        /* Position: a stepper around a small display. */
+        .stepper {
+            display: grid;
+            grid-template-columns: 3.8rem minmax(0, 1fr) 3.8rem;
+            gap: 0.5rem;
+            align-items: stretch;
+        }
+
+        .stepper .btn {
+            min-height: 0;
+            height: 3.8rem;
+            padding: 0;
+        }
+
+        .stepper .btn svg.lucide {
+            width: 1.5rem;
+            height: 1.5rem;
+        }
+
+        .stepper-read {
             display: flex;
             align-items: center;
-            min-height: 3.8rem;
-            padding: 0 1.1rem;
+            justify-content: center;
+            border-radius: calc(0.75rem * var(--sq));
             background: var(--well);
             box-shadow: var(--well-inset);
-            border-radius: calc(var(--radius-key) * 0.75);
-            font-family: ui-monospace, "Cascadia Mono", "Roboto Mono", "Noto Sans Mono", monospace;
-            font-size: var(--fs-sm);
-            color: var(--well-accent);
-        }
-
-        .move-row {
-            display: flex;
-            gap: 0.75rem;
-        }
-
-        .move-row .btn {
-            flex: 1;
-            height: 3.8rem;
-            min-height: 0;
+            color: var(--well-ink);
             font-size: var(--fs-sm);
             font-weight: 500;
+            white-space: nowrap;
         }
 
-        .move-row .btn svg.lucide {
-            width: 1.3rem;
-            height: 1.3rem;
+        /* Footer: Delete on its own at the left, Cancel and Save on the right. */
+        .editor-actions {
+            align-items: center;
+            padding-top: 0.4rem;
+        }
+
+        .editor-actions .btn {
+            flex: 0 0 auto;
+            width: auto;
+            min-width: 11rem;
+            height: 4.2rem;
+            padding: 0 1.8rem;
+        }
+
+        .editor-actions .btn svg.lucide {
+            width: 1.4rem;
+            height: 1.4rem;
+        }
+
+        .editor-actions .editor-spacer {
+            flex: 1;
+        }
+
+        .btn-delete {
+            color: var(--negative-text);
+        }
+
+        /* Narrow windows (a browser on a phone): the preview above the choices. */
+        @media (max-width: 760px) {
+            .editor-body {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .key-preview {
+                width: 14rem;
+                align-self: center;
+            }
+
+            .editor-actions .btn {
+                min-width: 0;
+                flex: 1;
+            }
+
+            .editor-actions .editor-spacer {
+                display: none;
+            }
         }
 
         /* ── PC lock screen ───────────────────────────────────────────────── */
@@ -3422,9 +3882,8 @@
         <div class="titlebar-drag"></div>
 
         <div class="titlebar-group">
-            <button class="win-btn" aria-label="Menu"
-                onclick="document.getElementById('win-menu').style.display = document.getElementById('win-menu').style.display === 'none' ? 'flex' : 'none'"><i
-                    data-lucide="menu"></i></button>
+            <button class="win-btn" id="win-menu-btn" aria-label="Menu" aria-haspopup="menu" aria-expanded="false"
+                aria-controls="win-menu" onclick="toggleWinMenu()"><i data-lucide="menu"></i></button>
             <span id="win-ip-label" class="num">IP: &mdash;</span>
         </div>
 
@@ -3434,18 +3893,29 @@
             <button class="win-btn win-close" aria-label="Close" onclick="pywebview.api.close()"><i data-lucide="x"></i></button>
         </div>
 
-        <div id="win-menu" class="win-menu" style="display: none;">
-            <div id="win-menu-version">Version: unknown</div>
-            <button class="btn btn-primary btn-pill"
-                onclick="document.getElementById('win-menu').style.display='none'; openSettings();"><i
-                    data-lucide="settings"></i> Settings</button>
-            <button class="btn btn-ghost btn-pill" id="win-check-update-btn" onclick="checkDesktopUpdateManual()"><i
-                    data-lucide="refresh-cw"></i> Check for updates</button>
-            <label>
-                <input type="checkbox" id="win-min-tray" checked
-                    onchange="pywebview.api.set_minimize_to_tray(this.checked)">
-                Minimize to system tray on close
-            </label>
+        <div id="win-menu" class="win-menu" role="menu" aria-label="Touch Dashboard">
+            <div class="menu-head">
+                <svg class="brand-mark" aria-hidden="true"><use href="#icon-brand" /></svg>
+                <span class="menu-name">Touch Dashboard</span>
+                <span class="menu-version num" id="win-menu-version" aria-label="Version">&mdash;</span>
+            </div>
+            <div class="setting-group">
+                <button class="menu-row" role="menuitem" onclick="closeWinMenu(); openSettings();"><i
+                        data-lucide="settings"></i><span>Settings</span></button>
+                <button class="menu-row" role="menuitem" id="win-check-update-btn"
+                    onclick="checkDesktopUpdateManual()"><i data-lucide="refresh-cw"></i><span
+                        id="win-update-text">Check for updates</span></button>
+            </div>
+            <div class="setting-group">
+                <div class="setting-row">
+                    <label class="title" for="win-min-tray">Minimize to the tray on close</label>
+                    <label class="switch">
+                        <input type="checkbox" id="win-min-tray" checked
+                            onchange="pywebview.api.set_minimize_to_tray(this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -3518,9 +3988,10 @@
 
     <!-- --- Pairing approval (PC) --- -->
     <div id="pair-approve-modal" class="modal-overlay">
-        <div class="modal-card is-compact" role="alertdialog" aria-modal="true" aria-labelledby="pair-approve-title"
+        <div class="modal-card is-compact dlg-card" role="alertdialog" aria-modal="true" aria-labelledby="pair-approve-title"
             aria-describedby="pair-approve-text">
-            <h3 class="modal-title" id="pair-approve-title">Pairing request</h3>
+            <div class="dlg-glyph" aria-hidden="true"><i data-lucide="tablet-smartphone"></i></div>
+            <h3 class="modal-title" id="pair-approve-title">Allow this device?</h3>
             <p class="modal-text" id="pair-approve-text"></p>
             <div class="pair-code num" id="pair-approve-code" aria-label="Pairing code"></div>
             <p class="modal-text">Allow it only if the device shows the same code. A paired device can run your
@@ -3534,7 +4005,8 @@
 
     <!-- --- Connection menu (paired tablet) --- -->
     <div id="device-modal" class="modal-overlay">
-        <div class="modal-card is-compact ip-card" role="dialog" aria-modal="true" aria-labelledby="device-modal-title">
+        <div class="modal-card is-compact dlg-card" role="dialog" aria-modal="true" aria-labelledby="device-modal-title">
+            <div class="dlg-glyph" aria-hidden="true"><i data-lucide="link"></i></div>
             <h3 class="modal-title" id="device-modal-title">This device</h3>
             <p class="modal-text" id="device-modal-text"></p>
             <div class="pair-actions">
@@ -3547,12 +4019,13 @@
 
     <!-- --- Update Modal --- -->
     <div id="update-modal" class="modal-overlay">
-        <div class="modal-card is-compact">
+        <div class="modal-card is-compact dlg-card" role="dialog" aria-modal="true" aria-labelledby="update-title">
+            <div class="dlg-glyph" aria-hidden="true"><i data-lucide="download"></i></div>
             <h3 id="update-title" class="modal-title">Update available</h3>
             <p id="update-message" class="modal-text"></p>
             <div id="update-notes-container" style="display: none;"></div>
 
-            <div id="update-progress-container" style="display: none; margin-top: 0.5rem;">
+            <div id="update-progress-container" style="display: none;">
                 <div class="progress-head">
                     <span id="update-progress-label">Downloading&hellip;</span>
                     <span id="update-progress-text" class="num">0%</span>
@@ -3567,6 +4040,20 @@
                 <button class="btn btn-ghost" id="update-dismiss-btn"
                     onclick="document.getElementById('update-modal').classList.remove('active')">Dismiss</button>
                 <button class="btn btn-primary" id="update-download-btn">Update</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- Dialog: confirm / notice (tdConfirm, tdNotice) --- -->
+    <div id="td-dialog" class="modal-overlay">
+        <div class="modal-card is-compact dlg-card" role="alertdialog" aria-modal="true"
+            aria-labelledby="td-dialog-title" aria-describedby="td-dialog-text">
+            <div class="dlg-glyph" id="td-dialog-glyph" aria-hidden="true"></div>
+            <h3 class="modal-title" id="td-dialog-title"></h3>
+            <p class="modal-text" id="td-dialog-text"></p>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" id="td-dialog-cancel">Cancel</button>
+                <button class="btn btn-primary" id="td-dialog-ok">OK</button>
             </div>
         </div>
     </div>
@@ -3831,69 +4318,125 @@
         </div>
     </div>
 
-    <!-- --- Soundboard Modal --- -->
+    <!-- --- Pad editor (soundboard) --- -->
     <div id="sp-modal" class="modal-overlay">
-        <div class="modal-card" id="sp-modal-card">
-            <h3 class="modal-title" id="sp-modal-title">Edit button</h3>
-            <div class="form-group">
-                <label for="sp-id-input">Audio file or Soundpad index</label>
-                <input type="text" id="sp-id-input" placeholder="e.g. 1" oninput="checkSpInput()" autocomplete="off">
-                <select id="sp-id-select" onchange="checkSpInput()" style="display: none;"></select>
+        <div class="modal-card editor-card" id="sp-modal-card" role="dialog" aria-modal="true"
+            aria-labelledby="sp-modal-title">
+            <button class="btn modal-close" aria-label="Close" onclick="closeSpModal()"><i data-lucide="x"></i></button>
+            <h3 class="modal-title" id="sp-modal-title">New pad</h3>
+
+            <div class="editor-body">
+                <div class="editor-side">
+                    <div class="key-preview" aria-hidden="true">
+                        <div class="btn sp-btn"><i data-lucide="play"></i><span id="sp-preview-label"></span></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="sp-name-input">Name</label>
+                        <input type="text" id="sp-name-input" maxlength="40" placeholder="Shown on the pad"
+                            oninput="checkSpInput()" autocomplete="off" spellcheck="false">
+                    </div>
+                </div>
+
+                <div class="editor-main">
+                    <!-- A file from the sounds folder (local soundboard) -->
+                    <div class="form-group" id="sp-file-group">
+                        <span class="form-label" id="sp-file-label">Sound</span>
+                        <div class="search-field">
+                            <i data-lucide="search"></i>
+                            <input type="search" id="sp-search" placeholder="Search sounds" aria-label="Search sounds"
+                                autocomplete="off" spellcheck="false">
+                        </div>
+                        <div class="picker is-list" id="sp-file-list" role="radiogroup" aria-labelledby="sp-file-label">
+                        </div>
+                        <p class="editor-hint" id="sp-folder-hint"></p>
+                    </div>
+                    <!-- A Soundpad sound by its number (Windows) -->
+                    <div class="form-group" id="sp-index-group">
+                        <label for="sp-id-input">Soundpad sound number</label>
+                        <input type="text" id="sp-id-input" inputmode="numeric" placeholder="e.g. 12"
+                            oninput="checkSpInput()" autocomplete="off">
+                        <p class="editor-hint">Its position in Soundpad's sound list, counting from 1.</p>
+                    </div>
+                    <div class="notice" id="sp-dup-notice" role="status" hidden>
+                        <i data-lucide="alert-triangle"></i>
+                        <p id="sp-dup-text"></p>
+                    </div>
+                    <p class="editor-hint is-error" id="sp-error" role="alert" hidden></p>
+                </div>
             </div>
-            <div class="form-group"><label for="sp-name-input">Display name</label><input type="text"
-                    id="sp-name-input" placeholder="e.g. Laugh" oninput="checkSpInput()" autocomplete="off"></div>
-            <div id="sp-error-msg" style="display: none;"></div>
-            <div class="modal-actions">
+
+            <div class="modal-actions editor-actions">
+                <button class="btn btn-ghost btn-delete" id="sp-del-btn" onclick="deleteSpBtn()"><i
+                        data-lucide="trash-2"></i> Delete</button>
+                <span class="editor-spacer"></span>
                 <button class="btn btn-ghost" onclick="closeSpModal()">Cancel</button>
-                <button class="btn btn-danger" style="display: none;" id="sp-del-btn"
-                    onclick="deleteSpBtn()">Delete</button>
-                <button class="btn" id="sp-save-btn" onclick="saveSpBtn()">Save</button>
+                <button class="btn btn-primary" id="sp-save-btn" onclick="saveSpBtn()">Save</button>
             </div>
         </div>
     </div>
 
-    <!-- --- Macro Editor Modal --- -->
+    <!-- --- Key editor (macros and apps) --- -->
     <div id="macro-modal" class="modal-overlay">
-        <div class="modal-card" id="macro-modal-card">
-            <h3 class="modal-title" id="macro-modal-title">Edit macro</h3>
+        <div class="modal-card editor-card" id="macro-modal-card" role="dialog" aria-modal="true"
+            aria-labelledby="macro-modal-title">
+            <button class="btn modal-close" aria-label="Close" onclick="closeMacroModal()"><i data-lucide="x"></i></button>
+            <h3 class="modal-title" id="macro-modal-title">New key</h3>
 
-            <div class="form-group">
-                <label for="macro-type-select">Type</label>
-                <select id="macro-type-select" onchange="updateMacroModalFields()">
-                    <option value="app">Launch app</option>
-                    <option value="macro">Keyboard shortcut</option>
-                    <option value="premade">Pre-made module</option>
-                    <option value="plugin">Plugin</option>
-                </select>
-            </div>
+            <div class="editor-body">
+                <div class="editor-side">
+                    <div class="key-preview" aria-hidden="true">
+                        <div class="btn" id="macro-preview"><span class="key-screen"><span id="macro-preview-glyph"></span><span
+                                    class="key-label" id="macro-preview-label"></span></span></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="macro-name-input">Name</label>
+                        <input type="text" id="macro-name-input" maxlength="24" placeholder="Shown on the key"
+                            autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="form-group" id="macro-move-group">
+                        <span class="form-label" id="macro-pos-label">Position</span>
+                        <div class="stepper" role="group" aria-labelledby="macro-pos-label">
+                            <button class="btn" id="macro-move-up" aria-label="Move left"><i
+                                    data-lucide="chevron-left"></i></button>
+                            <span class="stepper-read num" id="macro-pos" aria-live="polite"></span>
+                            <button class="btn" id="macro-move-down" aria-label="Move right"><i
+                                    data-lucide="chevron-right"></i></button>
+                        </div>
+                    </div>
+                </div>
 
-            <div class="form-group">
-                <label for="macro-name-input">Display name</label>
-                <input type="text" id="macro-name-input" placeholder="e.g. Terminal" autocomplete="off">
-            </div>
+                <div class="editor-main">
+                    <div class="form-group">
+                        <span class="form-label" id="macro-type-label">Type</span>
+                        <div class="picker is-segmented" id="macro-type" role="radiogroup" aria-labelledby="macro-type-label">
+                            <button class="pick" role="radio" data-type="app"><i data-lucide="app-window"></i><span
+                                    class="pick-text">App</span></button>
+                            <button class="pick" role="radio" data-type="macro"><i data-lucide="keyboard"></i><span
+                                    class="pick-text">Shortcut</span></button>
+                            <button class="pick" role="radio" data-type="premade"><i data-lucide="layout-grid"></i><span
+                                    class="pick-text">Built-in</span></button>
+                            <button class="pick" role="radio" data-type="plugin"><i data-lucide="puzzle"></i><span
+                                    class="pick-text">Plugin</span></button>
+                        </div>
+                    </div>
 
-            <div class="form-group">
-                <label for="macro-icon-input">Icon</label>
-                <input type="text" id="macro-icon-input" placeholder="lucide-terminal or /path/to/icon.png"
-                    autocomplete="off" spellcheck="false">
-            </div>
+                    <div id="macro-action-container" class="form-group"></div>
 
-            <div id="macro-action-container" class="form-group"></div>
-
-            <div class="form-group">
-                <span class="form-label">Grid position</span>
-                <div class="move-row">
-                    <button class="btn btn-ghost" id="macro-move-up"><i data-lucide="arrow-left"></i> Move
-                        left</button>
-                    <button class="btn btn-ghost" id="macro-move-down">Move right <i
-                            data-lucide="arrow-right"></i></button>
+                    <div class="form-group">
+                        <span class="form-label" id="macro-icon-label">Icon</span>
+                        <div class="picker is-icons" id="macro-icon-grid" role="radiogroup" aria-labelledby="macro-icon-label">
+                        </div>
+                        <input type="url" id="macro-icon-input" placeholder="https://example.com/icon.png"
+                            aria-label="Image address" autocomplete="off" spellcheck="false" hidden>
+                    </div>
                 </div>
             </div>
 
-            <div class="modal-actions">
+            <div class="modal-actions editor-actions">
+                <button class="btn btn-ghost btn-delete" id="macro-del-btn" onclick="deleteMacroBtn()"><i
+                        data-lucide="trash-2"></i> Delete</button>
+                <span class="editor-spacer"></span>
                 <button class="btn btn-ghost" onclick="closeMacroModal()">Cancel</button>
-                <button class="btn btn-danger" style="display: none;" id="macro-del-btn"
-                    onclick="deleteMacroBtn()">Delete</button>
                 <button class="btn btn-primary" id="macro-save-btn" onclick="saveMacroBtn()">Save</button>
             </div>
         </div>
@@ -4241,6 +4784,68 @@
         function escapeHtml(value) {
             return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
         }
+
+        // --- Dialog: themed confirm() and alert() ---
+        // The desktop window and the Android WebView draw the browser's own
+        // dialogs as unthemed system windows, so every question goes through
+        // here. One at a time; a second request waits for the first answer.
+        // tone: info | positive | warning | danger (danger lights the confirm key red).
+        const dlgQueue = [];
+        let dlgCurrent = null;
+        function tdDialog(opts) {
+            return new Promise(resolve => {
+                dlgQueue.push({ opts, resolve });
+                if (!dlgCurrent) showNextDialog();
+            });
+        }
+        function tdConfirm(opts) {
+            return tdDialog({ confirm: 'OK', cancel: 'Cancel', ...opts });
+        }
+        function tdNotice(opts) {
+            return tdDialog({ confirm: 'OK', cancel: null, ...opts }).then(() => undefined);
+        }
+        function showNextDialog() {
+            dlgCurrent = dlgQueue.shift() || null;
+            const modal = document.getElementById('td-dialog');
+            if (!dlgCurrent) {
+                modal.classList.remove('active');
+                return;
+            }
+            const o = dlgCurrent.opts;
+            const tone = o.tone || 'info';
+            const card = modal.querySelector('.modal-card');
+            card.dataset.tone = tone;
+            setIcon(document.getElementById('td-dialog-glyph'), o.icon || 'info');
+            document.getElementById('td-dialog-title').textContent = o.title || '';
+            const text = document.getElementById('td-dialog-text');
+            text.textContent = o.text || '';
+            text.hidden = !o.text;
+            const ok = document.getElementById('td-dialog-ok');
+            const cancel = document.getElementById('td-dialog-cancel');
+            ok.textContent = o.confirm;
+            ok.className = 'btn ' + (tone === 'danger' && o.cancel ? 'btn-destructive' : 'btn-primary');
+            cancel.textContent = o.cancel || '';
+            cancel.hidden = !o.cancel;
+            card.setAttribute('role', o.cancel ? 'alertdialog' : 'dialog');
+            dlgCurrent.returnFocus = document.activeElement;
+            modal.classList.add('active');
+            // A destructive question starts on the safe answer.
+            (tone === 'danger' && o.cancel ? cancel : ok).focus({ preventScroll: true });
+        }
+        function answerDialog(value) {
+            if (!dlgCurrent) return;
+            const { resolve, returnFocus } = dlgCurrent;
+            dlgCurrent = null;
+            if (returnFocus && returnFocus.isConnected && returnFocus.focus) returnFocus.focus({ preventScroll: true });
+            resolve(value);
+            showNextDialog();
+        }
+        document.getElementById('td-dialog-ok').addEventListener('click', () => answerDialog(true));
+        document.getElementById('td-dialog-cancel').addEventListener('click', () => answerDialog(false));
+        document.getElementById('td-dialog').addEventListener('click', (e) => {
+            // Tapping beside a notice closes it; a question needs an answer.
+            if (e.target.id === 'td-dialog' && dlgCurrent && !dlgCurrent.opts.cancel) answerDialog(true);
+        });
 
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
         if (gsap.matchMedia) {
@@ -4635,8 +5240,13 @@
 
         function closeDeviceMenu() { document.getElementById('device-modal').classList.remove('active'); }
 
-        function forgetThisPc() {
-            if (!confirm('Forget this PC? This device will have to be paired and allowed again to reconnect.')) return;
+        async function forgetThisPc() {
+            const ok = await tdConfirm({
+                icon: 'unlink', tone: 'danger', confirm: 'Forget',
+                title: 'Forget this PC?',
+                text: 'This device will have to be paired and allowed again to reconnect.',
+            });
+            if (!ok) return;
             // The server deletes the pairing too; queued before close(), so it is sent first.
             if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'unpair_self' }));
             forgetToken();
@@ -4697,14 +5307,40 @@
         // Over the admin socket: the server answers with update_check.
         const UPDATE_CHECK_TIMEOUT_MS = 15000;
         let updateCheckTimer = null;
+        let serverVersion = '';   // config_sync.server_version, e.g. "v0.11.4"
+
+        // --- Desktop window menu (title bar) ---
+        function toggleWinMenu(open) {
+            const menu = document.getElementById('win-menu');
+            const show = open ?? !menu.classList.contains('is-open');
+            menu.classList.toggle('is-open', show);
+            document.getElementById('win-menu-btn').setAttribute('aria-expanded', String(show));
+        }
+        function closeWinMenu() { toggleWinMenu(false); }
+        document.addEventListener('pointerdown', (e) => {
+            const menu = document.getElementById('win-menu');
+            if (menu.classList.contains('is-open') && !e.target.closest('#win-menu, #win-menu-btn')) closeWinMenu();
+        });
+
+        // The menu's update row says what it is doing instead of a spinner.
+        function setUpdateKey(state) {
+            const row = document.getElementById('win-check-update-btn');
+            const text = document.getElementById('win-update-text');
+            if (!row || !text) return;
+            row.disabled = state === 'checking';
+            text.textContent = state === 'checking' ? 'Checking for updates…' : 'Check for updates';
+        }
+
         function checkDesktopUpdateManual() {
-            const btn = document.getElementById('win-check-update-btn');
             if (updateCheckTimer) return;
             if (authState !== 'authed') {
-                alert("Not connected to Touch Dashboard yet.");
+                tdNotice({
+                    icon: 'wifi-off', tone: 'warning', title: 'Not connected yet',
+                    text: 'The window is still connecting to Touch Dashboard. Try again in a moment.',
+                });
                 return;
             }
-            if (btn) btn.textContent = "Checking…";
+            setUpdateKey('checking');
             updateCheckTimer = setTimeout(() => finishUpdateCheck(null), UPDATE_CHECK_TIMEOUT_MS);
             sendSocket('check_update');
         }
@@ -4713,13 +5349,23 @@
             if (!updateCheckTimer) return;
             clearTimeout(updateCheckTimer);
             updateCheckTimer = null;
-            const btn = document.getElementById('win-check-update-btn');
-            if (btn) {
-                btn.innerHTML = '<i data-lucide="refresh-cw"></i> Check for updates';
-                renderIcons(btn);
+            setUpdateKey('idle');
+            closeWinMenu();
+            // "checked" is false when the server could not reach GitHub (older servers omit it).
+            if (!d || d.checked === false) {
+                tdNotice({
+                    icon: 'cloud-off', tone: 'danger', title: 'Could not check for updates',
+                    text: 'The update server did not answer. Check the internet connection and try again.',
+                });
+            } else if (!d.update_available) {
+                const installed = serverVersion;
+                tdNotice({
+                    icon: 'check-circle-2', tone: 'positive', title: 'You are up to date',
+                    text: installed ? `Touch Dashboard ${installed} is the newest release.`
+                        : 'This is the newest release of Touch Dashboard.',
+                });
             }
-            if (!d) alert("Could not reach the update server.");
-            else if (!d.update_available) alert("Touch Dashboard is up to date (" + (d.latest_version || "current") + ").");
+            // An available update opens the update dialog (config_sync).
         }
 
         // --- Pairing approval (PC) ---
@@ -4765,8 +5411,11 @@
 
         function renderPairedDevices() {
             const list = document.getElementById('paired-devices-list');
-            // A device coming online must not wipe a name being typed.
-            if (list.contains(document.activeElement)) {
+            // A device coming online must not wipe a name being typed. Only a name
+            // field defers it: a focused Remove key held the list back until the
+            // next tap anywhere, so a removed device stayed on screen.
+            const typing = document.activeElement;
+            if (typing && typing.classList.contains('device-name-input') && list.contains(typing)) {
                 pairedDevicesStale = true;
                 return;
             }
@@ -4797,13 +5446,21 @@
             const id = input.closest('.device-row').dataset.id;
             if (name) sendSocket('rename_device', { id: id, name: name });
         });
-        pairedList.addEventListener('click', (e) => {
+        pairedList.addEventListener('click', async (e) => {
             const key = e.target.closest('.device-revoke');
             if (!key) return;
             const row = key.closest('.device-row');
             const dev = pairedDevices.find(x => x.id === row.dataset.id);
             if (!dev) return;
-            if (!confirm(`Remove “${dev.name}”? It is disconnected now and has to be paired and allowed again.`)) return;
+            const ok = await tdConfirm({
+                icon: 'unlink', tone: 'danger', confirm: 'Remove',
+                title: `Remove “${dev.name}”?`,
+                text: 'It is disconnected at once and has to be paired and allowed again to come back.',
+            });
+            if (!ok) return;
+            // The server answers with the new list; until then the row cannot be pressed twice.
+            row.classList.add('is-removing');
+            key.disabled = true;
             sendSocket('revoke_device', { id: dev.id });
         });
         pairedList.addEventListener('focusout', () => {
@@ -4977,7 +5634,6 @@
             macroModal: document.getElementById('macro-modal'),
             macroModalCard: document.getElementById('macro-modal-card'),
             macroTitle: document.getElementById('macro-modal-title'),
-            macroType: document.getElementById('macro-type-select'),
             macroName: document.getElementById('macro-name-input'),
             macroIcon: document.getElementById('macro-icon-input'),
             macroActionContainer: document.getElementById('macro-action-container'),
@@ -5953,14 +6609,16 @@
                     osTarget = d.os_target || 'windows';
 
                     if (d.server_version) {
-                        const verEl = document.getElementById('win-menu-version');
-                        if (verEl) verEl.innerText = "Version: " + d.server_version;
+                        serverVersion = d.server_version;
+                        setText(document.getElementById('win-menu-version'), d.server_version);
                     }
 
                     if (!showApkUpdateIfNeeded(d) && isAdmin() && !isCapacitorRuntime() && d.update_available && !document.getElementById('update-modal').classList.contains('active')) {
-                        document.getElementById('update-title').innerText = "Desktop update available";
-                        document.getElementById('update-message').innerText = `Version ${d.latest_version} is available. Update now?`;
-                        
+                        document.getElementById('update-title').textContent = 'Update available';
+                        document.getElementById('update-message').textContent = d.server_version
+                            ? `Touch Dashboard ${d.latest_version} is ready to install. This PC has ${d.server_version}.`
+                            : `Touch Dashboard ${d.latest_version} is ready to install.`;
+
                         const notesContainer = document.getElementById('update-notes-container');
                         if (d.update_notes) {
                             notesContainer.innerText = d.update_notes;
@@ -5969,14 +6627,16 @@
                             notesContainer.style.display = 'none';
                         }
                         
-                        document.getElementById('update-dismiss-btn').innerText = "Dismiss";
+                        document.getElementById('update-dismiss-btn').textContent = 'Later';
                         document.getElementById('update-dismiss-btn').style.display = 'block';
+                        document.getElementById('update-download-btn').textContent = 'Update';
+                        document.getElementById('update-download-btn').style.display = '';
                         document.getElementById('update-download-btn').onclick = () => {
                             isUpdating = true;
                             sendSocket('run_update');
-                            document.getElementById('update-message').innerText = "Updating... The server will restart shortly.";
+                            document.getElementById('update-message').textContent = 'Updating… Touch Dashboard restarts by itself when it is done.';
                             document.getElementById('update-download-btn').style.display = 'none';
-                            document.getElementById('update-dismiss-btn').innerText = "Close";
+                            document.getElementById('update-dismiss-btn').textContent = 'Close';
                             document.getElementById('update-dismiss-btn').style.display = 'block';
                         };
                         document.getElementById('update-modal').classList.add('active');
@@ -5990,10 +6650,10 @@
                     macros = c.macros || [];
                     if (!c.macros) {
                         macros = [
-                            { type: 'plugin', action_data: 'app_soundpad', display_name: 'SOUNDBOARD', icon_url: 'lucide-music' },
-                            { type: 'app', action_data: 'terminal', display_name: 'TERM', icon_url: 'lucide-terminal' },
-                            { type: 'app', action_data: 'browser', display_name: 'BROWSER', icon_url: 'lucide-globe' },
-                            { type: 'app', action_data: 'taskmgr', display_name: 'TASK MGR', icon_url: 'lucide-cpu' }
+                            { type: 'plugin', action_data: 'app_soundpad', display_name: 'Soundboard', icon_url: 'lucide-music' },
+                            { type: 'premade', action_data: 'app_term', display_name: 'Terminal', icon_url: 'lucide-terminal' },
+                            { type: 'premade', action_data: 'app_web', display_name: 'Browser', icon_url: 'lucide-globe' },
+                            { type: 'premade', action_data: 'app_task', display_name: 'Task manager', icon_url: 'lucide-activity' }
                         ];
                         if (isAdmin()) setTimeout(() => sendSocket('save_macros', macros), 1000);
                     }
@@ -6058,13 +6718,11 @@
                         }
                     }
 
-                    const spLabel = document.getElementById('label-macro-sp');
                     // The server says which pad list plays (a device never sees sounds_path).
                     clipSource = d.clip_source || ((osTarget === 'linux' || c.sounds_path) ? 'local' : 'soundpad');
                     spBtns = (clipSource === 'local' ? c.local_buttons : c.soundpad_buttons) || [];
                     if (osTarget === 'linux') {
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
-                        if (spLabel) spLabel.innerText = 'SOUNDBOARD';
                         if (isAdmin()) sendSocket('req_local_sounds');
                         // Show volume row and sync value from config
                         const volRow = document.getElementById('sb-vol-row');
@@ -6076,11 +6734,9 @@
                     } else if (clipSource === 'local') {
                         // Windows local soundboard: show tab when a sounds path is configured
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
-                        if (spLabel) spLabel.innerText = 'SOUNDBOARD';
                         if (isAdmin()) sendSocket('req_local_sounds');
                     } else {
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
-                        if (spLabel) spLabel.innerText = 'SOUNDPAD';
                     }
                     renderSpGrid();
                 }
@@ -6119,6 +6775,12 @@
                 }
                 else if (msg.type === 'refused') {
                     console.warn('Server refused', d.action, d.reason);
+                    if (d.action === 'revoke_device') {
+                        // Already gone on the server (removed from another window): drop it here too.
+                        const gone = new Set([...document.querySelectorAll('.device-row.is-removing')].map(r => r.dataset.id));
+                        pairedDevices = pairedDevices.filter(x => !gone.has(x.id));
+                        renderPairedDevices();
+                    }
                     if (d.action === 'run_update') {
                         isUpdating = false;
                         document.getElementById('update-message').textContent = d.reason === 'busy'
@@ -6158,26 +6820,9 @@
                     requestAnimationFrame(() => onSpeedLive(d));
                 }
                 else if (msg.type === 'local_sounds_list') {
-                    const select = document.getElementById('sp-id-select');
-                    if (select) {
-                        select.innerHTML = '<option value="">Select an audio file...</option>';
-                        const containerWidth = select.parentElement.clientWidth || 300;
-                        const maxChars = Math.max(20, Math.floor(containerWidth / 10));
-                        d.forEach(s => {
-                            const idStr = s.id.toString();
-                            let displayStr = idStr;
-                            if (displayStr.length > maxChars) displayStr = displayStr.substring(0, maxChars - 3) + "...";
-                            const opt = document.createElement('option');
-                            opt.value = s.id;
-                            opt.innerText = displayStr;
-                            opt.dataset.name = s.name;
-                            select.appendChild(opt);
-                        });
-                        if (osTarget === 'linux') {
-                            const draftId = localStorage.getItem('sp_draft_id');
-                            if (draftId) select.value = draftId;
-                        }
-                    }
+                    spSounds = Array.isArray(d) ? d.map(x => ({ id: String(x.id), name: String(x.name || x.id) })) : [];
+                    spSoundsLoaded = true;
+                    renderSpFiles();
                 }
                 else if (msg.type === 'update_progress') {
                     const p = d.progress;
@@ -6854,20 +7499,9 @@
                 btn.className = 'btn';
                 btn.setAttribute('aria-label', m.display_name || 'Macro');
 
-                const icon = m.icon_url || '';
-                let glyph;
-                if (m.type === 'plugin') {
-                    btn.classList.add('btn-plugin');
-                    glyph = `<i data-lucide="${escapeHtml((icon || 'box').replace(/^lucide-/, ''))}"></i>`;
-                } else if (icon.startsWith('lucide-')) {
-                    glyph = `<i data-lucide="${escapeHtml(icon.replace('lucide-', ''))}"></i>`;
-                } else if (icon) {
-                    glyph = `<img src="${escapeHtml(icon)}" alt="">`;
-                } else {
-                    glyph = `<i data-lucide="box"></i>`;
-                }
-                const label = escapeHtml((m.display_name || '').substring(0, 15));
-                btn.innerHTML = `<span class="key-screen">${glyph}<span class="key-label">${label}</span></span>`;
+                if (m.type === 'plugin') btn.classList.add('btn-plugin');
+                const label = escapeHtml(m.display_name || '');
+                btn.innerHTML = `<span class="key-screen">${keyGlyphHtml(m)}<span class="key-label">${label}</span></span>`;
 
                 // Pointer events only: a tap also fires emulated mouse events after
                 // touchend, so touch + mouse listeners ran every macro twice.
@@ -6942,115 +7576,395 @@
             }
         }
 
+        // --- Key editor (macros and apps) ---
+        // Glyphs offered for a key. A Lucide name saved earlier that is not here
+        // is shown first, so editing a key never loses its icon.
+        const KEY_ICONS = ['terminal', 'globe', 'folder', 'message-circle', 'mail', 'music', 'video', 'camera',
+            'gamepad-2', 'monitor', 'cpu', 'activity', 'code', 'file-text', 'image', 'calculator',
+            'settings', 'lock', 'power', 'moon', 'sun', 'zap', 'star', 'box'];
+        const KEY_MODULES = {
+            premade: [
+                { val: 'app_term', lbl: 'Terminal', icon: 'terminal' },
+                { val: 'app_web', lbl: 'Browser', icon: 'globe' },
+                { val: 'app_task', lbl: 'Task manager', icon: 'activity' },
+            ],
+            plugin: [
+                { val: 'app_soundpad', lbl: 'Soundboard', icon: 'music' },
+            ],
+        };
+        // An app's own icon is a name in the desktop's icon theme, which the page
+        // cannot draw, so a launcher gets a glyph that matches its name instead.
+        const APP_GLYPHS = [
+            [/firefox|chrom|brave|browser|edge|opera|vivaldi|librewolf|zen/i, 'globe'],
+            [/discord|vesktop|slack|telegram|signal|element|teams|whatsapp/i, 'message-circle'],
+            [/term|konsole|alacritty|kitty|wezterm|foot|ghostty|tilix|powershell|cmd/i, 'terminal'],
+            [/steam|lutris|heroic|game|minecraft|prism/i, 'gamepad-2'],
+            [/obs|kdenlive|davinci|resolve|vlc|mpv|shotcut|video/i, 'video'],
+            [/spotify|music|rhythmbox|audacious|amberol|strawberry|elisa/i, 'music'],
+            [/code|codium|idea|pycharm|zed|kate|vim|emacs|sublime/i, 'code'],
+            [/files|dolphin|nautilus|thunar|nemo|explorer|pcmanfm/i, 'folder'],
+            [/mail|thunderbird|evolution|outlook|geary/i, 'mail'],
+            [/gimp|krita|inkscape|photo|darktable|blender/i, 'image'],
+            [/monitor|task|htop|btop|resources/i, 'activity'],
+            [/calc/i, 'calculator'],
+            [/settings|control|system/i, 'settings'],
+        ];
+        function appGlyph(app) {
+            const hit = APP_GLYPHS.find(([re]) => re.test(`${app.name} ${app.exec}`));
+            return hit ? hit[1] : 'box';
+        }
+
+        // A key's glyph: a Lucide icon or an image by its web address. Older app
+        // keys saved an icon-theme name ("firefox"), which no page can load;
+        // they get the glyph matching that name, the same on the PC and tablets.
+        function isKeyImage(v) { return /^(https?:\/\/|data:image\/)/i.test(v || ''); }
+        function keyGlyphHtml(m) {
+            const icon = m.icon_url || '';
+            if (icon.startsWith('lucide-')) return `<i data-lucide="${escapeHtml(icon.slice(7))}"></i>`;
+            if (m.type !== 'plugin' && isKeyImage(icon)) return `<img src="${escapeHtml(icon)}" alt="">`;
+            const glyph = m.type === 'app' ? appGlyph({ name: m.display_name || '', exec: icon }) : 'box';
+            return `<i data-lucide="${glyph}"></i>`;
+        }
+
+        // KeyboardEvent.code → the evdev name the server presses (Windows maps the same names).
+        const CODE_TO_EVDEV = {
+            ControlLeft: 'LEFTCTRL', ControlRight: 'RIGHTCTRL', ShiftLeft: 'LEFTSHIFT', ShiftRight: 'RIGHTSHIFT',
+            AltLeft: 'LEFTALT', AltRight: 'RIGHTALT', MetaLeft: 'LEFTMETA', MetaRight: 'RIGHTMETA',
+            OSLeft: 'LEFTMETA', OSRight: 'RIGHTMETA',
+            Escape: 'ESC', Enter: 'ENTER', Space: 'SPACE', Tab: 'TAB', Backspace: 'BACKSPACE', CapsLock: 'CAPSLOCK',
+            ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
+            Insert: 'INSERT', Delete: 'DELETE', Home: 'HOME', End: 'END', PageUp: 'PAGEUP', PageDown: 'PAGEDOWN',
+            Minus: 'MINUS', Equal: 'EQUAL', BracketLeft: 'LEFTBRACE', BracketRight: 'RIGHTBRACE',
+            Backslash: 'BACKSLASH', IntlBackslash: '102ND', Semicolon: 'SEMICOLON', Quote: 'APOSTROPHE',
+            Backquote: 'GRAVE', Comma: 'COMMA', Period: 'DOT', Slash: 'SLASH',
+            PrintScreen: 'SYSRQ', ScrollLock: 'SCROLLLOCK', Pause: 'PAUSE', NumLock: 'NUMLOCK', ContextMenu: 'COMPOSE',
+            NumpadDivide: 'KPSLASH', NumpadMultiply: 'KPASTERISK', NumpadSubtract: 'KPMINUS', NumpadAdd: 'KPPLUS',
+            NumpadEnter: 'KPENTER', NumpadDecimal: 'KPDOT',
+            AudioVolumeMute: 'MUTE', AudioVolumeDown: 'VOLUMEDOWN', AudioVolumeUp: 'VOLUMEUP',
+            MediaPlayPause: 'PLAYPAUSE', MediaTrackNext: 'NEXTSONG', MediaTrackPrevious: 'PREVIOUSSONG', MediaStop: 'STOPCD',
+        };
+        function evdevName(code) {
+            if (CODE_TO_EVDEV[code]) return 'KEY_' + CODE_TO_EVDEV[code];
+            const m = /^(?:Key([A-Z])|Digit(\d)|Numpad(\d)|(F\d{1,2}))$/.exec(code || '');
+            if (!m) return null;   // a key the PC has no name for
+            return m[1] ? 'KEY_' + m[1] : m[2] ? 'KEY_' + m[2] : m[3] ? 'KEY_KP' + m[3] : 'KEY_' + m[4];
+        }
+
+        // How a recorded key is printed on its cap. Old recordings used browser
+        // names (KEY_METALEFT); the server accepts both, so both print.
+        const KEY_CAPS = {
+            LEFTCTRL: 'Ctrl', RIGHTCTRL: 'Ctrl', CONTROLLEFT: 'Ctrl', CONTROLRIGHT: 'Ctrl',
+            LEFTSHIFT: 'Shift', RIGHTSHIFT: 'Shift', SHIFTLEFT: 'Shift', SHIFTRIGHT: 'Shift',
+            LEFTALT: 'Alt', ALTLEFT: 'Alt', RIGHTALT: 'AltGr', ALTRIGHT: 'AltGr',
+            ESC: 'Esc', ESCAPE: 'Esc', ENTER: 'Enter', SPACE: 'Space', TAB: 'Tab', BACKSPACE: 'Backspace',
+            CAPSLOCK: 'Caps Lock', INSERT: 'Insert', DELETE: 'Delete', HOME: 'Home', END: 'End',
+            PAGEUP: 'Page Up', PAGEDOWN: 'Page Down',
+            UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→', ARROWUP: '↑', ARROWDOWN: '↓', ARROWLEFT: '←', ARROWRIGHT: '→',
+            MINUS: '-', EQUAL: '=', LEFTBRACE: '[', RIGHTBRACE: ']', BRACKETLEFT: '[', BRACKETRIGHT: ']',
+            BACKSLASH: '\\', SEMICOLON: ';', APOSTROPHE: "'", QUOTE: "'", GRAVE: '`', BACKQUOTE: '`',
+            COMMA: ',', DOT: '.', PERIOD: '.', SLASH: '/', '102ND': '\\',
+            SYSRQ: 'Print', PRINT: 'Print', PRINTSCREEN: 'Print', SCROLLLOCK: 'Scroll Lock', PAUSE: 'Pause',
+            NUMLOCK: 'Num Lock', COMPOSE: 'Menu', CONTEXTMENU: 'Menu',
+            KPSLASH: 'Num /', KPASTERISK: 'Num *', KPMINUS: 'Num -', KPPLUS: 'Num +', KPENTER: 'Num Enter', KPDOT: 'Num .',
+            MUTE: 'Mute', VOLUMEDOWN: 'Volume down', VOLUMEUP: 'Volume up',
+            PLAYPAUSE: 'Play/Pause', NEXTSONG: 'Next track', PREVIOUSSONG: 'Previous track', STOPCD: 'Stop',
+        };
+        function keyCap(code) {
+            const k = String(code).toUpperCase().replace(/^KEY_/, '');
+            if (/^(LEFT|RIGHT)META$|^META(LEFT|RIGHT)$/.test(k)) return osTarget === 'windows' ? 'Win' : 'Super';
+            if (KEY_CAPS[k]) return KEY_CAPS[k];
+            const kp = /^(?:KP|NUMPAD)(\d)$/.exec(k);
+            if (kp) return 'Num ' + kp[1];
+            return k.length <= 3 ? k : k.charAt(0) + k.slice(1).toLowerCase();
+        }
+
+        let macroType = 'app';
+        let macroAction = '';          // app command or module id; recorded keys live in macroRecordedKeys
+        let macroIcon = '';            // 'lucide-<name>' or an image address
+        let macroAuto = { name: true, icon: true };   // still filled in from what the key does
+
         function openMacroModal(idx) {
             editingMacroIndex = idx;
             const m = idx >= 0 ? macros[idx] : { type: 'app', display_name: '', icon_url: '', action_data: '' };
-
-            dom.macroTitle.innerText = idx >= 0 ? 'Edit Macro' : 'Add Macro';
-            dom.macroType.value = m.type || 'app';
+            dom.macroTitle.textContent = idx >= 0 ? 'Edit key' : 'New key';
             dom.macroName.value = m.display_name || '';
-            dom.macroIcon.value = m.icon_url || '';
-
-            dom.macroDelBtn.style.display = idx >= 0 ? 'block' : 'none';
-
-            updateMacroModalFields(m.action_data);
-
+            const icon = m.icon_url || '';
+            macroIcon = icon.startsWith('lucide-') || isKeyImage(icon) ? icon : '';
+            macroAuto = { name: !m.display_name, icon: !macroIcon };
+            dom.macroIcon.value = '';
+            dom.macroIcon.dataset.open = '';
+            dom.macroDelBtn.hidden = idx < 0;
+            document.getElementById('macro-move-group').hidden = idx < 0;
+            renderMacroIcons();
+            setMacroType(m.type || 'app', m.action_data);
+            updateMacroPosition();
             dom.macroModal.classList.add('active');
-            requestAnimationFrame(() => dom.macroModal.style.opacity = 1);
         }
 
         function closeMacroModal() {
-            dom.macroModal.style.opacity = 0;
-            setTimeout(() => dom.macroModal.classList.remove('active'), 300);
             stopMacroRecording();
+            dom.macroModal.classList.remove('active');
         }
 
-        function updateMacroModalFields(existingActionData = null) {
-            const type = dom.macroType.value;
+        function setMacroType(type, actionData = null) {
+            macroType = type;
+            stopMacroRecording();
+            for (const b of document.querySelectorAll('#macro-type .pick')) {
+                b.setAttribute('aria-checked', String(b.dataset.type === type));
+            }
+            macroAction = type === 'macro' ? '' : (typeof actionData === 'string' ? actionData : '');
+            macroRecordedKeys = type === 'macro' && Array.isArray(actionData) ? [...actionData] : [];
+            const modules = KEY_MODULES[type];
+            // A built-in or plugin key always does one of its modules.
+            if (modules && !modules.some(o => o.val === macroAction)) chooseMacroModule(modules[0].val);
+            renderMacroAction();
+            updateMacroPreview();
+        }
+
+        document.getElementById('macro-type').addEventListener('click', (e) => {
+            const b = e.target.closest('.pick');
+            if (!b || b.dataset.type === macroType) return;
+            // A name or icon filled in from the old choice does not fit the new one.
+            if (macroAuto.name) dom.macroName.value = '';
+            if (macroAuto.icon) {
+                macroIcon = '';
+                syncMacroIcons();
+            }
+            setMacroType(b.dataset.type);
+        });
+
+        function renderMacroAction() {
             let html = '';
-
-            stopMacroRecording();
-
-            if (type === 'app') {
-                html = `<label for="macro-app-input">Application</label>
-                        <input type="text" id="macro-app-input" list="macro-apps-list" placeholder="Search apps…" value="${escapeHtml(existingActionData || '')}" autocomplete="off" spellcheck="false">
-                        <datalist id="macro-apps-list">
-                            ${osApps.map(a => `<option value="${escapeHtml(a.exec)}">${escapeHtml(a.name)}</option>`).join('')}
-                        </datalist>`;
-            } else if (type === 'premade') {
-                const opts = [
-                    { val: 'app_term', lbl: 'Terminal', icon: 'lucide-terminal' },
-                    { val: 'app_web', lbl: 'Browser', icon: 'lucide-globe' },
-                    { val: 'app_task', lbl: 'Task Manager', icon: 'lucide-cpu' }
-                ];
-                html = `<label for="macro-premade-select">Module</label>
-                        <select id="macro-premade-select">
-                            ${opts.map(o => `<option value="${o.val}" data-icon="${o.icon}" data-lbl="${o.lbl}" ${existingActionData === o.val ? 'selected' : ''}>${o.lbl}</option>`).join('')}
-                        </select>`;
-            } else if (type === 'plugin') {
-                const opts = [
-                    { val: 'app_soundpad', lbl: 'Soundboard', icon: 'lucide-music' }
-                ];
-                html = `<label for="macro-plugin-select">Plugin</label>
-                        <select id="macro-plugin-select">
-                            ${opts.map(o => `<option value="${o.val}" data-icon="${o.icon}" data-lbl="${o.lbl}" ${existingActionData === o.val ? 'selected' : ''}>${o.lbl}</option>`).join('')}
-                        </select>`;
-            } else if (type === 'macro') {
-                const keysDisplay = Array.isArray(existingActionData) ? existingActionData.join(' + ') : (existingActionData || 'None');
-                html = `<span class="form-label">Keystrokes</span>
+            if (macroType === 'app') {
+                html = `<span class="form-label" id="macro-app-label">App</span>
+                        <div class="search-field">
+                            <i data-lucide="search"></i>
+                            <input type="search" id="macro-app-search" placeholder="Search apps or type a command"
+                                aria-label="Search apps or type a command" autocomplete="off" spellcheck="false">
+                        </div>
+                        <div class="picker is-list" id="macro-app-list" role="radiogroup" aria-labelledby="macro-app-label"></div>`;
+            } else if (macroType === 'macro') {
+                html = `<span class="form-label" id="macro-keys-label">Keys</span>
                         <div class="record-row">
-                            <button class="btn" id="macro-record-btn" onclick="startMacroRecording()">Record</button>
-                            <div id="macro-record-out">${escapeHtml(keysDisplay)}</div>
+                            <div class="keys-read" id="macro-record-out" role="status" aria-labelledby="macro-keys-label"></div>
+                            <button class="btn" id="macro-record-btn" onclick="toggleMacroRecording()"></button>
+                        </div>
+                        <p class="editor-hint">Tap Record, then press the shortcut on the PC's keyboard.</p>`;
+            } else {
+                const modules = KEY_MODULES[macroType];
+                html = `<span class="form-label" id="macro-module-label">${macroType === 'plugin' ? 'Plugin' : 'Module'}</span>
+                        <div class="picker is-tiles" id="macro-module-list" role="radiogroup" aria-labelledby="macro-module-label">
+                            ${modules.map(o => `<button class="pick" role="radio" data-module="${o.val}" aria-checked="${o.val === macroAction}">
+                                <i data-lucide="${o.icon}"></i><span class="pick-text">${o.lbl}</span></button>`).join('')}
                         </div>`;
-                if (Array.isArray(existingActionData)) macroRecordedKeys = [...existingActionData];
             }
-
+            html += '<p class="editor-hint is-error" id="macro-error" role="alert" hidden></p>';
             dom.macroActionContainer.innerHTML = html;
+            renderIcons(dom.macroActionContainer);
 
-            if (type === 'app') {
-                const appInput = document.getElementById('macro-app-input');
-                if (appInput) {
-                    appInput.addEventListener('change', (e) => {
-                        const val = e.target.value;
-                        const matchedApp = osApps.find(a => a.exec === val);
-                        if (matchedApp) {
-                            if (!dom.macroName.value) dom.macroName.value = matchedApp.name;
-                            if (!dom.macroIcon.value && matchedApp.icon) dom.macroIcon.value = matchedApp.icon;
-                        }
-                    });
-                    if (!existingActionData && !dom.macroName.value) appInput.dispatchEvent(new Event('change'));
-                }
-            } else if (type === 'premade' || type === 'plugin') {
-                const selectEl = document.getElementById(type === 'premade' ? 'macro-premade-select' : 'macro-plugin-select');
-                if (selectEl) {
-                    selectEl.addEventListener('change', (e) => {
-                        const selectedOpt = e.target.options[e.target.selectedIndex];
-                        if (selectedOpt) {
-                            const lbl = selectedOpt.getAttribute('data-lbl');
-                            const icon = selectedOpt.getAttribute('data-icon');
-                            dom.macroName.value = lbl;
-                            dom.macroIcon.value = icon;
-                        }
-                    });
-                    if (!existingActionData && !dom.macroName.value) selectEl.dispatchEvent(new Event('change'));
-                }
+            if (macroType === 'app') {
+                const search = document.getElementById('macro-app-search');
+                search.addEventListener('input', renderAppList);
+                renderAppList();
+            } else if (macroType === 'macro') {
+                renderRecordedKeys();
+            } else {
+                document.getElementById('macro-module-list').addEventListener('click', (e) => {
+                    const b = e.target.closest('.pick');
+                    if (b) chooseMacroModule(b.dataset.module);
+                });
             }
         }
 
-        function startMacroRecording() {
+        // The app list: every installed app, filtered by the search text. Text
+        // that matches no app can still be used as the command to run.
+        function renderAppList() {
+            const list = document.getElementById('macro-app-list');
+            const search = document.getElementById('macro-app-search');
+            if (!list || !search) return;
+            const q = search.value.trim();
+            const ql = q.toLowerCase();
+            const apps = osApps
+                .filter(a => !ql || a.name.toLowerCase().includes(ql) || a.exec.toLowerCase().includes(ql))
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .slice(0, 150);
+            const rows = [];
+            const known = osApps.some(a => a.exec === macroAction);
+            if (q && !osApps.some(a => a.exec === q)) {
+                rows.push({ exec: q, name: `Run “${q}”`, sub: 'Command', glyph: 'terminal-square' });
+            }
+            if (macroAction && !known && macroAction !== q) {
+                rows.push({ exec: macroAction, name: macroAction, sub: 'Command', glyph: 'terminal-square' });
+            }
+            for (const a of apps) rows.push({ exec: a.exec, name: a.name, sub: a.exec, glyph: appGlyph(a) });
+            if (!rows.length) {
+                list.innerHTML = `<p class="picker-empty">${osApps.length ? 'No app matches.' : 'Looking for installed apps…'}</p>`;
+                return;
+            }
+            list.innerHTML = rows.map(r => `
+                <button class="pick" role="radio" aria-checked="${r.exec === macroAction}" data-exec="${escapeHtml(r.exec)}"
+                    data-name="${escapeHtml(r.sub === 'Command' ? '' : r.name)}" data-glyph="${r.glyph}">
+                    <i data-lucide="${r.glyph}"></i><span class="pick-text">${escapeHtml(r.name)}</span>
+                    <span class="pick-sub">${escapeHtml(r.sub)}</span>
+                </button>`).join('');
+            renderIcons(list);
+            scrollToChoice(list);
+        }
+
+        // Bring the chosen row of a list into view (an app far down the list).
+        function scrollToChoice(list) {
+            const row = list.querySelector('.pick[aria-checked="true"]');
+            if (!row) return;
+            const top = row.offsetTop - list.offsetTop;
+            if (top < list.scrollTop || top + row.offsetHeight > list.scrollTop + list.clientHeight) {
+                list.scrollTop = top - (list.clientHeight - row.offsetHeight) / 2;
+            }
+        }
+
+        document.getElementById('macro-modal').addEventListener('click', (e) => {
+            const row = e.target.closest('#macro-app-list .pick');
+            if (!row) return;
+            macroAction = row.dataset.exec;
+            for (const b of row.parentNode.children) b.setAttribute('aria-checked', String(b === row));
+            fillMacroFrom(row.dataset.name, 'lucide-' + row.dataset.glyph);
+        });
+
+        function chooseMacroModule(val) {
+            const mod = (KEY_MODULES[macroType] || []).find(o => o.val === val);
+            if (!mod) return;
+            macroAction = val;
+            for (const b of document.querySelectorAll('#macro-module-list .pick')) {
+                b.setAttribute('aria-checked', String(b.dataset.module === val));
+            }
+            fillMacroFrom(mod.lbl, 'lucide-' + mod.icon);
+        }
+
+        // Name and icon follow the chosen app or module until the user sets them.
+        function fillMacroFrom(name, icon) {
+            if (macroAuto.name && name) dom.macroName.value = name;
+            if (macroAuto.icon && icon) {
+                macroIcon = icon;
+                syncMacroIcons();
+            }
+            setMacroError('');
+            updateMacroPreview();
+        }
+
+        dom.macroName.addEventListener('input', () => {
+            macroAuto.name = !dom.macroName.value.trim();
+            updateMacroPreview();
+        });
+
+        function renderMacroIcons() {
+            const grid = document.getElementById('macro-icon-grid');
+            const current = macroIcon.startsWith('lucide-') ? macroIcon.slice(7) : '';
+            const names = !current || KEY_ICONS.includes(current) ? KEY_ICONS : [current, ...KEY_ICONS];
+            grid.innerHTML = names.map(n => `
+                <button class="pick" role="radio" data-icon="lucide-${escapeHtml(n)}"
+                    aria-label="${escapeHtml(n.replace(/-\d+$/, '').replace(/-/g, ' '))}"><i data-lucide="${escapeHtml(n)}"></i></button>`).join('')
+                + `<button class="pick" role="radio" data-icon="" aria-label="Image from a web address"><i data-lucide="image-plus"></i></button>`;
+            renderIcons(grid);
+            syncMacroIcons();
+        }
+
+        function syncMacroIcons() {
+            // The image choice is on while its address field is open or an image is set.
+            const image = !!macroIcon && !macroIcon.startsWith('lucide-');
+            const custom = image || dom.macroIcon.dataset.open === '1';
+            for (const b of document.querySelectorAll('#macro-icon-grid .pick')) {
+                const on = b.dataset.icon ? !custom && b.dataset.icon === macroIcon : custom;
+                b.setAttribute('aria-checked', String(on));
+            }
+            dom.macroIcon.hidden = !custom;
+            if (image) dom.macroIcon.value = macroIcon;
+        }
+
+        document.getElementById('macro-icon-grid').addEventListener('click', (e) => {
+            const b = e.target.closest('.pick');
+            if (!b) return;
+            macroAuto.icon = false;
+            if (b.dataset.icon) {
+                macroIcon = b.dataset.icon;
+                dom.macroIcon.dataset.open = '';
+            } else {
+                // An image by its web address (the page may load https images).
+                dom.macroIcon.dataset.open = '1';
+                macroIcon = dom.macroIcon.value.trim();
+            }
+            syncMacroIcons();
+            if (!b.dataset.icon) dom.macroIcon.focus();
+            updateMacroPreview();
+        });
+
+        dom.macroIcon.addEventListener('input', () => {
+            macroIcon = dom.macroIcon.value.trim();
+            updateMacroPreview();
+        });
+
+        // The icon the key is saved with: the chosen one, or the glyph matching the app.
+        function editorIcon() {
+            if (macroIcon) return macroIcon;
+            return 'lucide-' + (macroType === 'app' ? appGlyph({ name: dom.macroName.value, exec: macroAction }) : 'box');
+        }
+
+        // The preview is a key from the grid, drawn the same way.
+        function updateMacroPreview() {
+            const icon = editorIcon();
+            const box = document.getElementById('macro-preview-glyph');
+            if (icon.startsWith('lucide-')) {
+                setIcon(box, icon.slice(7));
+            } else if (box.dataset.icon !== icon) {
+                box.dataset.icon = icon;
+                box.innerHTML = `<img src="${escapeHtml(icon)}" alt="">`;
+            }
+            setText(document.getElementById('macro-preview-label'), dom.macroName.value.trim() || 'Unnamed');
+            document.getElementById('macro-preview').classList.toggle('btn-plugin', macroType === 'plugin');
+        }
+
+        function updateMacroPosition() {
+            if (editingMacroIndex < 0) return;
+            setText(document.getElementById('macro-pos'), `${editingMacroIndex + 1} of ${macros.length}`);
+            document.getElementById('macro-move-up').disabled = editingMacroIndex <= 0;
+            document.getElementById('macro-move-down').disabled = editingMacroIndex >= macros.length - 1;
+        }
+
+        function setMacroError(text) {
+            const el = document.getElementById('macro-error');
+            if (!el) return;
+            el.textContent = text;
+            el.hidden = !text;
+        }
+
+        function renderRecordedKeys() {
             const out = document.getElementById('macro-record-out');
             const btn = document.getElementById('macro-record-btn');
             if (!out || !btn) return;
+            if (macroRecording && !macroRecordedKeys.length) {
+                out.innerHTML = '<span class="keys-empty">Press the keys…</span>';
+            } else if (!macroRecordedKeys.length) {
+                out.innerHTML = '<span class="keys-empty">No keys recorded</span>';
+            } else {
+                out.innerHTML = macroRecordedKeys
+                    .map(k => `<span class="kbd">${escapeHtml(keyCap(k))}</span>`)
+                    .join('<span class="kbd-plus" aria-hidden="true">+</span>');
+            }
+            btn.classList.toggle('is-recording', macroRecording);
+            btn.innerHTML = macroRecording ? '<i data-lucide="square"></i> Stop' : '<i data-lucide="circle"></i> Record';
+            renderIcons(btn);
+        }
 
+        function toggleMacroRecording() {
+            if (macroRecording) stopMacroRecording();
+            else startMacroRecording();
+        }
+
+        function startMacroRecording() {
             macroRecording = true;
             macroRecordedKeys = [];
-            out.innerText = "Press keys…";
-            btn.innerText = "Stop";
-            btn.onclick = stopMacroRecording;
-            btn.classList.add('is-recording');
-
+            setMacroError('');
             window.addEventListener('keydown', _macroKeyHandler, { capture: true });
             window.addEventListener('keyup', _macroKeyHandler, { capture: true });
+            renderRecordedKeys();
         }
 
         function stopMacroRecording() {
@@ -7058,51 +7972,41 @@
             macroRecording = false;
             window.removeEventListener('keydown', _macroKeyHandler, { capture: true });
             window.removeEventListener('keyup', _macroKeyHandler, { capture: true });
-
-            const btn = document.getElementById('macro-record-btn');
-            if (btn) {
-                btn.innerText = "Record";
-                btn.onclick = startMacroRecording;
-                btn.classList.remove('is-recording');
-            }
+            renderRecordedKeys();
         }
 
+        // Keys held together make the shortcut; letting go of one ends it.
         function _macroKeyHandler(e) {
             e.preventDefault();
             e.stopPropagation();
             if (e.type === 'keydown') {
-                let code = e.code || e.key;
-                code = 'KEY_' + code.toUpperCase().replace('KEY', '').replace('DIGIT', '');
-                if (code === 'KEY_CONTROLLEFT') code = 'KEY_LEFTCTRL';
-                if (code === 'KEY_CONTROLRIGHT') code = 'KEY_RIGHTCTRL';
-                if (code === 'KEY_SHIFTLEFT') code = 'KEY_LEFTSHIFT';
-                if (code === 'KEY_SHIFTRIGHT') code = 'KEY_RIGHTSHIFT';
-                if (code === 'KEY_ALTLEFT') code = 'KEY_LEFTALT';
-
-                if (!macroRecordedKeys.includes(code)) {
-                    macroRecordedKeys.push(code);
-                    document.getElementById('macro-record-out').innerText = macroRecordedKeys.join(' + ');
+                const name = evdevName(e.code);
+                if (name && !macroRecordedKeys.includes(name)) {
+                    macroRecordedKeys.push(name);
+                    renderRecordedKeys();
                 }
-            }
-            if (e.type === 'keyup') {
+            } else if (macroRecordedKeys.length) {
                 stopMacroRecording();
             }
         }
 
         function saveMacroBtn() {
-            const type = dom.macroType.value;
-            let action_data = '';
-
-            if (type === 'app') action_data = document.getElementById('macro-app-input').value;
-            else if (type === 'premade') action_data = document.getElementById('macro-premade-select').value;
-            else if (type === 'plugin') action_data = document.getElementById('macro-plugin-select').value;
-            else if (type === 'macro') action_data = macroRecordedKeys;
-
+            stopMacroRecording();
+            const action_data = macroType === 'macro' ? [...macroRecordedKeys] : macroAction.trim();
+            if (!action_data.length) {
+                setMacroError(macroType === 'macro' ? 'Record the keys first.' : 'Choose an app, or type the command to run.');
+                return;
+            }
+            const icon = editorIcon();
+            if (!icon.startsWith('lucide-') && !isKeyImage(icon)) {
+                setMacroError('An image address starts with https://.');
+                return;
+            }
             const newObj = {
                 id: (editingMacroIndex >= 0 && macros[editingMacroIndex]) ? macros[editingMacroIndex].id : generateMacroUUID(),
-                type: type,
-                display_name: dom.macroName.value || 'Unnamed',
-                icon_url: dom.macroIcon.value || 'lucide-box',
+                type: macroType,
+                display_name: dom.macroName.value.trim() || 'Unnamed',
+                icon_url: icon,
                 action_data: action_data
             };
 
@@ -7117,36 +8021,32 @@
             closeMacroModal();
         }
 
-        function deleteMacroBtn() {
-            if (editingMacroIndex >= 0) {
-                macros.splice(editingMacroIndex, 1);
-                sendSocket('save_macros', macros);
-                renderMacros();
-            }
+        async function deleteMacroBtn() {
+            if (editingMacroIndex < 0) return;
+            const name = macros[editingMacroIndex].display_name || 'this key';
+            const ok = await tdConfirm({
+                icon: 'trash-2', tone: 'danger', confirm: 'Delete',
+                title: `Delete “${name}”?`,
+                text: 'It disappears from the console here and on every paired device.',
+            });
+            if (!ok || editingMacroIndex < 0) return;
+            macros.splice(editingMacroIndex, 1);
+            sendSocket('save_macros', macros);
+            renderMacros();
             closeMacroModal();
         }
 
-        document.getElementById('macro-move-up').addEventListener('click', () => {
-            if (editingMacroIndex > 0) {
-                const temp = macros[editingMacroIndex];
-                macros[editingMacroIndex] = macros[editingMacroIndex - 1];
-                macros[editingMacroIndex - 1] = temp;
-                editingMacroIndex--;
-                sendSocket('save_macros', macros);
-                renderMacros();
-            }
-        });
-
-        document.getElementById('macro-move-down').addEventListener('click', () => {
-            if (editingMacroIndex >= 0 && editingMacroIndex < macros.length - 1) {
-                const temp = macros[editingMacroIndex];
-                macros[editingMacroIndex] = macros[editingMacroIndex + 1];
-                macros[editingMacroIndex + 1] = temp;
-                editingMacroIndex++;
-                sendSocket('save_macros', macros);
-                renderMacros();
-            }
-        });
+        function moveMacro(step) {
+            const to = editingMacroIndex + step;
+            if (editingMacroIndex < 0 || to < 0 || to >= macros.length) return;
+            [macros[editingMacroIndex], macros[to]] = [macros[to], macros[editingMacroIndex]];
+            editingMacroIndex = to;
+            sendSocket('save_macros', macros);
+            renderMacros();
+            updateMacroPosition();
+        }
+        document.getElementById('macro-move-up').addEventListener('click', () => moveMacro(-1));
+        document.getElementById('macro-move-down').addEventListener('click', () => moveMacro(1));
 
         // --- Settings ---
         function switchTab(tabId) {
@@ -7352,76 +8252,106 @@
             track.addEventListener('touchstart', startDrag, { passive: false });
         }, 100);
 
-        function checkSpInput() {
-            const idVal = osTarget === 'linux' ? (document.getElementById('sp-id-select').value || '') : document.getElementById('sp-id-input').value.trim();
-            let nameVal = document.getElementById('sp-name-input').value.trim();
-            if (osTarget === 'linux' && document.activeElement === document.getElementById('sp-id-select')) {
-                const sel = document.getElementById('sp-id-select');
-                if (sel.selectedIndex > 0) {
-                    const optName = sel.options[sel.selectedIndex].dataset.name || '';
-                    if (nameVal === '' || nameVal === localStorage.getItem('sp_draft_name')) {
-                        document.getElementById('sp-name-input').value = optName;
-                        nameVal = optName;
-                    }
-                }
+        // --- Pad editor (soundboard) ---
+        // Local pads play a file from the sounds folder; Soundpad pads play a
+        // sound by its number in Soundpad's list.
+        let spSounds = [];             // [{id: file, name}] from local_sounds_list
+        let spSoundsLoaded = false;
+        let spChoice = '';             // the chosen file
+        let spAutoName = true;         // the name follows the chosen file until typed
+
+        function renderSpFiles() {
+            const list = document.getElementById('sp-file-list');
+            const search = document.getElementById('sp-search');
+            if (!list || !search) return;
+            const q = search.value.trim().toLowerCase();
+            const rows = spSounds.filter(x => !q || x.name.toLowerCase().includes(q) || x.id.toLowerCase().includes(q));
+            // A pad whose file has gone keeps showing it, so it can be changed.
+            if (spChoice && !spSounds.some(x => x.id === spChoice) && spSoundsLoaded) {
+                rows.unshift({ id: spChoice, name: spChoice, missing: true });
             }
-            const btn = document.getElementById('sp-save-btn');
-
-            localStorage.setItem('sp_draft_id', idVal);
-            localStorage.setItem('sp_draft_name', nameVal);
-
-            let isValid = true;
-            let errorReason = "";
-
-            if (idVal.length < 1 || nameVal.length < 1) {
-                isValid = false;
-                errorReason = "Both ID and Name are required.";
-            } else if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) {
-                const orig = spBtns[editingSpIdx];
-                if (idVal === orig.id && nameVal === orig.name) {
-                    isValid = false;
-                    errorReason = "No changes made.";
-                }
+            if (!rows.length) {
+                list.innerHTML = `<p class="picker-empty">${!spSoundsLoaded ? 'Reading the sounds folder…'
+                    : spSounds.length ? 'No sound matches.' : 'There are no audio files in the sounds folder yet.'}</p>`;
+                return;
             }
-
-            btn.dataset.valid = isValid;
-            btn.dataset.error = errorReason;
-            document.getElementById('sp-error-msg').style.display = 'none';
-
-            btn.classList.toggle('sp-save-valid', isValid);
+            list.innerHTML = rows.map(x => `
+                <button class="pick" role="radio" aria-checked="${x.id === spChoice}" data-id="${escapeHtml(x.id)}"
+                    data-name="${escapeHtml(x.missing ? '' : x.name)}">
+                    <i data-lucide="${x.missing ? 'file-x' : 'file-audio'}"></i><span class="pick-text">${escapeHtml(x.name)}</span>
+                    <span class="pick-sub">${x.missing ? 'Not in the folder' : escapeHtml(x.id)}</span>
+                </button>`).join('');
+            renderIcons(list);
+            scrollToChoice(list);
         }
 
-        function openSpModal(idx) {
-            if (osTarget === 'linux') {
-                if (!globalCfg.sounds_path || globalCfg.sounds_path.trim() === '') {
-                    alert("Path for sounds not set. Please set the absolute path to your sounds folder in the Settings menu.");
-                    return;
+        document.getElementById('sp-search').addEventListener('input', renderSpFiles);
+        document.getElementById('sp-file-list').addEventListener('click', (e) => {
+            const row = e.target.closest('.pick');
+            if (!row) return;
+            spChoice = row.dataset.id;
+            for (const b of row.parentNode.children) b.setAttribute('aria-checked', String(b === row));
+            if (spAutoName && row.dataset.name) document.getElementById('sp-name-input').value = row.dataset.name;
+            checkSpInput();
+        });
+        document.getElementById('sp-name-input').addEventListener('input', (e) => {
+            spAutoName = !e.target.value.trim();
+        });
+
+        function spInputId() {
+            return clipSource === 'local' ? spChoice : document.getElementById('sp-id-input').value.trim();
+        }
+
+        // Live: the preview follows the name, and a pad that repeats another is
+        // pointed out (it can still be saved).
+        function checkSpInput() {
+            const id = spInputId();
+            const name = document.getElementById('sp-name-input').value.trim();
+            setText(document.getElementById('sp-preview-label'), name || 'Unnamed');
+            const others = spBtns.filter((b, i) => i !== editingSpIdx);
+            const sameSound = id && others.find(b => b.id === id);
+            const sameName = name && others.find(b => (b.name || '').toLowerCase() === name.toLowerCase());
+            const warn = sameSound ? `“${sameSound.name}” already plays this sound.`
+                : sameName ? `Another pad is already called “${sameName.name}”.` : '';
+            setText(document.getElementById('sp-dup-text'), warn);
+            document.getElementById('sp-dup-notice').hidden = !warn;
+            setSpError('');
+        }
+
+        function setSpError(text) {
+            const el = document.getElementById('sp-error');
+            el.textContent = text;
+            el.hidden = !text;
+        }
+
+        async function openSpModal(idx) {
+            const local = clipSource === 'local';
+            if (local && !(globalCfg.sounds_path || '').trim()) {
+                const open = await tdConfirm({
+                    icon: 'folder-x', tone: 'warning', confirm: 'Open settings', cancel: 'Not now',
+                    title: 'Choose a sounds folder first',
+                    text: 'Pads play audio files from one folder on the PC. Set it in Settings, under Soundboard.',
+                });
+                if (open) {
+                    openSettings();
+                    switchTab('tab-sb');
                 }
-                sendSocket('req_local_sounds');
+                return;
             }
+            if (local) sendSocket('req_local_sounds');
             editingSpIdx = idx;
-            const isEdit = idx >= 0 && idx < spBtns.length;
-            document.getElementById('sp-modal-title').innerText = isEdit ? "Edit Button" : "New Button";
-
-            let targetId = isEdit ? spBtns[idx].id : (localStorage.getItem('sp_draft_id') || '');
-            if (osTarget === 'linux') {
-                document.getElementById('sp-id-input').style.display = 'none';
-                document.getElementById('sp-id-select').style.display = 'block';
-                document.getElementById('sp-id-select').value = targetId;
-            } else {
-                document.getElementById('sp-id-select').style.display = 'none';
-                document.getElementById('sp-id-input').style.display = 'block';
-                document.getElementById('sp-id-input').value = targetId;
-            }
-
-            if (isEdit) {
-                document.getElementById('sp-name-input').value = spBtns[idx].name;
-            } else {
-                document.getElementById('sp-name-input').value = localStorage.getItem('sp_draft_name') || '';
-            }
-
-            document.getElementById('sp-del-btn').style.display = isEdit ? 'block' : 'none';
-            document.getElementById('sp-error-msg').style.display = 'none';
+            const pad = idx >= 0 && idx < spBtns.length ? spBtns[idx] : null;
+            document.getElementById('sp-modal-title').textContent = pad ? 'Edit pad' : 'New pad';
+            document.getElementById('sp-file-group').hidden = !local;
+            document.getElementById('sp-index-group').hidden = local;
+            spChoice = local && pad ? String(pad.id) : '';
+            document.getElementById('sp-id-input').value = !local && pad ? pad.id : '';
+            document.getElementById('sp-name-input').value = pad ? pad.name : '';
+            spAutoName = !pad;
+            document.getElementById('sp-search').value = '';
+            setText(document.getElementById('sp-folder-hint'), local ? `Files in ${globalCfg.sounds_path}` : '');
+            document.getElementById('sp-del-btn').hidden = !pad;
+            renderSpFiles();
             checkSpInput();
             document.getElementById('sp-modal').classList.add('active');
         }
@@ -7429,38 +8359,29 @@
         function closeSpModal() { document.getElementById('sp-modal').classList.remove('active'); }
 
         function saveSpBtn() {
-            const btn = document.getElementById('sp-save-btn');
-            if (btn.dataset.valid === "false") {
-                const errMsg = document.getElementById('sp-error-msg');
-                errMsg.innerText = btn.dataset.error || "Invalid input.";
-                errMsg.style.display = 'block';
-                return;
-            }
-
-            const id = osTarget === 'linux' ? document.getElementById('sp-id-select').value : document.getElementById('sp-id-input').value.trim();
+            const local = clipSource === 'local';
+            const id = spInputId();
             const name = document.getElementById('sp-name-input').value.trim();
-
-            const dup = spBtns.find((b, i) => i !== editingSpIdx && (b.id === id || b.name.toLowerCase() === name.toLowerCase()));
-            if (dup) {
-                let msg = "Warning:\n";
-                if (dup.id === id) msg += `- The ID "${id}" is already used by "${dup.name}".\n`;
-                if (dup.name.toLowerCase() === name.toLowerCase()) msg += `- The Name "${name}" is already used.\n`;
-                msg += "\nDo you still want to save this button?";
-                if (!confirm(msg)) return;
-            }
+            if (!id) return setSpError(local ? 'Choose a sound first.' : 'Enter the sound’s number in Soundpad.');
+            if (!local && !/^\d+$/.test(id)) return setSpError('Use the sound’s number, like 12.');
+            if (!name) return setSpError('Give the pad a name.');
 
             // Keep the pad's uid: devices play it by that id.
             if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = { ...spBtns[editingSpIdx], id, name };
             else spBtns.push({ id, name });
 
-            localStorage.removeItem('sp_draft_id');
-            localStorage.removeItem('sp_draft_name');
-
             closeSpModal(); renderSpGrid(); saveConfig();
         }
 
-        function deleteSpBtn() {
-            if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns.splice(editingSpIdx, 1);
+        async function deleteSpBtn() {
+            if (editingSpIdx < 0 || editingSpIdx >= spBtns.length) return;
+            const ok = await tdConfirm({
+                icon: 'trash-2', tone: 'danger', confirm: 'Delete',
+                title: `Delete “${spBtns[editingSpIdx].name}”?`,
+                text: 'The pad disappears from the soundboard. The sound file stays in its folder.',
+            });
+            if (!ok) return;
+            spBtns.splice(editingSpIdx, 1);
             closeSpModal(); renderSpGrid(); saveConfig();
         }
 
@@ -7473,13 +8394,13 @@
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
             const isOpen = id => document.getElementById(id).classList.contains('active');
-            const winMenu = document.getElementById('win-menu');
-            if (isOpen('macro-modal')) closeMacroModal();
+            if (dlgCurrent) answerDialog(!dlgCurrent.opts.cancel);
+            else if (isOpen('macro-modal')) closeMacroModal();
             else if (isOpen('device-modal')) closeDeviceMenu();
             else if (isOpen('sp-modal')) closeSpModal();
             else if (isOpen('update-modal')) document.getElementById('update-modal').classList.remove('active');
             else if (isOpen('modal')) document.getElementById('modal').classList.remove('active');
-            else if (winMenu && winMenu.style.display !== 'none') winMenu.style.display = 'none';
+            else if (document.getElementById('win-menu').classList.contains('is-open')) closeWinMenu();
         });
 
         // --- Input Handling ---

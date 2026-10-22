@@ -39,7 +39,46 @@ _WIN_VK_MAP: dict[str, int] = {
     "KEY_INSERT": 0x2D, "KEY_DELETE": 0x2E, "KEY_HOME": 0x24,
     "KEY_END": 0x23, "KEY_PAGEUP": 0x21, "KEY_PAGEDOWN": 0x22,
     "KEY_UP": 0x26, "KEY_DOWN": 0x28, "KEY_LEFT": 0x25, "KEY_RIGHT": 0x27,
+    **{f"KEY_F{n}": 0x7B + (n - 12) for n in range(13, 25)},
+    **{f"KEY_KP{n}": 0x60 + n for n in range(10)},
+    "KEY_KPASTERISK": 0x6A, "KEY_KPPLUS": 0x6B, "KEY_KPMINUS": 0x6D,
+    "KEY_KPDOT": 0x6E, "KEY_KPSLASH": 0x6F, "KEY_KPENTER": 0x0D,
+    "KEY_SYSRQ": 0x2C, "KEY_CAPSLOCK": 0x14, "KEY_COMPOSE": 0x5D,
+    "KEY_MINUS": 0xBD, "KEY_EQUAL": 0xBB, "KEY_COMMA": 0xBC, "KEY_DOT": 0xBE,
+    "KEY_SLASH": 0xBF, "KEY_SEMICOLON": 0xBA, "KEY_APOSTROPHE": 0xDE, "KEY_GRAVE": 0xC0,
+    "KEY_LEFTBRACE": 0xDB, "KEY_BACKSLASH": 0xDC, "KEY_RIGHTBRACE": 0xDD, "KEY_102ND": 0xE2,
 }
+
+# Shortcuts recorded before v0.11.4 took the browser's key names
+# ("KEY_METALEFT" for KeyboardEvent.code "MetaLeft"), which no keyboard has.
+# They mean these keys.
+_KEY_ALIASES: dict[str, str] = {
+    "KEY_CONTROLLEFT": "KEY_LEFTCTRL", "KEY_CONTROLRIGHT": "KEY_RIGHTCTRL",
+    "KEY_SHIFTLEFT": "KEY_LEFTSHIFT", "KEY_SHIFTRIGHT": "KEY_RIGHTSHIFT",
+    "KEY_ALTLEFT": "KEY_LEFTALT", "KEY_ALTRIGHT": "KEY_RIGHTALT",
+    "KEY_METALEFT": "KEY_LEFTMETA", "KEY_METARIGHT": "KEY_RIGHTMETA",
+    "KEY_OSLEFT": "KEY_LEFTMETA", "KEY_OSRIGHT": "KEY_RIGHTMETA",
+    "KEY_ESCAPE": "KEY_ESC",
+    "KEY_ARROWUP": "KEY_UP", "KEY_ARROWDOWN": "KEY_DOWN",
+    "KEY_ARROWLEFT": "KEY_LEFT", "KEY_ARROWRIGHT": "KEY_RIGHT",
+    "KEY_BRACKETLEFT": "KEY_LEFTBRACE", "KEY_BRACKETRIGHT": "KEY_RIGHTBRACE",
+    "KEY_QUOTE": "KEY_APOSTROPHE", "KEY_BACKQUOTE": "KEY_GRAVE", "KEY_PERIOD": "KEY_DOT",
+    "KEY_INTLBACKSLASH": "KEY_102ND", "KEY_PRINTSCREEN": "KEY_SYSRQ", "KEY_CONTEXTMENU": "KEY_COMPOSE",
+    "KEY_NUMPADDIVIDE": "KEY_KPSLASH", "KEY_NUMPADMULTIPLY": "KEY_KPASTERISK",
+    "KEY_NUMPADSUBTRACT": "KEY_KPMINUS", "KEY_NUMPADADD": "KEY_KPPLUS",
+    "KEY_NUMPADENTER": "KEY_KPENTER", "KEY_NUMPADDECIMAL": "KEY_KPDOT",
+    **{f"KEY_NUMPAD{n}": f"KEY_KP{n}" for n in range(10)},
+    "KEY_AUDIOVOLUMEMUTE": "KEY_MUTE", "KEY_AUDIOVOLUMEDOWN": "KEY_VOLUMEDOWN",
+    "KEY_AUDIOVOLUMEUP": "KEY_VOLUMEUP", "KEY_MEDIAPLAYPAUSE": "KEY_PLAYPAUSE",
+    "KEY_MEDIATRACKNEXT": "KEY_NEXTSONG", "KEY_MEDIATRACKPREVIOUS": "KEY_PREVIOUSSONG",
+    "KEY_MEDIASTOP": "KEY_STOPCD",
+}
+
+
+def key_name(key: str) -> str:
+    """The evdev name for a recorded key, old browser-style names included."""
+    name = str(key).upper()
+    return _KEY_ALIASES.get(name, name)
 
 
 def _win_send_keys(*keys) -> None:
@@ -92,7 +131,7 @@ def _win_send_keys(*keys) -> None:
         if isinstance(k, int):
             vks.append(k)
         else:
-            vk = _WIN_VK_MAP.get(str(k).upper(), 0)
+            vk = _WIN_VK_MAP.get(key_name(k), 0)
             if vk:
                 vks.append(vk)
 
@@ -153,7 +192,7 @@ class MacroSystem:
                 if isinstance(k, int):
                     resolved.append(k)
                 else:
-                    ec = getattr(ecodes, str(k).upper(), None)
+                    ec = getattr(ecodes, key_name(k), None)
                     if ec is not None:
                         resolved.append(ec)
 

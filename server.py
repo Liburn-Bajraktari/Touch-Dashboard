@@ -1316,7 +1316,11 @@ RELEASES_API_URL = "https://api.github.com/repos/Liburn-Bajraktari/Touch-Dashboa
 
 
 async def check_for_updates() -> dict:
+    """Ask GitHub for the newest release. "checked" is False when the
+    release list could not be fetched, so the page can say the check failed
+    instead of reporting the last known state as up to date."""
     global update_available, latest_version, update_apk_url, update_notes
+    checked = False
     try:
         def fetch_releases():
             try:
@@ -1334,6 +1338,7 @@ async def check_for_updates() -> dict:
         
         releases = await asyncio.to_thread(fetch_releases)
         if releases and isinstance(releases, list):
+            checked = True
             desktop_checked = False
             apk_url_found = False
             prev_available = update_available
@@ -1375,6 +1380,7 @@ async def check_for_updates() -> dict:
         logger.error(f"Update check failed: {e}")
 
     return {
+        "checked":          checked,
         "update_available": update_available,
         "latest_version":  latest_version,
         "update_notes":    update_notes,

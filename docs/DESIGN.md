@@ -26,6 +26,9 @@ Touch Dashboard is a piece of studio hardware that happens to be made of pixels:
 | Levels, names, figures | **Scribble strips and displays**: recessed dark windows |
 | Mute, live, speaking | **Lit keys and LEDs**: the state is light, and on rich displays it spills |
 | System load | Display tiles with a live trace of the last minute |
+| Choices (key type, icon, app, sound) | A **selector tray**: a recessed well of options; the chosen one rises out of it as a keycap |
+| Questions and notices | A **dialog plate**: its glyph lit in a small display window, a sentence-case title, then the keys that answer it |
+| Key and pad editors | The key or pad itself, drawn exactly as on the console, beside the selectors that change it |
 
 Two things make it feel alive rather than rendered:
 
@@ -75,6 +78,9 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Spinners, pulsing decoration, particles | A ring pulses only around someone who is speaking |
 | `outline: none` on everything | A visible `:focus-visible` ring in `--focus` |
 | Sticky hover on touch screens | Hover only inside `@media (hover: hover) and (pointer: fine)` |
+| The browser's `alert()` / `confirm()` boxes (unthemed system windows in the desktop window and on Android) | `tdNotice()` / `tdConfirm()`: a themed dialog; a destructive answer is a lit red key and the safe one has focus |
+| A dropdown `<select>` for a handful of choices, a raw text field for an icon name | A selector tray showing every choice, and an icon grid; a search field over long lists |
+| Raw key codes (`KEY_LEFTMETA + KEY_L`) | Printed keycaps in a display: `Super` `+` `L` |
 
 ## 5. Tokens
 

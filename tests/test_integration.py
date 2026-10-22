@@ -256,6 +256,26 @@ def test_update_check_skips_drafts_and_prereleases():
         server.update_available, server.latest_version, server.update_apk_url, server.update_notes = saved
 
 
+def test_update_check_says_when_it_could_not_check():
+    """Offline, the answer must not read as "up to date": the page says the check failed."""
+    import asyncio
+    import io
+    import json
+    import server
+
+    saved = (server.update_available, server.latest_version, server.update_apk_url, server.update_notes)
+    try:
+        with patch("server.urllib.request.urlopen", side_effect=OSError("offline")):
+            result = asyncio.run(server.check_for_updates())
+        assert result["checked"] is False
+        listing = [{"tag_name": server.VERSION, "prerelease": False, "draft": False, "body": "", "assets": []}]
+        with patch("server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(listing).encode())):
+            result = asyncio.run(server.check_for_updates())
+        assert result["checked"] is True
+    finally:
+        server.update_available, server.latest_version, server.update_apk_url, server.update_notes = saved
+
+
 def test_retired_clip_macros_are_dropped():
     """The clip recording plugin is gone: a saved key for it would do nothing."""
     import server
