@@ -594,8 +594,58 @@ def test_spotify_sign_in_needs_the_state_it_was_started_with(app):
         exchange.assert_not_called()
         # A wrong guess does not cancel the real sign-in; the real one works once.
         assert app.get(f"/callback?code=c&state={state}", follow_redirects=False).status_code == 307
-        exchange.assert_called_once_with("c")
+        exchange.assert_called_once_with("c", check_cache=False)   # a new sign-in replaces an old one
         assert app.get(f"/callback?code=c&state={state}", follow_redirects=False).status_code == 400
+
+
+def test_spotify_sign_in_says_why_it_failed(app):
+    # It used to fail silently: a refused consent or a bad secret looked like nothing happened.
+    server.config.update(spot_id="client-id", spot_secret="client-secret")
+    login = lambda: _query(app.get("/spotify_login", follow_redirects=False).headers["location"])["state"]
+    denied = app.get(f"/callback?error=access_denied&state={login()}", follow_redirects=False)
+    assert denied.status_code == 400 and "access_denied" in denied.text
+    with patch.object(server.SpotifyOAuth, "get_access_token", side_effect=Exception("error: invalid_client")):
+        failed = app.get(f"/callback?code=c&state={login()}", follow_redirects=False)
+    assert failed.status_code == 400 and "invalid_client" in failed.text and "<script" not in failed.text
+
+
+def test_like_key_offers_sign_in_while_spotify_cannot_like(monkeypatch):
+    import media
+    spotify = media._record(id="mpris:spotify", via="mpris", raw="spotify", name="Spotify", status="Playing")
+    monkeypatch.setattr(server, "media_shown", spotify)
+    monkeypatch.setitem(media.spotify_auth, "state", "required")
+    assert server._now_playing("")["like_signin"] is True        # not signed in to the Web API
+    monkeypatch.setitem(media.spotify_auth, "state", "ok")
+    monkeypatch.setitem(media.spotify_auth, "likes", False)
+    assert server._now_playing("")["like_signin"] is True        # signed in before the like key
+    monkeypatch.setitem(media.spotify_auth, "state", "off")
+    assert server._now_playing("")["like_signin"] is False       # no Spotify app set up: nothing to sign in to
+    monkeypatch.setattr(server, "media_shown", media._record(id="mpris:vlc", via="mpris", raw="vlc", name="VLC",
+                                                             status="Playing"))
+    monkeypatch.setitem(media.spotify_auth, "state", "required")
+    assert server._now_playing("")["like_signin"] is False       # not Spotify
+
+
+def test_paired_devices_show_which_app_a_tablet_runs(app):
+    token = _paired_token("Tablet")
+    tablet = {"origin": "null", "user-agent": TABLET_UA}
+    def rows_with(headers, auth):
+        with _admin(app) as admin, _peer(app, LAN_PEER), app.websocket_connect(WS_URL, headers=headers) as dev:
+            dev.send_json({"type": "auth", "token": token, **auth})
+            assert dev.receive_json()["type"] == "auth_ok"
+            for _ in range(10):
+                rows = _receive_until(admin, "paired_devices")["data"]
+                if rows[0]["online"]:
+                    return rows[0]
+        raise AssertionError("the device never showed as online")
+    row = rows_with(tablet, {"app": "0.11.12"})
+    assert (row["client"], row["app"]) == ("app", "0.11.12")
+    row = rows_with(tablet, {})                                   # an app from before it said its version
+    assert (row["client"], row["app"]) == ("app", None)
+    row = rows_with(tablet, {"app": "<b>1</b>"})                  # not a version: dropped
+    assert row["app"] is None
+    row = rows_with(APK_ORIGIN, {})                               # no WebView user agent: a browser
+    assert row["client"] == "browser"
 
 
 def test_discord_sign_in_needs_its_state(app):

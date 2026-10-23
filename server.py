@@ -39,6 +39,7 @@ import contextlib
 import urllib.request
 import hashlib
 import hmac
+import html
 import ipaddress
 import json
 import logging
@@ -316,6 +317,7 @@ SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media
                    "media_result"]   # see _make_config_sync
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
+APP_VERSION_RE = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,4}")   # the Android app's version, from auth
 
 
 def _with_ids(items, key: str) -> list:
@@ -724,6 +726,8 @@ class Client:
     ip: str
     device_id: str = ""
     name: str = ""
+    app: str | None = None   # the Android app's version (sent since v0.11.12)
+    in_app: bool = False     # an Android WebView: the app, even one too old to say its version
 
     @property
     def is_admin(self) -> bool:
@@ -744,8 +748,9 @@ class ConnectionManager:
         if client in self._clients:
             self._clients.remove(client)
 
-    def online_device_ids(self) -> set[str]:
-        return {c.device_id for c in self._clients if c.device_id}
+    def online_device_apps(self) -> dict[str, tuple[bool, str | None]]:
+        """device_id → (in the Android app, its version or None when it is too old to say)."""
+        return {c.device_id: (c.in_app, c.app) for c in self._clients if c.device_id}
 
     def device_clients(self, device_id: str) -> list[Client]:
         return [c for c in self._clients if c.device_id == device_id]
@@ -872,9 +877,15 @@ def _now_playing(art_url: str) -> dict | None:
             spotify_like.update(item=t["item_id"], liked=None)
             asyncio.create_task(_refresh_like(t.get("item_type", "track"), t["item_id"]))
         liked = bool(spotify_like["liked"])   # unknown yet: shown unlit
+    # Spotify plays but its Web API cannot like (not signed in, or signed in
+    # before the library scopes): the key is still there, and signs in.
+    auth = media_module.spotify_auth
+    like_signin = (liked is None and t["app"] == "spotify"
+                   and (auth["state"] == "required" or (auth["state"] == "ok" and not auth["likes"])))
     return {
         **media_module.public_media(t, art_url),
         "liked": liked,
+        "like_signin": like_signin,
         "sources": [{"id": s["id"], "name": s["name"], "status": s["status"]} for s in media_sources],
         "source_id": t["id"],
         "pinned": media_pin is not None,
@@ -1839,18 +1850,37 @@ def _oauth_state_mismatch() -> HTMLResponse:
 
 
 @_app.get("/callback", dependencies=[Depends(_require_loopback)])
-async def spotify_callback(code: str | None = None, state: str | None = None):
+async def spotify_callback(code: str | None = None, state: str | None = None, error: str | None = None):
+    global force_media_update
     sp = get_sp_oauth()
-    if not sp or not code:
+    if not sp:
         return RedirectResponse("/")
     if not _spend_oauth_state("spotify", state):
         logger.warning("Spotify sign-in callback refused: OAuth state missing or wrong")
         return _oauth_state_mismatch()
+    if error or not code:
+        # Spotify sends ?error=access_denied when the consent is cancelled.
+        logger.warning(f"Spotify sign-in not completed: {error or 'no code'}")
+        return _spotify_sign_in_failed(error or "Spotify sent no sign-in code")
     try:
-        await asyncio.to_thread(sp.get_access_token, code)
-    except Exception:
-        pass
+        # A fresh sign-in replaces whatever is cached (an older one without the like key's scopes).
+        await asyncio.to_thread(sp.get_access_token, code, check_cache=False)
+    except Exception as e:   # spotipy.SpotifyOauthError: invalid_client, invalid_grant, a redirect URI mismatch
+        logger.warning(f"Spotify sign-in failed: {e}")
+        return _spotify_sign_in_failed(str(e))
+    logger.info("Spotify signed in")
+    force_media_update = True        # read playback (and the like state) now, not in 3 s
+    if sys_data_trigger:
+        sys_data_trigger.set()
     return RedirectResponse("/")
+
+
+def _spotify_sign_in_failed(reason: str) -> HTMLResponse:
+    return HTMLResponse(
+        "<p>Spotify sign-in did not complete: " + html.escape(reason[:300]) + "</p>"
+        "<p>Check the Client ID, Client secret and the Redirect URI "
+        "(http://127.0.0.1:8888/callback) of your app in Spotify's developer dashboard, "
+        "then try again from Settings → Spotify on the PC.</p>", status_code=400)
 
 
 @_app.get("/disc_callback", dependencies=[Depends(_require_loopback)])
@@ -2094,9 +2124,26 @@ def _legacy_update_notice() -> dict:
 
 
 def _devices_msg() -> dict:
-    online = ws_manager.online_device_ids()
-    return {"type": "paired_devices",
-            "data": [{**d, "online": d["id"] in online} for d in paired_devices.public_list()]}
+    apps = ws_manager.online_device_apps()
+    rows = []
+    for d in paired_devices.public_list():
+        in_app, app = apps.get(d["id"], (False, None))
+        # client / app only while connected: "app" with its version (None: older
+        # than v0.11.12, which did not send it) or "browser".
+        rows.append({**d, "online": d["id"] in apps,
+                     "client": ("app" if in_app or app else "browser") if d["id"] in apps else None,
+                     "app": app})
+    return {"type": "paired_devices", "data": rows}
+
+
+def _in_app(ws: WebSocket) -> bool:
+    return bool(security.ANDROID_WEBVIEW_UA.search(ws.headers.get("user-agent", "")))
+
+
+def _app_version(msg: dict) -> str | None:
+    """The app version a page reports in auth / pair_request ("0.11.12"), if it is one."""
+    app = msg.get("app")
+    return app if isinstance(app, str) and APP_VERSION_RE.fullmatch(app) else None
 
 
 async def _broadcast_devices() -> None:
@@ -2178,14 +2225,14 @@ async def _authenticate(ws: WebSocket, ip: str, origin: str | None) -> Client | 
             logger.warning("WebSocket from %s refused: no valid pairing token", ip)
             await _close(ws, WS_CLOSE_UNAUTHORIZED, "pairing required")
             return None
-        return Client(ws, "device", ip, device["id"], device["name"])
+        return Client(ws, "device", ip, device["id"], device["name"], _app_version(msg), _in_app(ws))
     if msg.get("type") == "pair_request":
-        return await _pair(ws, ip, msg.get("device_name"))
+        return await _pair(ws, ip, msg.get("device_name"), _app_version(msg), _in_app(ws))
     await _close(ws, WS_CLOSE_POLICY, "auth required")
     return None
 
 
-async def _pair(ws: WebSocket, ip: str, device_name) -> Client | None:
+async def _pair(ws: WebSocket, ip: str, device_name, app: str | None = None, in_app: bool = False) -> Client | None:
     """Hold the socket until the PC user allows or denies it, or it expires."""
     try:
         req = pairing.open(ip, device_name)
@@ -2220,7 +2267,7 @@ async def _pair(ws: WebSocket, ip: str, device_name) -> Client | None:
             if await _send(ws, {"type": "pair_result", "data": {
                     "status": "approved", "token": token, "device_id": device["id"], "name": device["name"]}}):
                 await _broadcast_devices()
-                return Client(ws, "device", ip, device["id"], device["name"])
+                return Client(ws, "device", ip, device["id"], device["name"], app, in_app)
             # It hung up before receiving its token: nothing can ever use this entry.
             await asyncio.to_thread(paired_devices.revoke, device["id"])
             return None
@@ -2263,6 +2310,11 @@ async def _send_initial_state(client: Client) -> None:
         for req in pairing.pending():
             await client.ws.send_text(_dumps(_pair_pending_msg(req)))
     else:
+        # Which app a tablet runs: the bundled page decides how the keys behave,
+        # and an update postponed with "Later" keeps the old one.
+        logger.info("Device %r connected from %s (%s)", client.name, client.ip,
+                    f"app {client.app}" if client.app
+                    else "an app older than v0.11.12" if client.in_app else "a browser")
         await _device_seen(client.device_id)
 
 

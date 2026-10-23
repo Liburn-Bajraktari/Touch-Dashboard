@@ -1462,6 +1462,10 @@
             height: 1.3rem;
         }
 
+        .np-like[data-state="signin"] {
+            color: var(--text-3);
+        }
+
         .np-like[aria-pressed="true"] {
             color: var(--dyn, var(--accent-text));
         }
@@ -2867,6 +2871,11 @@
             font-size: var(--fs-xs);
             line-height: 1.4;
             white-space: nowrap;
+        }
+
+        .device-meta .is-outdated {
+            color: var(--warning);
+            font-weight: var(--weight-strong);
         }
 
         .device-meta .is-online {
@@ -5942,13 +5951,16 @@
                     window.location.reload();
                     return;
                 }
-                // The server closes a socket that says nothing within 5 s.
+                // The server closes a socket that says nothing within 5 s. The
+                // Android app says its version: the PC shows it (Settings, Devices).
+                const app = installedAppVersion();
+                const appField = app ? { app: app } : {};
                 if (pairName !== null) {
                     authState = 'pair';
-                    nextSocket.send(JSON.stringify({ type: 'pair_request', device_name: pairName }));
+                    nextSocket.send(JSON.stringify({ type: 'pair_request', device_name: pairName, ...appField }));
                 } else {
                     authState = 'auth';
-                    nextSocket.send(JSON.stringify({ type: 'auth', token: storedToken() }));
+                    nextSocket.send(JSON.stringify({ type: 'auth', token: storedToken(), ...appField }));
                 }
             };
 
@@ -6267,7 +6279,7 @@
             }
             list.innerHTML = pairedDevices.map(dev => {
                 const name = escapeHtml(dev.name);
-                const seen = dev.online ? '<span class="is-online">Connected</span>'
+                const seen = dev.online ? '<span class="is-online">Connected</span>' + deviceAppNote(dev)
                     : `Last seen ${escapeHtml(formatPairedAt(dev.last_seen))}`;
                 return `
                     <div class="device-row" data-id="${escapeHtml(dev.id)}">
@@ -6277,6 +6289,18 @@
                         <button type="button" class="btn btn-danger device-revoke" aria-label="Remove ${name}">Remove</button>
                     </div>`;
             }).join('');
+        }
+
+        // A connected tablet's app: an update postponed with "Later" keeps the
+        // old app and its old page (the keys behave as that version did).
+        // Apps before v0.11.12 do not say their version; the server knows them
+        // by the WebView's user agent. Older servers send no `client`.
+        function deviceAppNote(dev) {
+            if (dev.client === 'browser') return ' · Browser';
+            if (dev.client !== 'app') return '';
+            const outdated = !!requiredAppVersion && (!dev.app || versionOutdated(dev.app, requiredAppVersion));
+            return ` · App ${dev.app ? escapeHtml(dev.app) : 'older than 0.11.12'}`
+                + (outdated ? '<br><span class="is-outdated">Update the app on this tablet</span>' : '');
         }
 
         const pairedList = document.getElementById('paired-devices-list');
@@ -6374,6 +6398,7 @@
         let pendingSysData = null;
         let discordVidLock = 0;
         let serverFeatures = new Set();   // from config_sync; older servers send none
+        let requiredAppVersion = '';      // the Android app this desktop needs (config_sync.req_apk_version)
 
         // Discord voice keys: the keys show the asked-for state at once and hold
         // it until Discord reports it (or DISC_CONFIRM_MS passes). A burst of taps
@@ -7130,16 +7155,28 @@
         })();
 
         // Spotify's like key: shows the library state, sends the state asked for.
-        function renderLike(on) {
+        // While Spotify's Web API is not signed in (or was before the like key's
+        // scopes), the key is unlit and signs in: on the PC it opens Spotify's
+        // sign-in, on a tablet it says where to do it.
+        function renderLike(on, signin = false) {
             const btn = dom.npLike;
-            if (btn.getAttribute('aria-pressed') === String(on)) return;
-            btn.setAttribute('aria-pressed', String(on));
-            btn.setAttribute('aria-label', on ? 'Remove from your library' : 'Save to your library');
+            const state = signin ? 'signin' : String(on);
+            if (btn.dataset.state === state) return;
+            btn.dataset.state = state;
+            btn.setAttribute('aria-pressed', String(on && !signin));
+            btn.setAttribute('aria-label', signin ? 'Sign in to Spotify to save tracks'
+                : on ? 'Remove from your library' : 'Save to your library');
         }
         function syncLike(m) {
-            const show = !!(m && typeof m.liked === 'boolean' && serverFeatures.has('media_like'));
+            const can = serverFeatures.has('media_like');
+            const signin = !!(m && can && m.like_signin);
+            const show = !!(m && can && (typeof m.liked === 'boolean' || signin));
             if (dom.npLike.hidden === show) dom.npLike.hidden = !show;
-            if (!show) { likePending = null; return; }
+            if (!show || signin) {
+                likePending = null;
+                if (signin) renderLike(false, true);
+                return;
+            }
             let liked = m.liked;
             if (likePending) {
                 if (liked === likePending.liked || likePending.title !== m.title || Date.now() > likePending.until) likePending = null;
@@ -7149,6 +7186,14 @@
         }
         function npLike() {
             const m = npMedia;
+            if (m && m.like_signin) {
+                if (isAdmin()) goToServerPath('/spotify_login');
+                else tdNotice({
+                    icon: 'heart', title: 'Sign in to Spotify on the PC',
+                    text: 'On the PC, open Settings, Spotify, and choose Connect Spotify (or Enable the like key). The like key then works on every screen.',
+                });
+                return;
+            }
             if (!m || typeof m.liked !== 'boolean') return;
             const want = dom.npLike.getAttribute('aria-pressed') !== 'true';
             likePending = { liked: want, title: m.title, until: holdUntil() };
@@ -7738,6 +7783,7 @@
                     if (authState !== 'authed') onAuthenticated({ role: 'legacy' });
                     globalCfg = d.cfg;
                     serverFeatures = new Set(d.features || []);
+                    requiredAppVersion = d.req_apk_version || '';
                     currentHwDevices = d.hw;
                     osTarget = d.os_target || 'windows';
 
