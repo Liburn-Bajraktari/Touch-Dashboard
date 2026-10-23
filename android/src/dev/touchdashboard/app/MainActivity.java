@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -40,6 +41,8 @@ public class MainActivity extends Activity implements AppUpdater.Listener {
 
     private WebView webView;
     private AppUpdater updater;
+    /** Held while the app is in front: see createWifiLock(). Null without Wi-Fi. */
+    private WifiManager.WifiLock wifiLock;
     /** Updated on the UI thread; the bridge (a binder thread) only reads it. */
     private volatile String currentUrl = "";
 
@@ -52,10 +55,12 @@ public class MainActivity extends Activity implements AppUpdater.Listener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         updater = new AppUpdater(this, this);
+        wifiLock = createWifiLock();
 
+        // No layer type of its own: a hardware layer made the WebView draw
+        // every frame into an extra full-screen texture first.
         webView = new WebView(this);
         webView.setBackgroundColor(0xFF000000);
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -89,12 +94,35 @@ public class MainActivity extends Activity implements AppUpdater.Listener {
         super.onResume();
         webView.onResume();
         updater.onHostResumed();
+        if (wifiLock != null) wifiLock.acquire();
     }
 
     @Override
     protected void onPause() {
+        if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
         webView.onPause();
         super.onPause();
+    }
+
+    /**
+     * Wi-Fi power save holds every packet for the tablet until the radio next
+     * wakes: measured from the PC at one ping a second (the dashboard's own
+     * rate), replies took 2-110 ms and up to 529 ms, against 2 ms under steady
+     * traffic. Every reading the PC sends after a key press waited that long.
+     * Low-latency mode (Android 10+) keeps power save off, and works only while
+     * the app is in front with the screen on; where a device lacks it, Android
+     * falls back to high-performance mode, which also keeps power save off.
+     */
+    @SuppressWarnings("deprecation")
+    private WifiManager.WifiLock createWifiLock() {
+        WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+        if (wifi == null) return null;
+        int mode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                : WifiManager.WIFI_MODE_FULL_HIGH_PERF;
+        WifiManager.WifiLock lock = wifi.createWifiLock(mode, "TouchDashboard:link");
+        lock.setReferenceCounted(false);
+        return lock;
     }
 
     @Override

@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Haptic ticks on keys and fader detents (navigator.vibrate). -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The Wi-Fi lock that keeps power save off while the app is in front (MainActivity). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Self-update through PackageInstaller; the user allows it once. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

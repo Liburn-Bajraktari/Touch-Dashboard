@@ -130,6 +130,25 @@ def test_local_spotify_app_takes_the_web_api_details():
     assert [p["id"] for p in remote] == ["v", "spotify:api"]
 
 
+def test_web_api_a_track_behind_does_not_take_the_card():
+    # After ⏭ the Web API still reports the old track for a moment. It used to
+    # join as a second source and, newer to start (signed in after Spotify
+    # started), take the card and the keys: the old title stayed up and the
+    # next tap went through the Web API instead of the app.
+    local = _p("mpris:spotify", "spotify", title="New song", started=100.0)
+    api = _p("spotify:api", "spotify", title="Old song", started=200.0, art="https://i.scdn.co/old",
+             item_id="old", item_type="track", can_like=True)
+    merged = media.merge_spotify([local], api)
+    assert [p["id"] for p in merged] == ["mpris:spotify"]
+    assert media.pick_source(merged)["title"] == "New song"
+    # Nothing of the old track carries over; only that the API can like.
+    assert merged[0]["api_behind"] and merged[0]["can_like"]
+    assert "item_id" not in merged[0] and merged[0]["art"] == ""
+    # The app open but stopped: the API's playback is elsewhere (a phone).
+    stopped = media.merge_spotify([_p("mpris:spotify", "spotify", "Stopped", title="")], api)
+    assert [p["id"] for p in stopped] == ["mpris:spotify", "spotify:api"]
+
+
 @pytest.mark.parametrize("record, kind", [
     (_p(app="jelliumdesktop", album="Season 4", length=1501.7), "long"),    # an episode
     (_p(app="jelliumdesktop", album="Album", length=240), "music"),          # Jellyfin music

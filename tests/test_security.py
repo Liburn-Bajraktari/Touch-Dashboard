@@ -630,6 +630,24 @@ def test_like_key_offers_sign_in_while_spotify_cannot_like(monkeypatch):
     assert server._now_playing("")["like_signin"] is False       # not Spotify
 
 
+def test_like_key_waits_unlit_while_the_web_api_is_a_track_behind(app, monkeypatch):
+    import media
+    behind = media._record(id="mpris:spotify", via="mpris", raw="spotify", name="Spotify", status="Playing",
+                           title="New song", can_like=True, api_behind=True)
+    monkeypatch.setitem(media.spotify_auth, "state", "ok")
+    monkeypatch.setitem(media.spotify_auth, "likes", True)
+    with patch("server.media_module.pick_source", return_value=behind), \
+            patch("server.media_module.spotify_set_liked") as set_liked, \
+            _device(app, _paired_token()) as ws:
+        monkeypatch.setattr(server, "media_shown", behind)
+        now = server._now_playing("")
+        assert (now["liked"], now["like_signin"]) == (False, False)    # the key stays, unlit
+        ws.send_json({"type": "media_like", "data": {"liked": True}})
+        # Which track the API would like is not known yet: the tap is taken back.
+        assert _receive_until(ws, "media_result")["data"] == {"cmd": "like", "ok": False}
+    set_liked.assert_not_called()
+
+
 def test_paired_devices_show_which_app_a_tablet_runs(app):
     token = _paired_token("Tablet")
     tablet = {"origin": "null", "user-agent": TABLET_UA}

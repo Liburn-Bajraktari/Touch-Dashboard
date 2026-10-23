@@ -132,7 +132,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Variable | Set by | Meaning |
 |---|---|---|
 | `--dyn`, `--dyn-ink`, `--dyn-glow`, `--dyn-shadow` | `applyDyn()` from the cover | The music's colour, fitted per scheme so `--dyn-ink` keeps ≥ 4.5:1; unset when nothing plays |
-| `--ambient` | CSS (`@property`, cross-fades 1.4 s) | `--dyn-glow` if set, else `--glow` |
+| `--ambient` | CSS (`@property`, not inherited; set and cross-faded 1.4 s on `body`, the lock screen and the full-screen clock only) | `--dyn-glow` if set, else `--glow`. Faded on `:root` as an inherited property, every frame restyled the whole page |
 | `--v` | the fader | 0–1, drives the lit slot and the cap by transform |
 | `--angle` | the encoder | Where the knob points |
 | `--sq` | `@supports (corner-shape: squircle)` | 1.6 where continuous corners exist, else 1 |

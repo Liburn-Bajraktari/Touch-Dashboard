@@ -181,7 +181,13 @@ def merge_spotify(players: list[dict], spot: dict | None) -> list[dict]:
     """Spotify's Web API and the local Spotify app describe the same playback.
     When the app runs here, keep its record (instant, controllable without
     Premium) with the API's cover, episode flag and track id; otherwise the
-    API record is a source of its own (a phone, a speaker)."""
+    API record is a source of its own (a phone, a speaker).
+
+    After a track change the API reports the old track for up to a few
+    seconds. While the app is playing or paused here, a title that differs is
+    that lag, not another device: the app's record stands alone (api_behind,
+    keeping only whether the API can like) instead of the old track joining
+    as a second source, which, newer to start, took the card and the keys."""
     if not spot or spot.get("status") not in LIVE:
         return players
     title = spot["title"].casefold()
@@ -193,6 +199,10 @@ def merge_spotify(players: list[dict], spot: dict | None) -> list[dict]:
             if spot.get("art"):
                 merged["art"] = spot["art"]
             return players[:i] + [merged] + players[i + 1:]
+    for i, p in enumerate(players):
+        if p["app"] == "spotify" and p["status"] in LIVE:
+            behind = {**p, "can_like": spot.get("can_like", False), "api_behind": True}
+            return players[:i] + [behind] + players[i + 1:]
     return players + [spot]
 
 

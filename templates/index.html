@@ -36,16 +36,24 @@
          */
 
         /* Ambient light: the cover art's colour when something plays, else the theme glow.
-           Registered so it can cross-fade between tracks. */
+           Registered so it can cross-fade between tracks. Not inherited, and set
+           only on the three surfaces that paint it: animated on :root, every
+           frame of the 1.4 s fade restyled every element on the page (measured,
+           6× CPU throttle: ~1.3 s of 60-80 ms frames after each new track). */
         @property --ambient {
             syntax: '<color>';
-            inherits: true;
+            inherits: false;
             initial-value: transparent;
         }
 
         :root {
-            --ambient: var(--dyn-glow, var(--glow));
             --sq: 1;
+        }
+
+        body,
+        #lock-overlay,
+        #clock-view {
+            --ambient: var(--dyn-glow, var(--glow));
             transition: --ambient 1.4s var(--ease);
         }
 
@@ -4454,7 +4462,7 @@
         }
 
         /* ── Lite effects tier (WebKitGTK desktop window) ─────────────────── */
-        [data-fx="lite"] {
+        [data-fx="lite"] :is(body, #lock-overlay, #clock-view) {
             transition: none;
         }
 

@@ -52,10 +52,13 @@ def test_old_browser_key_names_still_work():
 
 
 def _z_index(selector: str) -> int:
+    """From the rule that sets it (others, like the ambient light's, share the selector)."""
     css = TEMPLATE.read_text(encoding="utf-8")
-    block = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
-    assert block, selector
-    return int(re.search(r"z-index:\s*(\d+)", block.group(1)).group(1))
+    for block in re.finditer(re.escape(selector) + r"\s*\{([^}]*)\}", css):
+        z = re.search(r"z-index:\s*(\d+)", block.group(1))
+        if z:
+            return int(z.group(1))
+    raise AssertionError(f"no z-index for {selector}")
 
 
 def test_full_screen_clock_stays_under_the_lock_screen():

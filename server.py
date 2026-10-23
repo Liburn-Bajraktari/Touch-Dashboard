@@ -475,6 +475,7 @@ media_pin: dict | None     = None    # {"id", "at"}: a source picked on the chip
 media_sources: list[dict]  = []      # every playing or paused source, for the chip
 spotify_like = {"item": "", "liked": None}   # the shown Spotify item, saved in the library?
 spotify_recheck_at = 0.0             # read the Web API again then: its first reply after a command is often stale
+spotify_reader: asyncio.Task | None = None   # the Web API read in flight (_read_spotify)
 mpris_mon = None                     # MprisMonitor (Linux); None → playerctl is polled
 last_audio_devs: list = []
 last_weather_data    = {"temp": "--", "desc": "--", "timestamp": 0}
@@ -849,6 +850,21 @@ async def _fetch_spotify(forced: bool) -> dict | None:
     return await asyncio.to_thread(media_module.get_spotify_api_meta, get_sp_oauth(), REQ_SESSION)
 
 
+async def _read_spotify(forced: bool) -> None:
+    """One Web API read, off hardware_loop's tick, pushed when it lands. In the
+    tick, every key on a Spotify source held the local app's new state (the
+    MPRIS monitor has it at once) for FORCED_MEDIA_DELAY plus Spotify's round
+    trip, and every 3 s poll held Discord, volume and media events as long."""
+    global spotify_cache, last_spotify_check
+    try:
+        spotify_cache = await _fetch_spotify(forced)
+    except Exception as e:   # network, Spotify; the next poll tries again
+        logger.debug(f"hardware_loop spotify poll failed: {e}")
+    last_spotify_check = time.monotonic()
+    if sys_data_trigger:
+        sys_data_trigger.set()
+
+
 async def _fetch_local_media(forced: bool) -> list[dict]:
     if forced:
         await asyncio.sleep(FORCED_MEDIA_DELAY)
@@ -877,6 +893,8 @@ def _now_playing(art_url: str) -> dict | None:
             spotify_like.update(item=t["item_id"], liked=None)
             asyncio.create_task(_refresh_like(t.get("item_type", "track"), t["item_id"]))
         liked = bool(spotify_like["liked"])   # unknown yet: shown unlit
+    elif t.get("can_like") and t.get("api_behind"):
+        liked = False                         # the Web API is still on the last track
     # Spotify plays but its Web API cannot like (not signed in, or signed in
     # before the library scopes): the key is still there, and signs in.
     auth = media_module.spotify_auth
@@ -978,7 +996,7 @@ def _discord_state() -> dict:
 
 
 async def hardware_loop():
-    global last_spotify_check, spotify_cache, last_audio_devs
+    global last_audio_devs, spotify_reader
     global force_media_update, main_event_loop, sys_data_trigger
     global media_shown, media_pin, media_sources, spotify_recheck_at
 
@@ -1005,6 +1023,7 @@ async def hardware_loop():
     batt_cache: dict = {"pct": None, "state": "unknown", "model": "", "vendor": ""}
     last_sys_data_payload = {}
     is_linux = sys.platform.startswith("linux")
+    spotify_reread = False   # a key was pressed while a Web API read was in flight
 
     while True:
         if not ws_manager.has_clients():
@@ -1012,7 +1031,8 @@ async def hardware_loop():
             continue
 
         curr   = time.monotonic()
-        forced = force_media_update
+        # Taken now: a key pressed while this tick awaits forces the next one.
+        forced, force_media_update = force_media_update, False
         burst  = is_linux and media_module.is_mpris_burst_active()
         local_interval  = BURST_INTERVAL if burst else LOCAL_MEDIA_INTERVAL
         monitor = mpris_mon if mpris_mon is not None and mpris_mon.running else None
@@ -1025,10 +1045,14 @@ async def hardware_loop():
             if sys.platform.startswith("win"):
                 jobs["batt"] = asyncio.to_thread(_read_batt_windows)
         recheck = bool(spotify_recheck_at) and curr >= spotify_recheck_at
-        if curr - last_spotify_check > SPOTIFY_POLL_INTERVAL or forced or recheck:
-            jobs["spotify"] = _fetch_spotify(forced)
-            if recheck:
-                spotify_recheck_at = 0.0
+        if forced or recheck or spotify_reread or curr - last_spotify_check > SPOTIFY_POLL_INTERVAL:
+            if spotify_reader is None or spotify_reader.done():
+                spotify_reader = asyncio.create_task(_read_spotify(forced or spotify_reread))
+                spotify_reread = False
+                if recheck:
+                    spotify_recheck_at = 0.0
+            elif forced:
+                spotify_reread = True
         # The MPRIS monitor is read in memory below; polled sources are fetched.
         if monitor is None and (forced or curr - last_local_check >= local_interval):
             jobs["local"] = _fetch_local_media(forced)
@@ -1064,11 +1088,6 @@ async def hardware_loop():
             AudioSystem.remember("@DEFAULT_AUDIO_SOURCE@", audio_data["mic"], curr)
         if isinstance(results.get("batt"), dict):
             batt_cache = results["batt"]
-        if "spotify" in jobs:
-            if not isinstance(results["spotify"], Exception):
-                spotify_cache = results["spotify"]
-            last_spotify_check = time.monotonic()
-            force_media_update = False
         if "local" in jobs:
             local_players = [] if isinstance(results["local"], Exception) else results["local"]
             last_local_check = curr
@@ -1642,6 +1661,8 @@ async def lifespan(app: FastAPI):
     app.state.bg_tasks = tasks
     yield
 
+    if spotify_reader is not None and not spotify_reader.done():
+        tasks.append(spotify_reader)
     for t in tasks:
         t.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -2613,6 +2634,9 @@ async def _ws_media_like(client: Client, msg: dict) -> None:
     if not isinstance(liked, bool):
         raise TypeError("liked must be a boolean")
     t = media_shown
+    if t and t.get("can_like") and t.get("api_behind"):
+        await _media_result(client.ws, "like", False)   # the key shows unlit: take the tap back
+        return
     if not (t and t.get("can_like") and t.get("item_id")):
         raise ValueError("nothing to like")
     ok = await asyncio.to_thread(media_module.spotify_set_liked, get_sp_oauth(),
@@ -2986,8 +3010,9 @@ async def _media_command(cmd: str, value: float | None = None, ws: WebSocket | N
         if t["via"] == "smtc":
             await _media_keys(cmd)
     # The MPRIS monitor reports the result by itself; a forced read waits
-    # FORCED_MEDIA_DELAY plus a Web API round trip, so only polled sources
-    # (and Spotify, whose cover and like state come from the Web API) get one.
+    # FORCED_MEDIA_DELAY plus a round trip, so only polled sources (and
+    # Spotify, whose cover and like state come from the Web API) get one.
+    # Spotify's runs off the tick: the monitor's state goes out first.
     force_media_update = t["via"] != "mpris" or t["app"] == "spotify"
     if ok and t["app"] == "spotify":
         spotify_recheck_at = time.monotonic() + SPOTIFY_RECHECK_S

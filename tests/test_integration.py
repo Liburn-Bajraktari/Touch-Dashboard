@@ -110,6 +110,27 @@ async def test_websocket_flow(client):
         assert "audio" in payload
 
 
+def test_sys_data_does_not_wait_for_a_spotify_read(client):
+    # The Web API read ran inside hardware_loop's tick: after every key on a
+    # Spotify source the local app's new state waited FORCED_MEDIA_DELAY plus
+    # Spotify's round trip, and each 3 s poll held everything else as long.
+    import threading
+    import time
+    release = threading.Event()
+    def hanging_read(*args):
+        release.wait(20)
+        return None
+    with patch("server.media_module.get_spotify_api_meta", side_effect=hanging_read):
+        try:
+            with _admin_ws(client) as websocket:
+                start = time.monotonic()
+                _receive_until(websocket, "sys_data")
+                waited = time.monotonic() - start
+        finally:
+            release.set()
+    assert waited < 8     # the first tick comes within ~2 s; the read would hold it 20
+
+
 def _receive_until(websocket, msg_type, limit=20):
     for _ in range(limit):
         msg = websocket.receive_json()
