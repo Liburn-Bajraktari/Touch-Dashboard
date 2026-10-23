@@ -603,7 +603,11 @@ def test_spotify_sign_in_says_why_it_failed(app):
     server.config.update(spot_id="client-id", spot_secret="client-secret")
     login = lambda: _query(app.get("/spotify_login", follow_redirects=False).headers["location"])["state"]
     denied = app.get(f"/callback?error=access_denied&state={login()}", follow_redirects=False)
-    assert denied.status_code == 400 and "access_denied" in denied.text
+    assert denied.status_code == 400 and "access_denied" in denied.text and "cancelled" in denied.text
+    # Refused on Spotify's side: the Client ID and Redirect URI were fine, so say what else it is.
+    refused = app.get(f"/callback?error=server_error&state={login()}", follow_redirects=False)
+    assert refused.status_code == 400 and "Premium" in refused.text and "User Management" in refused.text
+    assert "Client secret" not in refused.text
     with patch.object(server.SpotifyOAuth, "get_access_token", side_effect=Exception("error: invalid_client")):
         failed = app.get(f"/callback?code=c&state={login()}", follow_redirects=False)
     assert failed.status_code == 400 and "invalid_client" in failed.text and "<script" not in failed.text

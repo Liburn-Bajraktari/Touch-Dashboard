@@ -1875,12 +1875,31 @@ async def spotify_callback(code: str | None = None, state: str | None = None, er
     return RedirectResponse("/")
 
 
+# What Spotify's ?error= on the redirect means, and what to do. Errors from the
+# token exchange (invalid_client, invalid_grant, a redirect URI mismatch) get the default.
+SPOTIFY_SIGN_IN_HELP = {
+    "access_denied": "The sign-in was cancelled on Spotify's page.",
+    "server_error": (
+        "Spotify refused the sign-in on its side, after you logged in. Your app's Client ID and "
+        "Redirect URI were accepted: Spotify sent you back here. Since February 2026 an app in "
+        "Spotify's Development Mode only works while its owner has Spotify Premium, and only for "
+        "accounts added under User Management in the app's dashboard (up to five). Check both "
+        "on developer.spotify.com/dashboard."),
+    "temporarily_unavailable": "Spotify's sign-in is busy or down. Try again in a few minutes.",
+}
+SPOTIFY_SIGN_IN_DEFAULT_HELP = (
+    "Check the Client ID, Client secret and the Redirect URI (http://127.0.0.1:8888/callback) "
+    "of your app in Spotify's developer dashboard.")
+
+
 def _spotify_sign_in_failed(reason: str) -> HTMLResponse:
+    help_text = SPOTIFY_SIGN_IN_HELP.get(reason, SPOTIFY_SIGN_IN_DEFAULT_HELP)
     return HTMLResponse(
         "<p>Spotify sign-in did not complete: " + html.escape(reason[:300]) + "</p>"
-        "<p>Check the Client ID, Client secret and the Redirect URI "
-        "(http://127.0.0.1:8888/callback) of your app in Spotify's developer dashboard, "
-        "then try again from Settings → Spotify on the PC.</p>", status_code=400)
+        "<p>" + html.escape(help_text) + "</p>"
+        "<p>Then try again from Settings → Spotify on the PC. Spotify's own keys "
+        "(play, next, seek) keep working without this sign-in; it is needed for the like key "
+        "and for Spotify playing on another device.</p>", status_code=400)
 
 
 @_app.get("/disc_callback", dependencies=[Depends(_require_loopback)])

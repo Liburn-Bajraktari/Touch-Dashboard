@@ -327,7 +327,8 @@
         }
 
         .btn:active,
-        .btn.active-btn {
+        .btn.active-btn,
+        .btn.is-pressed {
             transform: translateY(0.12rem) scale(0.97);
             transition-duration: var(--dur-fast);
             transition-timing-function: var(--ease);
@@ -338,7 +339,8 @@
            window), so there a key sinks by transform and lights by fill alone.
            :where() keeps the specificity these rules had without the tier. */
         :where([data-fx="rich"]) .btn:active,
-        :where([data-fx="rich"]) .btn.active-btn {
+        :where([data-fx="rich"]) .btn.active-btn,
+        :where([data-fx="rich"]) .btn.is-pressed {
             box-shadow: var(--elev-press);
         }
 
@@ -354,7 +356,8 @@
             box-shadow: inset 0 1px 0 var(--rim), 0 0.5rem 1.1rem -0.5rem var(--depth);
         }
 
-        :where([data-fx="rich"]) .btn-primary:active {
+        :where([data-fx="rich"]) .btn-primary:active,
+        :where([data-fx="rich"]) .btn-primary.is-pressed {
             box-shadow: none;
         }
 
@@ -370,7 +373,8 @@
             box-shadow: inset 0 1px 0 var(--rim), 0 0.5rem 1.1rem -0.5rem var(--depth);
         }
 
-        :where([data-fx="rich"]) .btn-destructive:active {
+        :where([data-fx="rich"]) .btn-destructive:active,
+        :where([data-fx="rich"]) .btn-destructive.is-pressed {
             box-shadow: none;
         }
 
@@ -394,7 +398,8 @@
             box-shadow: inset 0 0 0 var(--line-w) var(--line-strong);
         }
 
-        .btn-ghost:active {
+        .btn-ghost:active,
+        .btn-ghost.is-pressed {
             box-shadow: inset 0 0 0 var(--line-w) var(--line-strong);
             background: var(--surface-2);
         }
@@ -452,7 +457,8 @@
             border: 0.14rem dashed var(--line-strong);
         }
 
-        .btn-add:active {
+        .btn-add:active,
+        .btn-add.is-pressed {
             box-shadow: none;
             background: var(--surface-2);
         }
@@ -753,7 +759,8 @@
             transition: transform var(--dur-spring) var(--spring-bounce);
         }
 
-        .speed-widget:active {
+        .speed-widget:active,
+        .speed-widget.is-pressed {
             transform: scale(0.96);
             transition-duration: var(--dur-fast);
         }
@@ -984,7 +991,8 @@
             color: var(--well-ink-2);
         }
 
-        .sb-fb-btn:active {
+        .sb-fb-btn:active,
+        .sb-fb-btn.is-pressed {
             box-shadow: none;
         }
 
@@ -1016,7 +1024,8 @@
             transition: transform var(--dur-spring) var(--spring-bounce);
         }
 
-        .vol-step-btn:active {
+        .vol-step-btn:active,
+        .vol-step-btn.is-pressed {
             transform: scale(0.86);
             transition-duration: var(--dur-fast);
         }
@@ -1403,6 +1412,12 @@
             color: var(--dyn-ink, var(--accent-ink));
             box-shadow: inset 0 1px 0 var(--rim), 0 0.9rem 1.8rem -0.7rem var(--dyn-shadow, var(--depth));
             transition: transform var(--dur-spring) var(--spring-bounce), background-color 0.8s var(--ease), box-shadow 0.8s var(--ease);
+        }
+
+        /* Pressed, the play key sinks as fast as every other key: its own
+           transition (the cover colour's slow fade) would otherwise slow the press-in. */
+        .spot-ctrl .btn-play:is(:active, .active-btn, .is-pressed) {
+            transition: transform var(--dur-fast) var(--ease), background-color 0.8s var(--ease), box-shadow 0.8s var(--ease);
         }
 
         [data-play-key="theme"] .spot-ctrl .btn-play {
@@ -2092,7 +2107,8 @@
             box-shadow: 0 0 0.6rem var(--accent);
         }
 
-        .encoder:active .encoder-knob {
+        .encoder:active .encoder-knob,
+        .encoder.is-pressed .encoder-knob {
             scale: 0.95;
         }
 
@@ -2168,7 +2184,8 @@
             transition: transform var(--dur-spring) var(--spring-bounce);
         }
 
-        .btn:active .key-screen svg.lucide {
+        .btn:active .key-screen svg.lucide,
+        .btn.is-pressed .key-screen svg.lucide {
             transform: scale(0.9);
             transition-duration: var(--dur-fast);
         }
@@ -2215,7 +2232,8 @@
             cursor: default;
         }
 
-        .macro-slot.empty .btn:active {
+        .macro-slot.empty .btn:active,
+        .macro-slot.empty .btn.is-pressed {
             transform: none;
         }
 
@@ -2533,7 +2551,8 @@
             flex-shrink: 0;
         }
 
-        .menu-row:active {
+        .menu-row:active,
+        .menu-row.is-pressed {
             background: var(--surface-3);
         }
 
@@ -5600,6 +5619,37 @@
         document.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.btn, .encoder, .speed-widget, .theme-card, .switch')) haptic(HAPTIC_KEY);
         }, { passive: true });
+
+        // --- Touch press (Android) ---
+        // Chrome shows :active for a touch only once it is sure the finger will
+        // not scroll, which for a quick tap is when it lifts: on a tablet a key
+        // sank after the finger was gone, while a mouse gets :active at once
+        // (measured in touch-emulated Chromium: no :active during a 300 ms hold,
+        // whatever touch-action says). Dashboard keys show the press from
+        // pointerdown instead (.is-pressed: the :active look) and hold it at least
+        // PRESS_MIN_MS, so a quick tap still sinks. Not inside dialogs: their
+        // lists scroll, which is what the browser's delay is for.
+        const PRESSABLE = '.btn, .encoder, .speed-widget, .sb-fb-btn, .vol-step-btn, .menu-row';
+        const PRESS_MIN_MS = 100;
+        let pressed = null;               // {key, id, at}
+        document.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' || !e.isPrimary) return;
+            const key = e.target.closest(PRESSABLE);
+            if (!key || key.disabled || key.closest('.modal-overlay')) return;
+            clearTimeout(key._unpress);
+            key.classList.add('is-pressed');
+            pressed = { key, id: e.pointerId, at: performance.now() };
+        }, { passive: true });
+        function unpress(e) {
+            if (!pressed || e.pointerId !== pressed.id) return;
+            const { key, at } = pressed;
+            pressed = null;
+            // A cancelled touch (it became a scroll or a gesture) lets go at once.
+            const wait = e.type === 'pointercancel' ? 0 : PRESS_MIN_MS - (performance.now() - at);
+            key._unpress = setTimeout(() => key.classList.remove('is-pressed'), Math.max(0, wait));
+        }
+        document.addEventListener('pointerup', unpress, { passive: true });
+        document.addEventListener('pointercancel', unpress, { passive: true });
 
         window.addEventListener('pywebviewready', () => {
             document.getElementById('desktop-titlebar').style.display = 'flex';
