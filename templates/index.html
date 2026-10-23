@@ -35,26 +35,44 @@
          * glows and cross-fades.
          */
 
-        /* Ambient light: the cover art's colour when something plays, else the theme glow.
-           Registered so it can cross-fade between tracks. Not inherited, and set
-           only on the three surfaces that paint it: animated on :root, every
-           frame of the 1.4 s fade restyled every element on the page (measured,
-           6× CPU throttle: ~1.3 s of 60-80 ms frames after each new track). */
-        @property --ambient {
-            syntax: '<color>';
-            inherits: false;
-            initial-value: transparent;
-        }
-
+        /* Ambient light: the cover art's colour when something plays, else the theme
+           glow. The lock screen and the full-screen clock paint it in their own
+           background (it changes there without a fade); behind the dashboard it is
+           two .ambient layers that cross-fade (applyAmbient). */
         :root {
             --sq: 1;
         }
 
-        body,
         #lock-overlay,
         #clock-view {
             --ambient: var(--dyn-glow, var(--glow));
-            transition: --ambient 1.4s var(--ease);
+        }
+
+        /* Fixed under the modules. A new colour goes to the hidden layer, which
+           fades in by opacity while the other fades out: the compositor does it
+           and nothing is repainted but that layer, once. Fading the colour in
+           body's own background repainted the whole page on every frame of the
+           1.4 s fade (measured as a tablet: 1.2 s of raster per skip). */
+        .ambient {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            background: radial-gradient(70rem 52rem at 14% 32%, var(--light, var(--glow)), transparent 72%);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 1.4s var(--ease), visibility 0s linear 1.4s;
+        }
+
+        .ambient.is-on {
+            opacity: 1;
+            visibility: visible;
+            transition: opacity 1.4s var(--ease), visibility 0s;
+        }
+
+        /* Kept as layers: one dropped after its fade would repaint the page under it. */
+        [data-fx="rich"] .ambient {
+            will-change: opacity;
         }
 
         /* Continuous ("squircle") corners where supported; they need a larger radius to read the same. */
@@ -97,10 +115,8 @@
         body {
             margin: 0;
             padding: var(--pad);
-            background:
-                radial-gradient(70rem 52rem at 14% 32%, var(--ambient), transparent 72%),
-                radial-gradient(56rem 42rem at 96% 108%, var(--glow), transparent 70%),
-                var(--ground);
+            /* The ground is html's, under the .ambient layers; this glow is the theme's own. */
+            background: radial-gradient(56rem 42rem at 96% 108%, var(--glow), transparent 70%);
             color: var(--text);
             font-family: var(--font-sans);
             font-size: var(--fs-md);
@@ -177,6 +193,18 @@
             line-height: var(--live-h);
             overflow: hidden;
             white-space: nowrap;
+        }
+
+        /* On the rich tier the shapes redrawn every second (sparklines, the
+           progress bar) are small layers of their own: otherwise each redraw
+           re-rasters the page's tiles under them, and with GPU raster (Android)
+           a tile is a strip as wide as the screen. So are the transport keys:
+           each press made a layer for the sink and dropped it after the spring,
+           re-rastering the card under it (measured: 4-19 ms of raster a tap,
+           now 1). Not the figures: their boxes as layers pulled ~25 overlapping
+           elements into layers with them. */
+        [data-fx="rich"] :is(.spark, .np-fill, .spot-ctrl .np-key) {
+            will-change: transform;
         }
 
         .unit {
@@ -324,8 +352,11 @@
             -webkit-appearance: none;
             appearance: none;
             /* Never transition opacity here: GSAP tweens key opacity (soundboard
-               open/close) and a CSS transition would smooth it a second time. */
-            transition: transform var(--dur-spring) var(--spring-bounce), box-shadow var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+               open/close) and a CSS transition would smooth it a second time.
+               Nor box-shadow: the press shade (rich) lands in one repaint while
+               the compositor sinks the key; animated, it repainted the key on
+               every frame of the press and again of the release. */
+            transition: transform var(--dur-spring) var(--spring-bounce), background-color var(--dur-fast) var(--ease);
         }
 
         .btn svg.lucide {
@@ -1312,10 +1343,6 @@
             transform-origin: left center;
         }
 
-        .np-fill.is-ticking {
-            transition: transform 1s linear;
-        }
-
         .np-times {
             display: flex;
             justify-content: space-between;
@@ -1419,13 +1446,15 @@
             background: var(--dyn, var(--accent));
             color: var(--dyn-ink, var(--accent-ink));
             box-shadow: inset 0 1px 0 var(--rim), 0 0.9rem 1.8rem -0.7rem var(--dyn-shadow, var(--depth));
-            transition: transform var(--dur-spring) var(--spring-bounce), background-color 0.8s var(--ease), box-shadow 0.8s var(--ease);
+            /* The new cover's colour fades in; its shadow changes at once (a shadow
+               can only animate on the main thread: ~30 repaints per new track). */
+            transition: transform var(--dur-spring) var(--spring-bounce), background-color 0.8s var(--ease);
         }
 
         /* Pressed, the play key sinks as fast as every other key: its own
            transition (the cover colour's slow fade) would otherwise slow the press-in. */
         .spot-ctrl .btn-play:is(:active, .active-btn, .is-pressed) {
-            transition: transform var(--dur-fast) var(--ease), background-color 0.8s var(--ease), box-shadow 0.8s var(--ease);
+            transition: transform var(--dur-fast) var(--ease), background-color 0.8s var(--ease);
         }
 
         [data-play-key="theme"] .spot-ctrl .btn-play {
@@ -4462,7 +4491,9 @@
         }
 
         /* ── Lite effects tier (WebKitGTK desktop window) ─────────────────── */
-        [data-fx="lite"] :is(body, #lock-overlay, #clock-view) {
+        /* Lite: the light changes at once, by visibility (no opacity below 1). */
+        [data-fx="lite"] .ambient {
+            opacity: 1;
             transition: none;
         }
 
@@ -4484,6 +4515,10 @@
 </head>
 
 <body id="body">
+
+    <!-- ── Ambient light behind the dashboard: two layers that cross-fade (applyAmbient). ── -->
+    <div class="ambient is-on" aria-hidden="true"></div>
+    <div class="ambient" aria-hidden="true"></div>
 
     <!-- ── PC lock screen. setLockOverlay() toggles visibility via GSAP. ── -->
     <div id="lock-overlay">
@@ -6840,19 +6875,49 @@
             return out;
         }
 
+        // The --dyn* tokens sit only on what paints them: the Now playing card,
+        // the full-screen clock and the lock screen. On :root a new colour
+        // restyled the whole page. A cover of the same colour (the next track of
+        // an album) changes nothing.
+        const dynHosts = [document.querySelector('.spotify'), document.getElementById('clock-view'),
+            document.getElementById('lock-overlay')].filter(Boolean);
+        let dynKey = null;
         function applyDyn() {
-            const st = document.documentElement.style;
             const theme = window.TDTheme ? TDTheme.current() : '';
-            if (!dynRgb) {
-                ['--dyn', '--dyn-ink', '--dyn-glow', '--dyn-shadow'].forEach(prop => st.removeProperty(prop));
-                return;
+            const scheme = dynRgb ? TDTheme.scheme(theme) : '';
+            const c = dynRgb ? fitToScheme(dynRgb, scheme) : null;
+            const key = c ? hexOf(c) + scheme : '';
+            if (key === dynKey) return;
+            dynKey = key;
+            const glow = c ? hexOf(c, scheme === 'light' ? '2e' : '38') : '';
+            const tokens = c && {
+                '--dyn': hexOf(c),
+                '--dyn-ink': scheme === 'light' ? 'var(--on-deep)' : 'var(--on-bright)',
+                '--dyn-glow': glow,
+                '--dyn-shadow': hexOf(c, '8c'),
+            };
+            for (const host of dynHosts) {
+                for (const prop of ['--dyn', '--dyn-ink', '--dyn-glow', '--dyn-shadow']) {
+                    if (tokens) host.style.setProperty(prop, tokens[prop]);
+                    else host.style.removeProperty(prop);
+                }
             }
-            const scheme = TDTheme.scheme(theme);
-            const c = fitToScheme(dynRgb, scheme);
-            st.setProperty('--dyn', hexOf(c));
-            st.setProperty('--dyn-ink', scheme === 'light' ? 'var(--on-deep)' : 'var(--on-bright)');
-            st.setProperty('--dyn-glow', hexOf(c, scheme === 'light' ? '2e' : '38'));
-            st.setProperty('--dyn-shadow', hexOf(c, '8c'));
+            applyAmbient(glow);
+        }
+        // The light behind the dashboard: the new colour ('' = the theme's glow)
+        // goes to the hidden .ambient layer, which fades in over the other.
+        const ambientLayers = document.querySelectorAll('.ambient');
+        let ambientOn = 0, ambientLight = '';
+        function applyAmbient(light) {
+            if (light === ambientLight) return;
+            ambientLight = light;
+            const prev = ambientLayers[ambientOn];
+            ambientOn = 1 - ambientOn;
+            const next = ambientLayers[ambientOn];
+            if (light) next.style.setProperty('--light', light);
+            else next.style.removeProperty('--light');
+            next.classList.add('is-on');
+            prev.classList.remove('is-on');
         }
         document.addEventListener('td-theme-change', applyDyn);
 
@@ -6935,11 +7000,11 @@
         }
 
         // Progress: anchored to the last report, advanced locally once a second.
-        // On rich displays the bar leads by a second and a 1 s linear transition
-        // carries it there, so it glides instead of stepping.
+        // The bar steps, on every tier: it moves a pixel or two a second, and a
+        // glide (back-to-back 1 s transitions) kept the compositor drawing every
+        // frame for as long as anything played, a 2560×1600 tablet included.
         let npClock = null;
         let npTimer = null;
-        const progressGlides = document.documentElement.dataset.fx === 'rich';
 
         function fmtDuration(sec) {
             sec = Math.max(0, Math.floor(sec));
@@ -6951,11 +7016,10 @@
             const p = npClock.playing ? npClock.pos + (performance.now() - npClock.at) / 1000 : npClock.pos;
             return Math.min(npClock.len, Math.max(0, p));
         }
-        function renderProgress(lead) {
+        function renderProgress() {
             if (!npClock) return;
             const pos = npPosition();
-            const target = lead ? Math.min(npClock.len, pos + 1) : pos;
-            dom.npFill.style.transform = `scaleX(${(target / npClock.len).toFixed(4)})`;
+            dom.npFill.style.transform = `scaleX(${(pos / npClock.len).toFixed(4)})`;
             setText(dom.npElapsed, fmtDuration(pos));
             setText(dom.npRemaining, '−' + fmtDuration(npClock.len - pos));
         }
@@ -6967,8 +7031,7 @@
             if (npTimer || !npClock || !npClock.playing || document.hidden) return;
             npTimer = setInterval(() => {
                 if (dashboardHeld || npScrub) return;   // the next tick after the dialog catches up
-                dom.npFill.classList.toggle('is-ticking', progressGlides);
-                renderProgress(progressGlides);
+                renderProgress();
             }, 1000);
         }
         function updateProgress(media) {
@@ -6998,16 +7061,15 @@
             npClock = { pos, len, at: performance.now(), playing };
             dom.npProgress.hidden = false;
             if (jumped) {
-                // Seek, new track or play/pause: move without a glide.
-                dom.npFill.classList.remove('is-ticking');
-                renderProgress(false);
+                // Seek, new track or play/pause: move now, not on the next tick.
+                renderProgress();
             }
             if (playing) startProgressTimer();
             else stopProgressTimer();
         }
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) stopProgressTimer();
-            else if (npClock) { dom.npFill.classList.remove('is-ticking'); renderProgress(false); startProgressTimer(); }
+            else if (npClock) { renderProgress(); startProgressTimer(); }
         });
 
         // --- Now playing: transport keys, seeking, like ---
@@ -7039,8 +7101,7 @@
             if (!npClock) return;
             npClock = { ...npClock, pos: npPosition(), at: performance.now(), ...patch };
             npClock.pos = Math.max(0, Math.min(npClock.len, npClock.pos));
-            dom.npFill.classList.remove('is-ticking');
-            renderProgress(false);
+            renderProgress();
             if (npClock.playing) startProgressTimer();
             else stopProgressTimer();
         }
@@ -7198,7 +7259,6 @@
                 npScrub = { left: r.left, width: r.width || 1, to: npPosition() };
                 try { bar.setPointerCapture(e.pointerId); } catch (err) { /* already released */ }
                 bar.classList.add('is-scrubbing');
-                dom.npFill.classList.remove('is-ticking');
                 follow(e);
             });
             bar.addEventListener('pointermove', (e) => { if (npScrub && npClock) follow(e); });
@@ -7209,7 +7269,7 @@
                 haptic(HAPTIC_KEY);
                 seekTo(Math.min(to, npClock ? npClock.len - 1 : to));
             });
-            bar.addEventListener('pointercancel', () => { if (npScrub) { end(); renderProgress(false); } });
+            bar.addEventListener('pointercancel', () => { if (npScrub) { end(); renderProgress(); } });
         })();
 
         // Spotify's like key: shows the library state, sends the state asked for.
@@ -8197,7 +8257,7 @@
             if (view === 'wired') setIcon(dom.battGlyph, 'cable');
             else if (view === 'unread') setIcon(dom.battGlyph, 'battery-warning');
             setText(dom.battPct, label);
-            if (dom.mouseBatt) dom.mouseBatt.textContent = label;
+            setText(dom.mouseBatt, label);
 
             if (view !== 'level' && view !== 'charging') return;
             // Level thresholds: under 20% is bad, up to 60% is a warning.

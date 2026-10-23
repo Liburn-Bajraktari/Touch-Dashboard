@@ -66,6 +66,17 @@ def test_full_screen_clock_stays_under_the_lock_screen():
     assert _z_index("#clock-view") < _z_index("#lock-overlay")
 
 
+def test_no_custom_property_transitions():
+    """A transitioned custom property is animated on the main thread, repainting
+    all that paints it on every frame: the ambient light's 1.4 s fade on body
+    did, the whole page (1.2 s of raster per new track, traced as a tablet).
+    Cross-fade layers by opacity instead, as .ambient does."""
+    css = TEMPLATE.read_text(encoding="utf-8")
+    faded = [item.strip() for value in re.findall(r"transition(?:-property)?\s*:\s*([^;]+);", css)
+             for item in value.split(",") if item.strip().startswith("--")]
+    assert faded == []
+
+
 def test_screen_care_choices_match_what_the_server_accepts():
     """Settings → General → Screen care offers exactly the minutes save_config keeps."""
     import server

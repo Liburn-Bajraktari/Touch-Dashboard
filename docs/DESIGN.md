@@ -131,8 +131,9 @@ One light, above the console. Every rule below follows from it, and nothing may 
 
 | Variable | Set by | Meaning |
 |---|---|---|
-| `--dyn`, `--dyn-ink`, `--dyn-glow`, `--dyn-shadow` | `applyDyn()` from the cover | The music's colour, fitted per scheme so `--dyn-ink` keeps ≥ 4.5:1; unset when nothing plays |
-| `--ambient` | CSS (`@property`, not inherited; set and cross-faded 1.4 s on `body`, the lock screen and the full-screen clock only) | `--dyn-glow` if set, else `--glow`. Faded on `:root` as an inherited property, every frame restyled the whole page |
+| `--dyn`, `--dyn-ink`, `--dyn-glow`, `--dyn-shadow` | `applyDyn()` from the cover, on the Now playing card, the full-screen clock and the lock screen only | The music's colour, fitted per scheme so `--dyn-ink` keeps ≥ 4.5:1; unset when nothing plays. Set on `:root`, a new colour restyled the whole page; the same colour again (the next track of an album) changes nothing |
+| `--ambient` | CSS, on the lock screen and the full-screen clock | `--dyn-glow` if set, else `--glow`; their backgrounds change at once |
+| `--light` | `applyAmbient()`, on one `.ambient` layer | The ambient light behind the dashboard: the colour that layer shows (unset: `--glow`) |
 | `--v` | the fader | 0–1, drives the lit slot and the cap by transform |
 | `--angle` | the encoder | Where the knob points |
 | `--sq` | `@supports (corner-shape: squircle)` | 1.6 where continuous corners exist, else 1 |
@@ -150,7 +151,8 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Key release, encoder turn, switch knob, pad press, theme card | `spring-bounce` (ζ ≈ 0.55, 12.5 % overshoot) | 460–620 ms |
 | Fader settle, modal open (rich only: on lite a dialog appears at once, §8), Now Playing scale, clock digits | `spring` (ζ ≈ 0.75, 3 %) | 280–560 ms |
 | Press-in, colour changes | `ease`, `dur-fast` | 110 ms |
-| Progress bar | linear, 1 s, leading the true position by 1 s so it glides | — |
+| Progress bar | steps once a second with the times, on every tier (§8.1) | — |
+| Ambient light (rich) | two layers cross-fade by opacity, `ease` | 1.4 s |
 | Now playing marquee | rests 2.5 s, then 32 px/s: linear on rich, whole-pixel steps on lite (§8) | one lap per copy width |
 | First load | modules rise and fade in once (GSAP stagger 60 ms) | 700 ms |
 
@@ -168,7 +170,7 @@ The desktop window on Linux is WebKitGTK with GPU compositing disabled (NVIDIA/X
 | Tier | Where | What changes |
 |---|---|---|
 | `rich` | Android app, browsers, Windows WebView2 | Everything in this file |
-| `lite` | Linux desktop window (WebKitGTK) | No light spill (slot, LED, key glows), no speaking pulse, no ambient cross-fade, no first-load entrance, progress steps instead of gliding; keys press and light without changing their shadow; the marquee steps a whole pixel every few frames and has no edge fade |
+| `lite` | Linux desktop window (WebKitGTK) | No light spill (slot, LED, key glows), no speaking pulse, no ambient cross-fade (the light changes at once, by visibility), no first-load entrance; keys press and light without changing their shadow; the marquee steps a whole pixel every few frames and has no edge fade |
 
 ### What costs a full repaint in the Linux window
 
@@ -187,9 +189,29 @@ Always, on both tiers:
 - Anything that moves uses `transform`; a fade uses `opacity` only where it animates anyway (entrances, GSAP), never as an on/off toggle. The fader and encoder are driven by one custom property each; a drag never triggers layout.
 - Each live figure sits in a `.live` box (above).
 - One sparkline point per server sample (`load_seq`): event-driven `sys_data` (Discord, volume read-backs) never adds history.
-- No `backdrop-filter`, no 3D transforms at rest, no `will-change` at rest.
+- No `backdrop-filter`, no 3D transforms at rest, no `will-change` at rest except the rich tier's deliberate layers (§8.1).
+- No CSS transition on a custom property (test-enforced): it animates on the main thread and repaints all that paints it, every frame.
 - No infinite animation except the speaking pulse (rich only, small), the charging battery (4 steps per 2 s), the Now playing marquee, which only runs while a title overflows and pauses under the lock screen, and the speed test's search sweep, waiting dots and (rich only) flowing arrows, which run only during a test (measured on the Linux window: 12–16 % of a core for those ~20 s, 3 % idle).
 - Never CSS-transition a property GSAP also tweens (key opacity during the soundboard transition).
+
+### 8.1 What costs on the tablet (rich tier)
+
+The Android app draws with the GPU, but a mid-range tablet's GPU (Redmi Pad 2: 2560×1600) has little to spare: every frame of any animation recomposites the whole window, and GPU raster re-rasters tiles that are strips as wide as the screen. Traced in Chrome as that tablet (1280×800 at 2×, touch, Android app user agent), v0.11.14 against now:
+
+| Per action | Before | After |
+|---|---|---|
+| ⏭ (new track and colour): raster | 1269 ms (1511 tiles, nearly all the page layer) | ~24 ms |
+| ⏭: main-thread frames; longest at 6× CPU throttle | 112; one frame of 58–66 ms | ~38; nothing over 20 ms |
+| ⏯: raster | 8–19 ms | ~1 ms |
+| Idle while music plays: frames drawn | ~63 a second (the progress glide) | ~1–2 a second |
+
+The rules that got there:
+
+- **Nothing animates continuously by default.** The progress bar steps once a second with the times; its glide (back-to-back 1 s transitions) kept the compositor drawing every frame for as long as anything played. What still runs continuously: the marquee while a title overflows, and the speaking pulse while someone talks.
+- **Cross-fade layers, never a background.** The ambient light is two fixed `.ambient` layers under the modules (`will-change: opacity`); a new colour goes to the hidden one, which fades in over the other. Fading it in `body`'s background repainted the whole page layer on every frame of the 1.4 s fade.
+- **Shadows never animate.** A shadow can only animate on the main thread, repainting the element every frame: keys swap to the press shade in one repaint while the compositor sinks them, and the play key's cover colour fades but its coloured shadow changes at once.
+- **What redraws every second is a small layer** (`will-change: transform`): the sparklines and the progress fill. So are the transport keys, which otherwise got a layer for each press's sink and lost it after the spring, re-rastering the card under them. Not the `.live` figure boxes: as layers they pulled ~25 overlapping elements into layers with them. Check the layer list after adding one (CDP `LayerTree`, compositing reason `Overlap`).
+- **The cover's colour sits on its three consumers** (Now playing card, full-screen clock, lock screen), not `:root`: a new colour restyles those subtrees, not the page.
 - The cover backdrop is the cover drawn into an 8×8 canvas and stretched: a blur with no filter cost.
 - Write text with `textContent`; never read `innerText` in an update path.
 
