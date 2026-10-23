@@ -1208,6 +1208,12 @@
             line-height: 1.3;
         }
 
+        /* ⏮ / ⏭ pressed: the old title dims until the new track arrives
+           (an ink change: cheap in the Linux window). */
+        .spotify.is-skipping :is(#spot-title, #spot-artist) {
+            color: var(--text-3);
+        }
+
         .marquee-wrapper {
             width: 100%;
             overflow: hidden;
@@ -6366,7 +6372,6 @@
 
         let isAnimating = false;
         let pendingSysData = null;
-        let spotifyLock = 0;
         let discordVidLock = 0;
         let serverFeatures = new Set();   // from config_sync; older servers send none
 
@@ -6926,15 +6931,117 @@
         // The server says what the source can do (caps) and what it is (kind):
         // long-form and video get ↺10 / ↻30 between ⏮ and ⏭, music keeps three
         // keys. A key the source cannot use is disabled rather than silent.
-        // Seeks move the clock at once and hold it until a reading agrees
-        // (like the faders); taps within SEEK_FOLD_MS go out as one absolute seek.
-        const SEEK_BACK_S = 10, SEEK_FWD_S = 30, SEEK_FOLD_MS = 250, SEEK_CONFIRM_MS = 2500;
-        const RESTART_AFTER_S = 3, LIKE_CONFIRM_MS = 2000;
-        let npMedia = null;                // the shown source, from sys_data
+        // Every key shows its result at once (play state, the bar, a dimmed
+        // title while the next track comes) and holds it against readings that
+        // still show the old state, until one agrees, the server answers that
+        // the key failed (media_result: taken back at once), or the hold ends.
+        // Taps within SEEK_FOLD_MS go out as one absolute seek.
+        const SEEK_BACK_S = 10, SEEK_FWD_S = 30, SEEK_FOLD_MS = 250, RESTART_AFTER_S = 3;
+        // Spotify's Web API can report the old state for a few seconds; servers
+        // without media_result cannot say a key failed, so they get a short hold.
+        const MEDIA_HOLD_MS = 5000, LEGACY_HOLD_MS = 2000;
+        let npMedia = null;                // the shown source, from sys_data (the last reading)
         let seekPending = null;            // {until}: npClock holds a seek not yet read back
         let seekSendTimer = null, seekSentAt = 0;
         let npScrub = null;                // {left, width, to} while a finger drags the bar
         let likePending = null;            // {liked, title, until}
+        let playPending = null;            // {playing, until}
+        let skipPending = null;            // {title, from, until}: ⏮/⏭ sent, the old track still reported
+
+        function holdUntil() {
+            return Date.now() + (serverFeatures.has('media_result') ? MEDIA_HOLD_MS : LEGACY_HOLD_MS);
+        }
+        // Move the progress clock now (a seek, play/pause, a new track).
+        function moveClock(patch) {
+            if (!npClock) return;
+            npClock = { ...npClock, pos: npPosition(), at: performance.now(), ...patch };
+            npClock.pos = Math.max(0, Math.min(npClock.len, npClock.pos));
+            dom.npFill.classList.remove('is-ticking');
+            renderProgress(false);
+            if (npClock.playing) startProgressTimer();
+            else stopProgressTimer();
+        }
+        function renderPlayIcon(playing) {
+            setDisplay(dom.iconSpotPlay, playing ? 'none' : '');
+            setDisplay(dom.iconSpotPause, playing ? '' : 'none');
+        }
+        // The reading as the page shows it: what a key changed holds until the
+        // reading agrees (or the hold ends).
+        function reconcileMedia(sp) {
+            const now = Date.now();
+            if (skipPending && (!sp || sp.title !== skipPending.title || now > skipPending.until
+                    || (sp.position != null && sp.position < skipPending.from - 2))) skipPending = null;
+            // Play holds even with nothing shown yet (a press on the empty card).
+            if (playPending && ((sp && (sp.status === 'Playing') === playPending.playing) || now > playPending.until)) playPending = null;
+            dom.spotifyPanel.classList.toggle('is-skipping', !!skipPending);
+            if (!sp) return sp;
+            let m = sp;
+            if (playPending) m = { ...m, status: playPending.playing ? 'Playing' : 'Paused' };
+            if ((playPending || skipPending) && npClock && m.position != null) m = { ...m, position: npPosition() };
+            return m;
+        }
+        // The server could not deliver a key (the player refused, Spotify
+        // without Premium, a device that went away): take it back at once.
+        function onMediaResult(r) {
+            if (!r || r.ok !== false) return;
+            if (r.cmd === 'like') likePending = null;
+            else if (r.cmd === 'play') playPending = null;
+            else { seekPending = null; skipPending = null; }
+            haptic(HAPTIC_END);
+            if (!dashboardHeld) renderNowPlaying(npMedia);
+        }
+        // The Now playing card from a reading (sys_data's `spotify`).
+        function renderNowPlaying(sp) {
+            const live = !!(sp && (sp.status === 'Playing' || sp.status === 'Paused'));
+            npMedia = live ? sp : null;
+            const m = reconcileMedia(npMedia);
+            if (live) {
+                setDisplay(dom.spotEmpty, 'none');
+                setDisplay(dom.spotInfo, 'flex');
+
+                // Keep previous art while local players finish writing new cover files.
+                const artImg = dom.spotArt;
+                const newArtUrl = sp.art_url || "";
+                if (newArtUrl === "WAITING") {
+                } else if (newArtUrl.trim() !== "" && newArtUrl !== "None") {
+                    if (artImg.getAttribute('data-src') !== newArtUrl) {
+                        artImg.setAttribute('data-src', newArtUrl);
+                        const finalUrl = artSrc(newArtUrl);
+                        artImg.src = finalUrl;
+                        artImg.style.display = 'block';
+                        sampleArt(finalUrl);
+                    }
+                } else {
+                    artImg.style.display = 'none';
+                    artImg.removeAttribute('data-src');
+                    artImg.removeAttribute('src');
+                    clearCover();
+                }
+
+                setSource(sp);
+                updateProgress(m);
+                setTransport(sp);
+                syncLike(sp);
+                // Rebuilds only when the text changes.
+                npMarquee.set(sp.title || '', sp.artist || '');
+            } else {
+                setDisplay(dom.spotEmpty, 'flex');
+                setDisplay(dom.spotInfo, 'none');
+                setSource(null);
+                updateProgress(null);
+                setTransport(null);
+                syncLike(null);
+                clearCover();
+            }
+            renderPlayIcon(playPending ? playPending.playing : !!(m && m.status === 'Playing'));
+        }
+        function npPlayNow() {
+            // The play glyph is showing: this press plays.
+            const playing = dom.iconSpotPlay.style.display !== 'none';
+            playPending = { playing, until: holdUntil() };
+            renderPlayIcon(playing);
+            moveClock({ playing });
+        }
 
         function npCanSeek(m) {
             return !!(m && m.caps && m.caps.seek && serverFeatures.has('media_seek'));
@@ -6957,10 +7064,8 @@
         }
         function seekTo(to) {
             if (!npClock) return;
-            npClock = { ...npClock, pos: Math.max(0, Math.min(npClock.len, to)), at: performance.now() };
-            seekPending = { until: Date.now() + SEEK_CONFIRM_MS };
-            dom.npFill.classList.remove('is-ticking');
-            renderProgress(false);
+            seekPending = { until: holdUntil() };
+            moveClock({ pos: to });
             if (seekSendTimer) return;    // the trailing send picks up the latest
             const wait = SEEK_FOLD_MS - (Date.now() - seekSentAt);
             if (wait <= 0) sendSeek();
@@ -6973,12 +7078,19 @@
                 else sendSocket('media_seek', { by: step });   // no position to start from
                 return;
             }
-            if (cmd === 'prev' && npClock && npCanSeek(npMedia) && npPosition() > RESTART_AFTER_S) {
-                // The server restarts the track (a second press goes back): show it now.
-                npClock = { ...npClock, pos: 0, at: performance.now() };
-                seekPending = { until: Date.now() + SEEK_CONFIRM_MS };
-                dom.npFill.classList.remove('is-ticking');
-                renderProgress(false);
+            // As the server decides (media.prev_plan): past 3 s, or where the
+            // player cannot go back, Previous restarts the track.
+            const caps = (npMedia && npMedia.caps) || {};
+            const restart = cmd === 'prev' && npClock && npCanSeek(npMedia)
+                && (npPosition() > RESTART_AFTER_S || caps.prev === false);
+            if (restart) {
+                seekPending = { until: holdUntil() };
+                moveClock({ pos: 0 });
+            } else if (npMedia) {
+                // Another track is on its way: the bar starts over, the old title dims.
+                skipPending = { title: npMedia.title, from: npClock ? npPosition() : 0, until: holdUntil() };
+                dom.spotifyPanel.classList.add('is-skipping');
+                moveClock({ pos: 0 });
             }
             act(cmd === 'prev' ? 'spot_prev' : 'spot_next');
         }
@@ -7039,7 +7151,7 @@
             const m = npMedia;
             if (!m || typeof m.liked !== 'boolean') return;
             const want = dom.npLike.getAttribute('aria-pressed') !== 'true';
-            likePending = { liked: want, title: m.title, until: Date.now() + LIKE_CONFIRM_MS };
+            likePending = { liked: want, title: m.title, until: holdUntil() };
             renderLike(want);
             sendSocket('media_like', { liked: want });
         }
@@ -7821,6 +7933,9 @@
                     if (globalCfg) globalCfg.theme = d;
                     if (window.TDTheme) TDTheme.apply(d);
                 }
+                else if (msg.type === 'media_result') {
+                    onMediaResult(d);
+                }
                 else if (msg.type === 'play_key_state') {
                     if (globalCfg) globalCfg.play_key_cover = d;
                     setPlayKeyCover(d !== false);
@@ -8412,64 +8527,7 @@
                     setDisplay(gpuRow, 'none');
                 }
 
-                if (d.spotify && (d.spotify.status === 'Playing' || d.spotify.status === 'Paused')) {
-                    setDisplay(dom.spotEmpty, 'none');
-                    setDisplay(dom.spotInfo, 'flex');
-
-                    // Keep previous art while local players finish writing new cover files.
-                    const artImg = dom.spotArt;
-                    const newArtUrl = d.spotify.art_url || "";
-
-                    if (newArtUrl === "WAITING") {
-                    } else if (newArtUrl.trim() !== "" && newArtUrl !== "None") {
-                        if (artImg.getAttribute('data-src') !== newArtUrl) {
-                            artImg.setAttribute('data-src', newArtUrl);
-                            const finalUrl = artSrc(newArtUrl);
-                            artImg.src = finalUrl;
-                            artImg.style.display = 'block';
-                            sampleArt(finalUrl);
-                        }
-                    } else {
-                        artImg.style.display = 'none';
-                        artImg.removeAttribute('data-src');
-                        artImg.removeAttribute('src');
-                        clearCover();
-                    }
-
-                    npMedia = d.spotify;
-                    setSource(d.spotify);
-                    updateProgress(d.spotify);
-                    setTransport(d.spotify);
-                    syncLike(d.spotify);
-
-                    // Rebuilds only when the text changes.
-                    npMarquee.set(d.spotify.title || '', d.spotify.artist || '');
-                } else {
-                    setDisplay(dom.spotEmpty, 'flex');
-                    setDisplay(dom.spotInfo, 'none');
-                    npMedia = null;
-                    setSource(null);
-                    updateProgress(null);
-                    setTransport(null);
-                    syncLike(null);
-                    clearCover();
-                }
-
-                const liveIconSpotPlay = dom.iconSpotPlay;
-                const liveIconSpotPause = dom.iconSpotPause;
-                if (liveIconSpotPlay && liveIconSpotPause) {
-                    if (Date.now() > spotifyLock) {
-                        const isPlaying = d.spotify && d.spotify.status === 'Playing';
-
-                        if (isPlaying) {
-                            setDisplay(liveIconSpotPlay, 'none');
-                            if (liveIconSpotPause.style.display === 'none') liveIconSpotPause.style.display = '';
-                        } else {
-                            if (liveIconSpotPlay.style.display === 'none') liveIconSpotPlay.style.display = '';
-                            setDisplay(liveIconSpotPause, 'none');
-                        }
-                    }
-                }
+                renderNowPlaying(d.spotify);
 
                 const spk = reconcileAudio('spk', d.audio.spk);
                 const mic = reconcileAudio('mic', d.audio.mic);
@@ -10088,18 +10146,7 @@
 
             if (a === 'audio_cycle') encoderAdvance();
 
-            if (a === 'spot_play') {
-                spotifyLock = Date.now() + 1500;
-
-                const iconPlay = document.getElementById('icon-spot-play');
-                const iconPause = document.getElementById('icon-spot-pause');
-
-                if (iconPlay && iconPause) {
-                    const isCurrentlyPaused = (iconPlay.style.display !== 'none');
-                    iconPlay.style.display = isCurrentlyPaused ? 'none' : '';
-                    iconPause.style.display = isCurrentlyPaused ? '' : 'none';
-                }
-            }
+            if (a === 'spot_play') npPlayNow();
 
             else if (a === 'disc_mute') {
                 const bMute = document.getElementById('btn-disc-mute');

@@ -439,10 +439,27 @@ def test_media_keys_reach_the_shown_source_and_bad_ones_are_refused(app, monkeyp
         ws.send_json({"type": "media_seek", "data": {"by": -10}})
         ws.send_json({"type": "action", "data": "spot_prev"})          # 42 s in: back to the start
         ws.send_json({"type": "action", "data": "spot_next"})
-        ws.send_json({"type": "nope"})
-        _refusals(ws, 1)
+        # Each key is answered, so the page holds what it showed or takes it back.
+        results = [_receive_until(ws, "media_result")["data"] for _ in range(4)]
+        pc.return_value = False                                        # the player refused
+        ws.send_json({"type": "action", "data": "spot_play"})
+        results.append(_receive_until(ws, "media_result")["data"])
     assert pc.call_args_list == [call("vlc", "position", "599.00"), call("vlc", "position", "10.00-"),
-                                 call("vlc", "position", "0.00"), call("vlc", "next")]
+                                 call("vlc", "position", "0.00"), call("vlc", "next"), call("vlc", "play-pause")]
+    assert results == [{"cmd": "seek", "ok": True}, {"cmd": "seek", "ok": True}, {"cmd": "prev", "ok": True},
+                       {"cmd": "next", "ok": True}, {"cmd": "play", "ok": False}]
+
+
+def test_spotify_token_file_is_written_whole_and_private(tmp_path):
+    # It used to share its path with the soundboard's cache folder, so no
+    # sign-in was ever saved; now it is its own file, 0600 from the start.
+    assert os.path.basename(server.SPOTIFY_CACHE_FILE) == "spotify_token.json"
+    path = tmp_path / "spotify_token.json"
+    handler = server._SpotifyTokenFile(cache_path=str(path))
+    handler.save_token_to_cache({"access_token": "a", "scope": "user-library-modify"})
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    assert handler.get_cached_token()["access_token"] == "a"
+    assert not (tmp_path / "spotify_token.json.tmp").exists()
 
 
 def test_play_clip_resolves_inside_the_sounds_folder(app, tmp_path):

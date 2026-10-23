@@ -176,6 +176,7 @@ def _patched_build_request(*args, **kwargs):
 speedtest_lib.build_request = _patched_build_request
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import CacheFileHandler
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -255,9 +256,24 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 CONFIG_FILE         = os.path.join(DATA_DIR, "config.json")
 WEATHER_CACHE_FILE  = os.path.join(DATA_DIR, "weather_cache.json")
-SPOTIFY_CACHE_FILE  = os.path.join(DATA_DIR, ".cache")
+SPOTIFY_CACHE_FILE  = os.path.join(DATA_DIR, "spotify_token.json")
 SOUNDS_DIR          = os.path.join(DATA_DIR, "sounds")
 os.makedirs(SOUNDS_DIR, exist_ok=True)
+
+# Until v0.11.11 the Spotify token was DATA_DIR/.cache: the very path the
+# soundboard's cache folder below lives in. Once that folder existed (v0.8.1),
+# no Spotify sign-in could be saved; a token file there would instead have
+# stopped the folder from being made. Move such a file to the token's own name.
+_OLD_SPOTIFY_CACHE = os.path.join(DATA_DIR, ".cache")
+if os.path.isfile(_OLD_SPOTIFY_CACHE):
+    try:
+        if os.path.exists(SPOTIFY_CACHE_FILE):
+            os.remove(_OLD_SPOTIFY_CACHE)
+        else:
+            os.replace(_OLD_SPOTIFY_CACHE, SPOTIFY_CACHE_FILE)
+            os.chmod(SPOTIFY_CACHE_FILE, 0o600)
+    except OSError:
+        pass
 
 NORMALIZED_SOUNDS_CACHE_DIR = os.path.join(DATA_DIR, ".cache", "normalized_sounds")
 os.makedirs(NORMALIZED_SOUNDS_CACHE_DIR, exist_ok=True)
@@ -296,7 +312,8 @@ DEFAULT_CONFIG: dict = {
 }
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
-SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like"]   # see _make_config_sync
+SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like",
+                   "media_result"]   # see _make_config_sync
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
 
@@ -342,10 +359,10 @@ def _with_item_ids(cfg: dict) -> dict:
 def _migrate_config():
     for old, new in (
         (os.path.join(BASE_DIR, "config.json"),       CONFIG_FILE),
-        (os.path.join(BASE_DIR, ".cache"),             SPOTIFY_CACHE_FILE),
+        (os.path.join(BASE_DIR, ".cache"),             SPOTIFY_CACHE_FILE),   # a file there, from very old installs
         (os.path.join(BASE_DIR, "weather_cache.json"), WEATHER_CACHE_FILE),
     ):
-        if os.path.exists(old) and not os.path.exists(new):
+        if os.path.isfile(old) and not os.path.exists(new):
             try: shutil.copy2(old, new)
             except Exception: pass
         elif os.path.exists(old) and old == os.path.join(BASE_DIR, "config.json"):
@@ -455,6 +472,7 @@ media_shown: dict | None   = None
 media_pin: dict | None     = None    # {"id", "at"}: a source picked on the chip
 media_sources: list[dict]  = []      # every playing or paused source, for the chip
 spotify_like = {"item": "", "liked": None}   # the shown Spotify item, saved in the library?
+spotify_recheck_at = 0.0             # read the Web API again then: its first reply after a command is often stale
 mpris_mon = None                     # MprisMonitor (Linux); None → playerctl is polled
 last_audio_devs: list = []
 last_weather_data    = {"temp": "--", "desc": "--", "timestamp": 0}
@@ -546,6 +564,21 @@ def get_lan_ip_cached() -> str:
     return _lan_ip_cache["ip"]
 
 
+class _SpotifyTokenFile(CacheFileHandler):
+    """The token file, written whole (tmp, then os.replace) and 0600 from the
+    start: it holds the access and refresh tokens."""
+
+    def save_token_to_cache(self, token_info):
+        tmp = self.cache_path + ".tmp"
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(token_info, f)
+            os.replace(tmp, self.cache_path)
+        except OSError as e:
+            logger.warning(f"Couldn't save the Spotify sign-in to {self.cache_path}: {e}")
+
+
 def get_sp_oauth() -> SpotifyOAuth | None:
     global global_sp_oauth
     if not config.get("spot_id") or not config.get("spot_secret"):
@@ -560,7 +593,7 @@ def get_sp_oauth() -> SpotifyOAuth | None:
             scope="user-read-playback-state user-modify-playback-state "
                   "user-library-read user-library-modify",
             open_browser=False,
-            cache_path=SPOTIFY_CACHE_FILE,
+            cache_handler=_SpotifyTokenFile(cache_path=SPOTIFY_CACHE_FILE),
         )
     return global_sp_oauth
 
@@ -753,6 +786,7 @@ GPU_POLL_INTERVAL     = 2.0
 LOAD_SAMPLE_INTERVAL  = 1.0   # CPU/RAM sample; one sparkline point on the client
 TRIGGER_COALESCE_S    = 0.025
 FORCED_MEDIA_DELAY    = 0.4   # let Spotify / the player apply a just-sent command
+SPOTIFY_RECHECK_S     = 1.5   # ...and read Spotify once more after this
 
 
 def _read_batt_windows() -> dict:
@@ -935,7 +969,7 @@ def _discord_state() -> dict:
 async def hardware_loop():
     global last_spotify_check, spotify_cache, last_audio_devs
     global force_media_update, main_event_loop, sys_data_trigger
-    global media_shown, media_pin, media_sources
+    global media_shown, media_pin, media_sources, spotify_recheck_at
 
     main_event_loop  = asyncio.get_running_loop()
     sys_data_trigger = asyncio.Event()
@@ -979,8 +1013,11 @@ async def hardware_loop():
             jobs["audio"] = asyncio.to_thread(AudioSystem.poll_all, config.get("audio_names", {}))
             if sys.platform.startswith("win"):
                 jobs["batt"] = asyncio.to_thread(_read_batt_windows)
-        if curr - last_spotify_check > SPOTIFY_POLL_INTERVAL or forced:
+        recheck = bool(spotify_recheck_at) and curr >= spotify_recheck_at
+        if curr - last_spotify_check > SPOTIFY_POLL_INTERVAL or forced or recheck:
             jobs["spotify"] = _fetch_spotify(forced)
+            if recheck:
+                spotify_recheck_at = 0.0
         # The MPRIS monitor is read in memory below; polled sources are fetched.
         if monitor is None and (forced or curr - last_local_check >= local_interval):
             jobs["local"] = _fetch_local_media(forced)
@@ -2480,9 +2517,9 @@ async def _ws_media_seek(client: Client, msg: dict) -> None:
     if ("to" in data) == ("by" in data):
         raise ValueError("send one of to / by")
     if "to" in data:
-        await _media_command("seek_to", max(0.0, _seconds_arg(data["to"])))
+        await _media_command("seek_to", max(0.0, _seconds_arg(data["to"])), client.ws)
     else:
-        await _media_command("seek_by", _seconds_arg(data["by"]))
+        await _media_command("seek_by", _seconds_arg(data["by"]), client.ws)
 
 
 async def _ws_media_source(client: Client, msg: dict) -> None:
@@ -2513,6 +2550,7 @@ async def _ws_media_like(client: Client, msg: dict) -> None:
         spotify_like.update(item=t["item_id"], liked=liked)
     if sys_data_trigger:
         sys_data_trigger.set()
+    await _media_result(client.ws, "like", ok)
 
 
 async def _ws_run_speedtest(client: Client, msg: dict) -> None:
@@ -2845,13 +2883,21 @@ async def _media_keys(cmd: str) -> None:
     await asyncio.to_thread(MacroSystem.send_keys, key)
 
 
-async def _media_command(cmd: str, value: float | None = None) -> None:
+async def _media_result(ws: WebSocket | None, cmd: str, ok: bool) -> None:
+    """Tell the screen that sent a media key whether it went through: the page
+    shows the result at once and takes it back only on ok: false."""
+    if ws is not None:
+        await _send(ws, {"type": "media_result", "data": {"cmd": cmd, "ok": ok}})
+
+
+async def _media_command(cmd: str, value: float | None = None, ws: WebSocket | None = None) -> None:
     """play | next | prev | seek_to | seek_by on the shown source."""
-    global force_media_update
+    global force_media_update, spotify_recheck_at
     t = media_shown
     if t is None:
         await _media_keys(cmd)
         force_media_update = True
+        await _media_result(ws, cmd, True)    # sent blind: nothing to check
         return
     if cmd == "prev":
         plan = media_module.prev_plan(await _media_position(t), t["caps"])
@@ -2872,8 +2918,11 @@ async def _media_command(cmd: str, value: float | None = None) -> None:
     # FORCED_MEDIA_DELAY plus a Web API round trip, so only polled sources
     # (and Spotify, whose cover and like state come from the Web API) get one.
     force_media_update = t["via"] != "mpris" or t["app"] == "spotify"
+    if ok and t["app"] == "spotify":
+        spotify_recheck_at = time.monotonic() + SPOTIFY_RECHECK_S
     if sys_data_trigger:
         sys_data_trigger.set()
+    await _media_result(ws, "seek" if cmd.startswith("seek") else cmd, ok)
 
 
 async def _handle_action(ws: WebSocket, action: str):
@@ -2940,7 +2989,7 @@ async def _handle_action(ws: WebSocket, action: str):
 
         cmd = {"spot_play": "play", "spot_next": "next", "spot_prev": "prev"}.get(action)
         if cmd:
-            await _media_command(cmd)
+            await _media_command(cmd, ws=ws)
         return
 
     # ── Discord ────────────────────────────────────────────────────────────────
