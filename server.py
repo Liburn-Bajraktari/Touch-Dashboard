@@ -1406,7 +1406,7 @@ DEVICE_SYNC_KEYS = (
     "features", "clip_source", "disc_init",
 )
 # Built-in modules a premade / plugin macro may name.
-MACRO_MODULES = frozenset({"app_term", "app_web", "app_task", "app_soundpad"})
+MACRO_MODULES = frozenset({"app_term", "app_web", "app_files", "app_task", "app_soundpad"})
 
 
 def _clip_source(cfg: dict) -> str:
@@ -3176,6 +3176,10 @@ async def _handle_action(ws: WebSocket, action: str):
         await asyncio.to_thread(_launch_browser)
         return
 
+    if action == "app_files":
+        await asyncio.to_thread(_launch_file_manager)
+        return
+
     if action == "app_task":
         await asyncio.to_thread(_launch_task_manager)
         return
@@ -3314,6 +3318,44 @@ def _launch_browser():
     for b in ("firefox", "brave", "google-chrome", "chromium", "vivaldi"):
         if shutil.which(b):
             return _popen([b])
+
+
+def _launch_file_manager():
+    if sys.platform.startswith("win"):
+        return _popen(["explorer.exe"])
+    if os.environ.get("FILEMANAGER") and shutil.which(os.environ["FILEMANAGER"]):
+        return _popen([os.environ["FILEMANAGER"]])
+    home = os.path.expanduser("~")
+    if shutil.which("xdg-open"):
+        return _popen(["xdg-open", home])
+    if shutil.which("gio"):
+        return _popen(["gio", "open", home])
+    de = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+    if "xfce" in de and shutil.which("exo-open"):
+        return _popen(["exo-open", "--launch", "FileManager"])
+    if shutil.which("xdg-mime") and shutil.which("gtk-launch"):
+        try:
+            entry = subprocess.check_output(
+                ["xdg-mime", "query", "default", "inode/directory"],
+                stderr=subprocess.DEVNULL, timeout=2,
+            ).decode().strip()
+            if entry.endswith(".desktop"):
+                return _popen(["gtk-launch", entry])
+        except Exception:
+            pass
+    candidates: list[str] = []
+    if "kde" in de:        candidates = ["dolphin"]
+    elif "gnome" in de:    candidates = ["nautilus"]
+    elif "cinnamon" in de: candidates = ["nemo"]
+    elif "mate" in de:     candidates = ["caja"]
+    elif "xfce" in de:     candidates = ["thunar"]
+    elif "lxqt" in de:     candidates = ["pcmanfm-qt", "pcmanfm"]
+    for fm in candidates:
+        if shutil.which(fm):
+            return _popen([fm])
+    for fm in ("dolphin", "nautilus", "nemo", "thunar", "caja", "pcmanfm-qt", "pcmanfm"):
+        if shutil.which(fm):
+            return _popen([fm])
 
 
 def _launch_task_manager():

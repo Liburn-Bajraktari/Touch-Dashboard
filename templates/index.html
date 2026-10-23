@@ -7953,6 +7953,7 @@
                             { type: 'plugin', action_data: 'app_soundpad', display_name: 'Soundboard', icon_url: 'lucide-music' },
                             { type: 'premade', action_data: 'app_term', display_name: 'Terminal', icon_url: 'lucide-terminal' },
                             { type: 'premade', action_data: 'app_web', display_name: 'Browser', icon_url: 'lucide-globe' },
+                            { type: 'premade', action_data: 'app_files', display_name: 'File Browser', icon_url: 'lucide-folder' },
                             { type: 'premade', action_data: 'app_task', display_name: 'Task manager', icon_url: 'lucide-activity' }
                         ];
                         if (isAdmin()) setTimeout(() => sendSocket('save_macros', macros), 1000);
@@ -9177,6 +9178,7 @@
             premade: [
                 { val: 'app_term', lbl: 'Terminal', icon: 'terminal' },
                 { val: 'app_web', lbl: 'Browser', icon: 'globe' },
+                { val: 'app_files', lbl: 'File Browser', icon: 'folder' },
                 { val: 'app_task', lbl: 'Task manager', icon: 'activity' },
             ],
             plugin: [

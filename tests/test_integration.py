@@ -431,6 +431,52 @@ def test_retired_clip_macros_are_dropped():
     assert [m["action_data"] for m in kept] == ["app_soundpad", ["KEY_LEFTALT", "KEY_F10"]]
     assert all(m.get("id") for m in kept)
     assert "app_clip" not in server.MACRO_MODULES
+    assert "app_files" in server.MACRO_MODULES
+
+
+def test_file_browser_builtin_macro():
+    """File browser is part of MACRO_MODULES and delegates to _launch_file_manager."""
+    import os
+    import server
+
+    # Test _launch_file_manager on Windows
+    with patch("server.sys") as mock_sys, patch("server._popen") as mock_popen:
+        mock_sys.platform = "win32"
+        server._launch_file_manager()
+        mock_popen.assert_called_once_with(["explorer.exe"])
+
+    # Test _launch_file_manager on Linux with custom FILEMANAGER env var
+    with patch("server.sys") as mock_sys, patch("server._popen") as mock_popen, \
+         patch.dict("os.environ", {"FILEMANAGER": "custom-fm", "XDG_CURRENT_DESKTOP": "kde"}), \
+         patch("server.shutil.which", side_effect=lambda cmd: cmd == "custom-fm"):
+        mock_sys.platform = "linux"
+        server._launch_file_manager()
+        mock_popen.assert_called_once_with(["custom-fm"])
+
+    # Test _launch_file_manager on Linux with xdg-open
+    with patch("server.sys") as mock_sys, patch("server._popen") as mock_popen, \
+         patch.dict("os.environ", {}, clear=True), \
+         patch("server.shutil.which", side_effect=lambda cmd: cmd == "xdg-open"):
+        mock_sys.platform = "linux"
+        server._launch_file_manager()
+        mock_popen.assert_called_once_with(["xdg-open", os.path.expanduser("~")])
+
+    # Test _launch_file_manager on Linux with DE fallback
+    with patch("server.sys") as mock_sys, patch("server._popen") as mock_popen, \
+         patch.dict("os.environ", {"XDG_CURRENT_DESKTOP": "kde"}), \
+         patch("server.shutil.which", side_effect=lambda cmd: cmd == "dolphin"):
+        mock_sys.platform = "linux"
+        server._launch_file_manager()
+        mock_popen.assert_called_once_with(["dolphin"])
+
+    # Test _run_macro with premade app_files
+    import asyncio
+    with patch("server._launch_file_manager") as mock_launch:
+        macro = {"id": "m_files", "type": "premade", "action_data": "app_files", "display_name": "File Browser"}
+        client = MagicMock()
+        client.ws = MagicMock()
+        asyncio.run(server._run_macro(client, macro))
+        mock_launch.assert_called_once()
 
 
 def test_speedtest_reports_ping_live_speed_and_result():
