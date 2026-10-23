@@ -21,6 +21,7 @@ Touch Dashboard is a piece of studio hardware that happens to be made of pixels:
 | Panels | Machined module plates, lit from above |
 | Volume | **Studio faders**: a recessed slot lit from inside, a printed scale, a grip cap with an index line |
 | Output switch | A **rotary encoder** with an LED ring, one LED per output device |
+| Transport | A **deck's transport keys**: ⏮ ⏯ ⏭ for music; for an episode, a film or a video the same row gains ↺10 and ↻30, the step printed inside the arrow. A key the player cannot use is unlit (`--text-3` ink) rather than dead. The progress bar is a scrub strip: drag it to a point |
 | Macros | **Display keys**: an LCD screen set into each keycap (Stream Deck) |
 | Soundboard | **Drum pads** that light when struck (MPC) |
 | Levels, names, figures | **Scribble strips and displays**: recessed dark windows |
@@ -157,6 +158,8 @@ One light, above the console. Every rule below follows from it, and nothing may 
 - While a fader is held its transitions switch off, so the cap is glued to the finger.
 - **Reduced motion**: CSS durations collapse to 1 ms and GSAP runs 40× faster through `gsap.matchMedia()`. The first-load entrance is skipped. The marquee runs one lap per track, then rests.
 - **Haptics** (Android, coarse pointers): 8 ms on any key, 5 ms per 10 % fader detent, 14 ms at 0 %, 100 % and the mute pull.
+- **Transport sizing.** The row is sized from the Now playing card, not the screen (`.spotify` is a size container): each key is its full size (play 6, ↺/↻ 4.2, ⏮/⏭ 3.6 rem with five keys; 6 and 4.6 with three) or its share of the card's width, whichever is smaller. The shares add up to the whole width and play's is the largest, so the row can never leave the card and play shrinks last. The rem-scaled layout keeps full sizes everywhere except at the 6 px root floor (a phone in portrait). Glyphs and the printed step scale with the key.
+- **Seeking.** ↺/↻ and the scrub strip move the progress at once and hold it until the player reports the same place; quick taps add up and go out as one seek. While dragging, only the fill's transform and the times' text change (on rich the strip also thickens by `scaleY`), so it stays cheap in the Linux window.
 
 ## 8. Performance and effects tiers
 
@@ -175,6 +178,7 @@ Measured in a headless copy of the desktop window. Before these rules, the windo
 2. **Any change to an element's `box-shadow`**, even a colour on an inset shadow. So on the lite tier a key presses by transform and lights by fill only. The press shade and the lit-key glow change shadows on the rich tier only, under `:where([data-fx="rich"])`, which keeps the specificity unchanged. A state that must show a ring uses a pseudo-element that is shown and hidden (the speaking ring), not a shadow.
 3. **An `opacity` crossing 1**, which gives the element a layer of its own. Toggle `visibility` instead (the mute slash).
 4. **Any change under a full-screen dialog** (or the full-screen clock, which holds the dashboard the same way). With a dialog open, even an 8 px box changing behind it costs a ~50 ms repaint of the whole window (measured: an empty transparent full-screen layer does it too). So on the lite tier, while any `.modal-overlay.active` is open, the dashboard behind it holds still (`holdDashboard()`, `html[data-held]`): `sys_data` waits in `pendingSysData` (only sign-in status and the lock screen still apply), the progress timer and the marquee pause, and CSS animations behind it stop. It catches up when the last dialog closes. Dialogs there also open without the fade and spring (each frame of those cost ~80 ms: Settings opened at ~12 fps for 0.6 s; now one ~57 ms frame) and without the card's two large blurred shadows (~15 ms of every frame).
+5. **Scrolling a box.** WebKitGTK cannot move the pixels, so each frame repaints the whole scrolled box and everything under it, the dimmed dashboard included. While a dialog is open (`html[data-held]`) the dashboard is drawn flat: no shadows, plates without their lit top, no ambient light (under the scrim it barely shows). Inside a dialog, draw lines and rims with borders rather than inset shadows: WebKitGTK draws each inset shadow through a buffer the size of the area it repaints (the card's 1 px rim cost ~6 ms a frame); a zero-width shadow costs nothing. Settings scrolled at ~13 fps (75 ms a frame); now ~40.
 
 Background, ink colour, corner radius, `visibility` and `transform` changes are cheap.
 

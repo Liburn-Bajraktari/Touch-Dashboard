@@ -42,6 +42,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -236,6 +237,7 @@ import lock_monitor as _lock_monitor_mod
 
 if sys.platform.startswith("linux"):
     import mouse_battery as _mouse_battery_mod
+    import mpris_monitor as _mpris_monitor_mod
 
 # ─── Paths & config ────────────────────────────────────────────────────────────
 
@@ -294,7 +296,7 @@ DEFAULT_CONFIG: dict = {
 }
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
-SERVER_FEATURES = ["disc_voice", "pairing"]   # see _make_config_sync
+SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like"]   # see _make_config_sync
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
 
@@ -446,9 +448,14 @@ if pynvml:
 
 # Misc media state
 force_media_update   = False
-current_media_source = "local"
 spotify_cache: dict | None = None
 last_spotify_check   = 0.0
+# The source the card shows; every media key goes to it (media.pick_source).
+media_shown: dict | None   = None
+media_pin: dict | None     = None    # {"id", "at"}: a source picked on the chip
+media_sources: list[dict]  = []      # every playing or paused source, for the chip
+spotify_like = {"item": "", "liked": None}   # the shown Spotify item, saved in the library?
+mpris_mon = None                     # MprisMonitor (Linux); None → playerctl is polled
 last_audio_devs: list = []
 last_weather_data    = {"temp": "--", "desc": "--", "timestamp": 0}
 upower_monitor       = None   # UPowerMouseMonitor instance (Linux only)
@@ -548,7 +555,10 @@ def get_sp_oauth() -> SpotifyOAuth | None:
             client_id=config["spot_id"],
             client_secret=config["spot_secret"],
             redirect_uri="http://127.0.0.1:8888/callback",
-            scope="user-read-playback-state user-modify-playback-state",
+            # The library scopes are for the like key; a token from before
+            # them keeps working for playback (media.spotify_token).
+            scope="user-read-playback-state user-modify-playback-state "
+                  "user-library-read user-library-modify",
             open_browser=False,
             cache_path=SPOTIFY_CACHE_FILE,
         )
@@ -800,12 +810,41 @@ async def _fetch_spotify(forced: bool) -> dict | None:
     return await asyncio.to_thread(media_module.get_spotify_api_meta, get_sp_oauth(), REQ_SESSION)
 
 
-async def _fetch_local_media(forced: bool) -> dict | None:
+async def _fetch_local_media(forced: bool) -> list[dict]:
     if forced:
         await asyncio.sleep(FORCED_MEDIA_DELAY)
     if sys.platform.startswith("win"):
-        return await media_module.get_windows_media_meta_async()
-    return await asyncio.to_thread(media_module.get_local_mpris_meta)
+        return await media_module.get_windows_players_async()
+    return await asyncio.to_thread(media_module.poll_mpris_players)
+
+
+async def _refresh_like(item_type: str, item_id: str) -> None:
+    liked = await asyncio.to_thread(media_module.spotify_liked, get_sp_oauth(), item_type, item_id, REQ_SESSION)
+    if spotify_like["item"] == item_id:
+        spotify_like["liked"] = liked
+        if sys_data_trigger:
+            sys_data_trigger.set()
+
+
+def _now_playing(art_url: str) -> dict | None:
+    """sys_data's `spotify`: the shown source, its keys and the chip's list."""
+    t = media_shown
+    if t is None:
+        # Older pages read Settings' Spotify sign-in state from this.
+        return spotify_cache if spotify_cache and spotify_cache.get("status") == "Auth_Required" else None
+    liked = None
+    if t.get("can_like") and t.get("item_id"):
+        if spotify_like["item"] != t["item_id"]:
+            spotify_like.update(item=t["item_id"], liked=None)
+            asyncio.create_task(_refresh_like(t.get("item_type", "track"), t["item_id"]))
+        liked = bool(spotify_like["liked"])   # unknown yet: shown unlit
+    return {
+        **media_module.public_media(t, art_url),
+        "liked": liked,
+        "sources": [{"id": s["id"], "name": s["name"], "status": s["status"]} for s in media_sources],
+        "source_id": t["id"],
+        "pinned": media_pin is not None,
+    }
 
 
 # OAuth "state": a sign-in callback is accepted only with the value this server
@@ -895,7 +934,8 @@ def _discord_state() -> dict:
 
 async def hardware_loop():
     global last_spotify_check, spotify_cache, last_audio_devs
-    global force_media_update, current_media_source, main_event_loop, sys_data_trigger
+    global force_media_update, main_event_loop, sys_data_trigger
+    global media_shown, media_pin, media_sources
 
     main_event_loop  = asyncio.get_running_loop()
     sys_data_trigger = asyncio.Event()
@@ -910,7 +950,7 @@ async def hardware_loop():
     gpu_cache        = ""
     last_audio_check = 0.0
     last_local_check = 0.0
-    local_media: dict | None = None
+    local_players: list[dict] = []
     audio_cache      = {
         "spk": {"vol": 0, "muted": False},
         "mic": {"vol": 0, "muted": False},
@@ -929,8 +969,8 @@ async def hardware_loop():
         curr   = time.monotonic()
         forced = force_media_update
         burst  = is_linux and media_module.is_mpris_burst_active()
-        spotify_playing = bool(spotify_cache) and spotify_cache.get("status") == "Playing"
         local_interval  = BURST_INTERVAL if burst else LOCAL_MEDIA_INTERVAL
+        monitor = mpris_mon if mpris_mon is not None and mpris_mon.running else None
 
         # Everything due this tick runs concurrently; each is a subprocess,
         # an HTTP call or a COM query, so the tick costs the slowest, not the sum.
@@ -941,9 +981,8 @@ async def hardware_loop():
                 jobs["batt"] = asyncio.to_thread(_read_batt_windows)
         if curr - last_spotify_check > SPOTIFY_POLL_INTERVAL or forced:
             jobs["spotify"] = _fetch_spotify(forced)
-        if spotify_playing:
-            local_media = None   # never fall back to a reading taken before Spotify started
-        elif forced or curr - last_local_check >= local_interval:
+        # The MPRIS monitor is read in memory below; polled sources are fetched.
+        if monitor is None and (forced or curr - last_local_check >= local_interval):
             jobs["local"] = _fetch_local_media(forced)
         if has_nvml and nvml_handle and curr - last_gpu_check > GPU_POLL_INTERVAL:
             assert pynvml is not None
@@ -983,25 +1022,23 @@ async def hardware_loop():
             last_spotify_check = time.monotonic()
             force_media_update = False
         if "local" in jobs:
-            local_media = None if isinstance(results["local"], Exception) else results["local"]
+            local_players = [] if isinstance(results["local"], Exception) else results["local"]
             last_local_check = curr
+        if monitor is not None:
+            local_players = media_module.from_monitor(monitor.players())
         if "gpu" in jobs:
             gpu = results["gpu"]
             gpu_cache = "" if isinstance(gpu, Exception) else str(gpu.gpu)
             last_gpu_check = curr
 
-        # Determine active media source
-        media = spotify_cache
-        if not media or media["status"] != "Playing":
-            if local_media and local_media.get("status") in ("Playing", "Paused"):
-                if not media or local_media["status"] == "Playing":
-                    media, current_media_source = local_media, "local"
-                else:
-                    current_media_source = "spotify"
-            elif media:
-                current_media_source = "spotify"
-        else:
-            current_media_source = "spotify"
+        # The source to show and control: a pinned one, else the latest to start.
+        spot = spotify_cache if spotify_cache and spotify_cache.get("status") in media_module.LIVE else None
+        media_sources = media_module.merge_spotify(media_module.dedupe(local_players), spot)
+        media_pin     = media_module.resolve_pin(media_sources, media_pin)
+        media_shown   = media_module.pick_source(media_sources, media_pin)
+        # Off the loop: a file cover is stat()ed, a data: cover decoded once.
+        art_url = await asyncio.to_thread(media_module.resolve_art, media_shown) if media_shown else ""
+        media = _now_playing(art_url)
 
         # Load is a once-a-second sample: ticks woken by Discord events or volume
         # read-backs reuse it, so they broadcast only what actually changed and
@@ -1021,6 +1058,7 @@ async def hardware_loop():
             # pc_locked: True when the host session's lock screen is active.
             "pc_locked":  lock_monitor_instance.get_state() if lock_monitor_instance else False,
             "spotify":    _signed_media(media),
+            "spotify_auth": dict(media_module.spotify_auth),
             "discord":    _discord_state(),
             "audio": {
                 # The latest level: the 1 s poll, or a fader's read-back since.
@@ -1490,6 +1528,19 @@ async def lifespan(app: FastAPI):
     speedtest_lock       = asyncio.Lock()
     sb_route_event       = asyncio.Event()
 
+    # The lock, UPower and MPRIS monitors each import GLib on their own thread.
+    # Imported there at the same moment, PyGObject can build two GLib wrappers
+    # and every loop fails ("Expected GLib.MainContext, but got
+    # gi.repository.GLib.MainContext"): import it once here first.
+    if get_os_target() == "linux":
+        try:
+            import gi  # type: ignore[import-untyped]
+            gi.require_version("Gio", "2.0")
+            from gi.repository import GLib, Gio  # type: ignore[import-untyped]  # noqa: F401
+            import dbus.mainloop.glib  # type: ignore[import-untyped]  # noqa: F401
+        except (ImportError, ValueError) as e:
+            logger.warning(f"GLib / dbus-python unavailable: {e}")
+
     # All platforms: start the lock-state monitor.
     # The callback fires call_soon_threadsafe(sys_data_trigger.set) so that
     # hardware_loop wakes immediately when the PC is locked or unlocked.
@@ -1519,6 +1570,18 @@ async def lifespan(app: FastAPI):
         upower_monitor.on_battery_change = _on_batt_change
         upower_monitor.start()
 
+        # Media players over D-Bus; if it cannot start, playerctl is polled.
+        global mpris_mon
+        monitor = _mpris_monitor_mod.MprisMonitor()
+
+        def _on_media_change():
+            if _loop_ref and sys_data_trigger:
+                _loop_ref.call_soon_threadsafe(sys_data_trigger.set)
+
+        monitor.on_change = _on_media_change
+        if await asyncio.to_thread(monitor.start):
+            mpris_mon = monitor
+
     restart_discord_ipc()
 
     tasks = [
@@ -1540,6 +1603,8 @@ async def lifespan(app: FastAPI):
         lock_monitor_instance.stop()
     if upower_monitor is not None:
         upower_monitor.stop()
+    if mpris_mon is not None:
+        mpris_mon.stop()
 
 
 _app = FastAPI(lifespan=lifespan)
@@ -1670,15 +1735,18 @@ async def serve_local_art(request: Request, h: str = "", k: str = ""):
     # Signed by _signed_media() for the cover playing now: a revoked device's old URLs stop working.
     if not (h and h == _current_art_h and hmac.compare_digest(k.encode(), _sign_art(h).encode())):
         return JSONResponse({"error": "No art"}, status_code=404)
+    # CORS lets the APK (a file:// page) read the pixels to tint the UI from
+    # the cover; only our own origins are echoed back, never "*".
+    headers = {"Vary": "Origin"}
+    origin = request.headers.get("origin")
+    if origin and origin_policy.origin_allowed(
+            origin, request.client.host if request.client else None, request.headers.get("user-agent", "")):
+        headers["Access-Control-Allow-Origin"] = origin
+    cover = media_module.get_cover(h)    # a player's data: cover, decoded once
+    if cover:
+        return Response(content=cover[0], media_type=cover[1], headers=headers)
     path = media_module.get_last_mpris_art_path()
-    if path and os.path.exists(path):
-        # CORS lets the APK (a file:// page) read the pixels to tint the UI from
-        # the cover; only our own origins are echoed back, never "*".
-        headers = {"Vary": "Origin"}
-        origin = request.headers.get("origin")
-        if origin and origin_policy.origin_allowed(
-                origin, request.client.host if request.client else None, request.headers.get("user-agent", "")):
-            headers["Access-Control-Allow-Origin"] = origin
+    if path and await asyncio.to_thread(os.path.exists, path):
         return FileResponse(path, headers=headers)
     return JSONResponse({"error": "No art"}, status_code=404)
 
@@ -2396,6 +2464,57 @@ async def _ws_set_play_key(client: Client, msg: dict) -> None:
     await ws_manager.broadcast({"type": "play_key_state", "data": cover})
 
 
+SEEK_MAX_S = 24 * 3600
+
+
+def _seconds_arg(value) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise TypeError("seconds must be a finite number")
+    return max(-SEEK_MAX_S, min(SEEK_MAX_S, float(value)))
+
+
+async def _ws_media_seek(client: Client, msg: dict) -> None:
+    """{to: s} (absolute, the page's own clock) or {by: s} (relative, when the
+    page does not know the position) on the shown source."""
+    data = msg["data"]
+    if ("to" in data) == ("by" in data):
+        raise ValueError("send one of to / by")
+    if "to" in data:
+        await _media_command("seek_to", max(0.0, _seconds_arg(data["to"])))
+    else:
+        await _media_command("seek_by", _seconds_arg(data["by"]))
+
+
+async def _ws_media_source(client: Client, msg: dict) -> None:
+    """{id}: show and control that source until it closes or another starts
+    playing; "" goes back to following whatever plays."""
+    global media_pin
+    sid = msg["data"]["id"]
+    if not isinstance(sid, str):
+        raise TypeError("id must be a string")
+    if sid and not any(s["id"] == sid for s in media_sources):
+        raise ValueError("no such source")
+    media_pin = {"id": sid, "at": time.monotonic()} if sid else None
+    if sys_data_trigger:
+        sys_data_trigger.set()
+
+
+async def _ws_media_like(client: Client, msg: dict) -> None:
+    """{liked: bool}: the state asked for (not a toggle), for the shown Spotify item."""
+    liked = msg["data"]["liked"]
+    if not isinstance(liked, bool):
+        raise TypeError("liked must be a boolean")
+    t = media_shown
+    if not (t and t.get("can_like") and t.get("item_id")):
+        raise ValueError("nothing to like")
+    ok = await asyncio.to_thread(media_module.spotify_set_liked, get_sp_oauth(),
+                                 t.get("item_type", "track"), t["item_id"], liked, REQ_SESSION)
+    if ok:
+        spotify_like.update(item=t["item_id"], liked=liked)
+    if sys_data_trigger:
+        sys_data_trigger.set()
+
+
 async def _ws_run_speedtest(client: Client, msg: dict) -> None:
     asyncio.create_task(_run_speedtest())
 
@@ -2476,6 +2595,9 @@ WS_HANDLERS = {
     "toggle_sb_feedback": _ws_toggle_sb_feedback,
     "set_theme":          _ws_set_theme,
     "set_play_key":       _ws_set_play_key,
+    "media_seek":         _ws_media_seek,
+    "media_source":       _ws_media_source,
+    "media_like":         _ws_media_like,
     "run_speedtest":      _ws_run_speedtest,
     "play_clip":          _ws_play_clip,
     "check_update":       _ws_check_update,
@@ -2634,9 +2756,129 @@ async def _play_clip(pad: dict, source: str) -> None:
                 break
 
 
+# ── Media keys ───────────────────────────────────────────────────────────────
+# Every key goes to the source the card shows (media_shown), through that
+# source's own channel: MPRIS, SMTC, or Spotify's Web API for a remote device.
+
+async def _media_position(t: dict) -> float | None:
+    """The shown source's position now, for Previous and relative seeks."""
+    via = t["via"]
+    if via == "mpris" and mpris_mon is not None:
+        return await asyncio.to_thread(mpris_mon.position, t["bus"])
+    if via == "playerctl":
+        return await asyncio.to_thread(media_module.playerctl_position, t["instance"])
+    if via == "smtc":
+        return await media_module.smtc_position(t["aumid"])
+    pos = t["position"]
+    if pos is not None and t["status"] == "Playing" and t.get("fetched_at"):
+        pos += time.monotonic() - t["fetched_at"]
+    return pos
+
+
+def _spotify_api_do(t: dict, op: str, arg: float | None) -> bool:
+    info = media_module.spotify_token(get_sp_oauth())
+    if not info:
+        return False
+    sp = media_module.spotify_client(info, REQ_SESSION)
+    try:
+        if op == "play":
+            # The cached state: one round trip, not a GET first.
+            sp.pause_playback() if t["status"] == "Playing" else sp.start_playback()
+        elif op == "next":
+            sp.next_track()
+        elif op == "prev":
+            sp.previous_track()
+        elif op in ("seek", "seek_rel") and arg is not None:
+            if op == "seek_rel":
+                pos = t["position"] or 0.0
+                if t["status"] == "Playing" and t.get("fetched_at"):
+                    pos += time.monotonic() - t["fetched_at"]
+                arg += pos
+            sp.seek_track(int(max(0.0, arg) * 1000))
+        else:
+            return False
+        return True
+    except Exception as e:   # 403 without Premium, a device that went away
+        logger.info(f"Spotify Web API {op} failed: {e}")
+        return False
+
+
+async def _media_do(t: dict, op: str, arg: float | None = None) -> bool:
+    """play | next | prev | seek (absolute s) | seek_rel (s) on one source."""
+    via = t["via"]
+    if via == "mpris" and mpris_mon is not None:
+        if op == "seek":
+            return await asyncio.to_thread(mpris_mon.set_position, t["bus"], arg, t["trackid"], t["position"])
+        if op == "seek_rel":
+            return await asyncio.to_thread(mpris_mon.call, t["bus"], "Seek", "x", int(arg * 1e6))
+        method = {"play": "PlayPause", "next": "Next", "prev": "Previous"}[op]
+        return await asyncio.to_thread(mpris_mon.call, t["bus"], method)
+    if via == "playerctl":
+        if op == "seek":
+            args = ["position", f"{max(0.0, arg):.2f}"]
+        elif op == "seek_rel":
+            args = ["position", f"{abs(arg):.2f}{'+' if arg >= 0 else '-'}"]
+        else:
+            args = [{"play": "play-pause", "next": "next", "prev": "previous"}[op]]
+        return await asyncio.to_thread(media_module.playerctl_command, t["instance"], *args)
+    if via == "smtc":
+        if op == "seek_rel":
+            pos = await media_module.smtc_position(t["aumid"])
+            if pos is None:
+                return False
+            op, arg = "seek", pos + arg
+        return await media_module.smtc_command(t["aumid"], op, arg)
+    if via == "spotify_api":
+        return await asyncio.to_thread(_spotify_api_do, t, op, arg)
+    return False
+
+
+async def _media_keys(cmd: str) -> None:
+    """Nothing to target (nothing shown, or Windows refused): what the keys
+    did before, playerctl's first player on Linux, else media keys."""
+    if cmd not in ("play", "next", "prev"):
+        return
+    if sys.platform.startswith("linux") and await asyncio.to_thread(
+            media_module.playerctl_command, "", {"play": "play-pause", "next": "next", "prev": "previous"}[cmd]):
+        return
+    key = {"play": "KEY_PLAYPAUSE", "next": "KEY_NEXTSONG", "prev": "KEY_PREVIOUSSONG"}[cmd]
+    await asyncio.to_thread(MacroSystem.send_keys, key)
+
+
+async def _media_command(cmd: str, value: float | None = None) -> None:
+    """play | next | prev | seek_to | seek_by on the shown source."""
+    global force_media_update
+    t = media_shown
+    if t is None:
+        await _media_keys(cmd)
+        force_media_update = True
+        return
+    if cmd == "prev":
+        plan = media_module.prev_plan(await _media_position(t), t["caps"])
+        ok = await _media_do(t, "seek", 0.0) if plan == "restart" else await _media_do(t, "prev")
+    elif cmd == "seek_to":
+        if t["length"]:
+            value = min(value, max(0.0, t["length"] - 1.0))   # past the end MPRIS skips a track
+        ok = await _media_do(t, "seek", max(0.0, value))
+    elif cmd == "seek_by":
+        ok = await _media_do(t, "seek_rel", value)
+    else:
+        ok = await _media_do(t, cmd)
+    if not ok:
+        logger.info(f"media {cmd} on {t['name'] or t['id']} ({t['via']}) did not go through")
+        if t["via"] == "smtc":
+            await _media_keys(cmd)
+    # The MPRIS monitor reports the result by itself; a forced read waits
+    # FORCED_MEDIA_DELAY plus a Web API round trip, so only polled sources
+    # (and Spotify, whose cover and like state come from the Web API) get one.
+    force_media_update = t["via"] != "mpris" or t["app"] == "spotify"
+    if sys_data_trigger:
+        sys_data_trigger.set()
+
+
 async def _handle_action(ws: WebSocket, action: str):
     """Dispatch an 'action' message from the WebSocket client."""
-    global force_media_update, current_media_source
+    global force_media_update
 
     # ── system actions ────────────────────────────────────────────────────────
     if action == "sys_power_off":
@@ -2696,50 +2938,9 @@ async def _handle_action(ws: WebSocket, action: str):
             await asyncio.to_thread(_rm_spot_cache)
             return
 
-        sp_oauth = get_sp_oauth()
-        routed   = False
-        if current_media_source == "spotify" and sp_oauth:
-            try:
-                token = await asyncio.to_thread(sp_oauth.get_cached_token)
-                if token:
-                    sp = spotipy.Spotify(auth=token["access_token"], requests_timeout=3)
-                    if action == "spot_play":
-                        c = await asyncio.to_thread(sp.current_playback)
-                        if c and c.get("is_playing"):
-                            await asyncio.to_thread(sp.pause_playback)
-                        else:
-                            await asyncio.to_thread(sp.start_playback)
-                    elif action == "spot_next":
-                        await asyncio.to_thread(sp.next_track)
-                    elif action == "spot_prev":
-                        await asyncio.to_thread(sp.previous_track)
-                    routed = True
-                    force_media_update = True
-            except Exception:
-                pass
-
-        if not routed:
-            if sys.platform.startswith("linux") and shutil.which("playerctl"):
-                cmd_map = {
-                    "spot_play": ["playerctl", "play-pause"],
-                    "spot_next": ["playerctl", "next"],
-                    "spot_prev": ["playerctl", "previous"],
-                }
-                if action in cmd_map:
-                    await asyncio.to_thread(
-                        subprocess.run, cmd_map[action],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-            else:
-                # Windows: use media keys
-                key_map = {
-                    "spot_play": "KEY_PLAYPAUSE",
-                    "spot_next": "KEY_NEXTSONG",
-                    "spot_prev": "KEY_PREVIOUSSONG",
-                }
-                if action in key_map:
-                    await asyncio.to_thread(MacroSystem.send_keys, key_map[action])
-            force_media_update = True
+        cmd = {"spot_play": "play", "spot_next": "next", "spot_prev": "prev"}.get(action)
+        if cmd:
+            await _media_command(cmd)
         return
 
     # ── Discord ────────────────────────────────────────────────────────────────

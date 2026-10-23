@@ -14,7 +14,7 @@ import os
 import sys
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -410,6 +410,39 @@ def test_run_macro_runs_by_id_and_rejects_raw_commands(app):
         _refusals(ws, 1)
     assert [r["reason"] for r in refusals] == ["invalid"] * 4 + ["unknown"] * 4
     launch.assert_called_once_with("xterm")
+
+
+def test_media_keys_reach_the_shown_source_and_bad_ones_are_refused(app, monkeypatch):
+    # Devices may use the media keys; each goes to the source the card shows.
+    import media
+    shown = media._record(id="playerctl:vlc", via="playerctl", raw="vlc", name="VLC", status="Playing",
+                          position=100.0, length=600.0, instance="vlc")
+    bad = [
+        {"type": "media_seek", "data": {}},
+        {"type": "media_seek", "data": {"to": 1, "by": 2}},
+        {"type": "media_seek", "data": {"to": "10"}},
+        {"type": "media_seek", "data": {"by": True}},
+        {"type": "media_source", "data": {"id": "not-a-source"}},
+        {"type": "media_source", "data": {"id": 3}},
+        {"type": "media_like", "data": {"liked": True}},       # not a Spotify item
+        {"type": "media_like", "data": {"liked": "yes"}},
+    ]
+    with patch("server.media_module.pick_source", return_value=shown), \
+            patch("server.media_module.playerctl_command", return_value=True) as pc, \
+            patch("server.media_module.playerctl_position", return_value=42.0), \
+            _device(app, _paired_token()) as ws:
+        monkeypatch.setattr(server, "media_shown", shown)
+        for msg in bad:
+            ws.send_json(msg)
+        assert {r["reason"] for r in _refusals(ws, len(bad))} == {"invalid"}
+        ws.send_json({"type": "media_seek", "data": {"to": 5000}})     # held a second short of the end
+        ws.send_json({"type": "media_seek", "data": {"by": -10}})
+        ws.send_json({"type": "action", "data": "spot_prev"})          # 42 s in: back to the start
+        ws.send_json({"type": "action", "data": "spot_next"})
+        ws.send_json({"type": "nope"})
+        _refusals(ws, 1)
+    assert pc.call_args_list == [call("vlc", "position", "599.00"), call("vlc", "position", "10.00-"),
+                                 call("vlc", "position", "0.00"), call("vlc", "next")]
 
 
 def test_play_clip_resolves_inside_the_sounds_folder(app, tmp_path):

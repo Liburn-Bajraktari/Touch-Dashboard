@@ -1096,12 +1096,15 @@
         }
 
         /* ── Now playing ──────────────────────────────────────────────────── */
+        /* A size container: the transport keys are sized from the card's width
+           (cqi), so five of them fit a phone or a small tablet. */
         .spotify {
             flex: 1;
             position: relative;
             overflow: hidden;
             isolation: isolate;
             justify-content: space-between;
+            container-type: inline-size;
         }
 
         /* The cover, drawn into an 8×8 canvas and stretched: a free blur. */
@@ -1244,8 +1247,30 @@
         }
 
         .np-progress {
+            position: relative;
             width: 100%;
             margin-top: 1.1rem;
+        }
+
+        /* Seekable: drag anywhere on the bar or its times. The hit area reaches
+           above the thin bar without moving anything (a pseudo-element). */
+        .np-progress[data-seek] {
+            cursor: pointer;
+            touch-action: none;
+        }
+
+        .np-progress[data-seek]::before {
+            content: '';
+            position: absolute;
+            inset: -0.9rem 0 0;
+        }
+
+        .np-bar {
+            transition: transform var(--dur) var(--ease);
+        }
+
+        :where([data-fx="rich"]) .np-progress.is-scrubbing .np-bar {
+            transform: scaleY(1.7);
         }
 
         .np-bar {
@@ -1285,6 +1310,11 @@
             text-align: right;
         }
 
+        /* Transport: ⏮ ⏯ ⏭ for music; ⏮ ↺10 ⏯ ↻30 ⏭ for long-form and video
+           (data-keys, from the server's `kind`). Each key is its full size or
+           its share of the card's width, whichever is smaller; the shares add up
+           to at most 100cqi and play has the largest, so the row never leaves
+           the card and play shrinks last. Glyphs scale with the key (--k). */
         .spot-ctrl {
             display: flex;
             align-items: center;
@@ -1294,18 +1324,75 @@
             margin-top: 1.1rem;
         }
 
-        .spot-ctrl .btn {
-            width: 4.6rem;
-            height: 4.6rem;
+        .spot-ctrl .np-key {
+            --k: 4.6rem;
+            width: var(--k);
+            height: var(--k);
             flex: none;
+        }
+
+        .spot-ctrl .btn-play {
+            --k: 6rem;
+        }
+
+        .spot-ctrl[data-keys="3"] .np-seek {
+            display: none;
+        }
+
+        .spot-ctrl[data-keys="5"] {
+            gap: 1rem;
+        }
+
+        .spot-ctrl[data-keys="5"] .np-key {
+            --k: 3.6rem;
+        }
+
+        .spot-ctrl[data-keys="5"] .np-seek {
+            --k: 4.2rem;
+        }
+
+        .spot-ctrl[data-keys="5"] .btn-play {
+            --k: 6rem;
+        }
+
+        @supports (width: 1cqi) {
+            .spot-ctrl { gap: min(1.6rem, 7cqi); }
+            .spot-ctrl .np-key { --k: min(4.6rem, 26cqi); }
+            .spot-ctrl .btn-play { --k: min(6rem, 34cqi); }
+            .spot-ctrl[data-keys="5"] { gap: min(1rem, 3cqi); }
+            .spot-ctrl[data-keys="5"] .np-key { --k: min(3.6rem, 13cqi); }
+            .spot-ctrl[data-keys="5"] .np-seek { --k: min(4.2rem, 15cqi); }
+            .spot-ctrl[data-keys="5"] .btn-play { --k: min(6rem, 30cqi); }
+        }
+
+        .spot-ctrl .np-key svg.lucide {
+            width: calc(var(--k) * 0.43);
+            height: calc(var(--k) * 0.43);
+        }
+
+        /* ↺10 / ↻30: the step printed inside the arrow's circle. */
+        .spot-ctrl .np-seek svg.lucide {
+            width: calc(var(--k) * 0.62);
+            height: calc(var(--k) * 0.62);
+            stroke-width: 1.5;
+        }
+
+        .np-n {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding-top: calc(var(--k) * 0.02);
+            font-size: calc(var(--k) * 0.2);
+            font-weight: var(--weight-strong);
+            letter-spacing: -0.02em;
+            pointer-events: none;
         }
 
         /* The play key: lit in the cover's colour, or in the theme's accent when
            the cover gives none or the cover colour is switched off (Settings →
            Themes, html[data-play-key="theme"]). */
         .spot-ctrl .btn-play {
-            width: 6rem;
-            height: 6rem;
             background: var(--dyn, var(--accent));
             color: var(--dyn-ink, var(--accent-ink));
             box-shadow: inset 0 1px 0 var(--rim), 0 0.9rem 1.8rem -0.7rem var(--dyn-shadow, var(--depth));
@@ -1319,8 +1406,61 @@
         }
 
         .spot-ctrl .btn-play svg.lucide {
-            width: 2.4rem;
-            height: 2.4rem;
+            width: calc(var(--k) * 0.4);
+            height: calc(var(--k) * 0.4);
+            fill: currentColor;
+        }
+
+        /* The panel head: the like key (Spotify) and the source chip, which
+           becomes a key when several players are open (a tap picks the next). */
+        .np-head-keys {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            min-width: 0;
+            max-width: 70%;
+        }
+
+        .np-head-keys .chip {
+            max-width: 100%;
+        }
+
+        button.chip {
+            border: 0;
+            font-family: inherit;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        button.chip:disabled {
+            cursor: default;
+        }
+
+        .chip .np-switch {
+            width: 1rem;
+            height: 1rem;
+            margin-inline-start: -0.1rem;
+        }
+
+        .np-like {
+            width: 2.6rem;
+            height: 2.6rem;
+            flex: none;
+            margin-block: -0.2rem;      /* the head keeps the chip's height */
+            color: var(--text-2);
+        }
+
+        .np-like svg.lucide {
+            width: 1.3rem;
+            height: 1.3rem;
+        }
+
+        .np-like[aria-pressed="true"] {
+            color: var(--dyn, var(--accent-text));
+        }
+
+        .np-like[aria-pressed="true"] svg.lucide {
             fill: currentColor;
         }
 
@@ -2436,7 +2576,10 @@
             max-width: 90vw;
             max-height: 90vh;
             padding: 2.5rem;
-            background: linear-gradient(180deg, var(--surface-top), var(--surface) 30%);
+            /* The lit top in a band 30% high over a flat fill: the same pixels as
+               one gradient to 30%, but the Linux window computes a gradient for
+               every pixel it covers, on every frame Settings scrolls (~6 ms). */
+            background: linear-gradient(180deg, var(--surface-top), var(--surface)) top / 100% 30% no-repeat, var(--surface);
             border-radius: calc(var(--radius-panel) * var(--sq));
             box-shadow: var(--shadow), var(--elev-1);
             overflow-y: auto;
@@ -2458,19 +2601,42 @@
            ~80 ms a frame there, so opening Settings played at ~12 fps for 0.6 s
            (measured). Dialogs appear at once instead, and the card drops its two
            large blurred shadows (~15 ms of every frame under it): on the dark
-           scrim they barely show. Its lit top edge and outline stay. */
+           scrim they barely show. Its lit top edge and outline stay; the edge is
+           a border there, since WebKitGTK draws an inset shadow through a buffer
+           the size of what it repaints (~6 ms a frame while Settings scrolls).
+           The lit top starts under the border, or the edge comes out dimmer.
+           A zero-width outline costs nothing. */
         :where([data-fx="lite"]) .modal-overlay,
         :where([data-fx="lite"]) .modal-card {
             transition: none;
         }
 
         :where([data-fx="lite"]) .modal-card {
-            box-shadow: inset 0 1px 0 var(--rim), inset 0 0 0 var(--panel-line-w) var(--panel-line);
+            border-top: 1px solid var(--rim);
+            background-origin: border-box;
+            box-shadow: inset 0 0 0 var(--panel-line-w) var(--panel-line);
         }
 
         /* Behind a dialog in that window, nothing animates (see holdDashboard). */
         :where([data-held]) :is(.top-bar, #view-wrapper) * {
             animation-play-state: paused !important;
+        }
+
+        /* ...and it is drawn flat: no ambient light, plates without shadows or
+           a lit top. Scrolling a dialog repaints everything under the scrolled
+           box on every frame, the dimmed dashboard included; this took
+           Settings from ~13 to ~40 fps (measured). Under the scrim it barely
+           shows, and the full-screen clock covers it whole. */
+        :where([data-held]) body {
+            background: var(--ground);
+        }
+
+        :where([data-held]) .card {
+            background: var(--surface);
+        }
+
+        :where([data-held]) :is(.top-bar, #view-wrapper) :is(*, *::before, *::after) {
+            box-shadow: none !important;
         }
 
         .modal-title {
@@ -2907,11 +3073,13 @@
         }
 
         /* Never squashed: when a tab is taller than the panel, the column's items
-           shrink to fit, and this key (min-height 0) collapsed under its label. */
+           shrink to fit, and this key (min-height 0) collapsed under its label.
+           A short tab already pushes it to the bottom (.tab-content grows), so
+           the margin only shows on a tall one, which it used to touch. */
         .settings-save {
             align-self: flex-end;
             flex-shrink: 0;
-            margin-top: auto;
+            margin-top: 2rem;
             margin-bottom: 0.25rem;
         }
 
@@ -2934,8 +3102,10 @@
             padding: 1.1rem 1.25rem;
         }
 
+        /* A border, not an inset shadow: the same line, much cheaper to repaint
+           while Settings scrolls in the Linux window. */
         .setting-row + .setting-row {
-            box-shadow: inset 0 var(--line-w) 0 var(--line);
+            border-top: var(--line-w) solid var(--line);
         }
 
         .setting-row label.title {
@@ -4695,7 +4865,8 @@
                     <div class="auth-row">
                         <button class="btn btn-primary btn-pill" id="btn-spot-auth"
                             onclick="goToServerPath('/spotify_login')">
-                            <svg aria-hidden="true"><use href="#icon-spotify" /></svg>Connect Spotify
+                            <svg aria-hidden="true"><use href="#icon-spotify" /></svg><span
+                                id="btn-spot-auth-label">Connect Spotify</span>
                         </button>
 
                         <div id="spot-connected-group" class="connected-group" style="display: none;">
@@ -5063,7 +5234,12 @@
                     <canvas class="np-backdrop" id="np-backdrop" width="8" height="8" aria-hidden="true"></canvas>
                     <div class="panel-head">
                         <h2 class="panel-title">Now playing</h2>
-                        <span class="chip" id="np-source" hidden></span>
+                        <div class="np-head-keys">
+                            <button class="btn round np-like" id="np-like" type="button" hidden aria-pressed="false"
+                                aria-label="Save to your library" onclick="npLike()"><i data-lucide="heart"></i></button>
+                            <button class="chip" id="np-source" type="button" hidden disabled
+                                onclick="npNextSource()"></button>
+                        </div>
                     </div>
 
                     <div id="spot-empty" class="spot-empty"><i data-lucide="disc-3"></i>Nothing playing</div>
@@ -5089,16 +5265,22 @@
                         </div>
                     </div>
 
-                    <div class="spot-ctrl">
-                        <button class="btn round" onclick="act('spot_prev')" aria-label="Previous track"><i
-                                data-lucide="skip-back"></i></button>
-                        <button class="btn round btn-play" id="btn-spot-play" onclick="act('spot_play')"
+                    <div class="spot-ctrl" id="spot-ctrl" data-keys="3">
+                        <button class="btn round np-key" id="np-prev" onclick="npKey('prev')"
+                            aria-label="Previous"><i data-lucide="skip-back"></i></button>
+                        <button class="btn round np-key np-seek" onclick="npKey('back')"
+                            aria-label="Back 10 seconds"><i data-lucide="rotate-ccw"></i><span class="np-n num"
+                                aria-hidden="true">10</span></button>
+                        <button class="btn round np-key btn-play" id="btn-spot-play" onclick="act('spot_play')"
                             aria-label="Play or pause">
                             <i data-lucide="play" id="icon-spot-play"></i>
                             <i data-lucide="pause" id="icon-spot-pause" style="display: none;"></i>
                         </button>
-                        <button class="btn round" onclick="act('spot_next')" aria-label="Next track"><i
-                                data-lucide="skip-forward"></i></button>
+                        <button class="btn round np-key np-seek" onclick="npKey('fwd')"
+                            aria-label="Forward 30 seconds"><i data-lucide="rotate-cw"></i><span class="np-n num"
+                                aria-hidden="true">30</span></button>
+                        <button class="btn round np-key" id="np-next" onclick="npKey('next')"
+                            aria-label="Next"><i data-lucide="skip-forward"></i></button>
                     </div>
                 </section>
 
@@ -6293,6 +6475,7 @@
             vcUsersList: document.getElementById('vc-users-list'),
             spotifyPanel: document.querySelector('.spotify'),
             btnSpotAuth: document.getElementById('btn-spot-auth'),
+            btnSpotAuthLabel: document.getElementById('btn-spot-auth-label'),
             spotGroup: document.getElementById('spot-connected-group'),
             macroGrid: document.getElementById('macro-grid'),
             macroModal: document.getElementById('macro-modal'),
@@ -6308,6 +6491,11 @@
             npBackdrop: document.getElementById('np-backdrop'),
             npSource: document.getElementById('np-source'),
             npProgress: document.getElementById('np-progress'),
+            npBar: document.querySelector('#np-progress .np-bar'),
+            spotCtrl: document.getElementById('spot-ctrl'),
+            npPrev: document.getElementById('np-prev'),
+            npNext: document.getElementById('np-next'),
+            npLike: document.getElementById('np-like'),
             npFill: document.getElementById('np-fill'),
             npElapsed: document.getElementById('np-elapsed'),
             npRemaining: document.getElementById('np-remaining'),
@@ -6620,16 +6808,42 @@
             if (dom.npBackdrop) dom.npBackdrop.classList.remove('is-on');
         }
 
-        function setSource(player) {
+        // The source chip. With several players open it is a key: a tap shows
+        // and controls the next one (the server holds that pick until the
+        // player closes or another one starts playing).
+        let sourcePending = null;          // {id, name, until}: a pick not yet reported back
+        const SOURCE_CONFIRM_MS = 2000;
+        function setSource(m) {
             const chip = dom.npSource;
-            const name = String(player || '');
-            if (!chip || chip.dataset.player === name) return;
-            chip.dataset.player = name;
+            if (!chip) return;
+            let name = String((m && m.player) || '');
+            const sources = (m && serverFeatures.has('media_source') && Array.isArray(m.sources)) ? m.sources : [];
+            if (sourcePending) {
+                if (Date.now() > sourcePending.until || (m && m.source_id === sourcePending.id)) sourcePending = null;
+                else name = sourcePending.name;
+            }
+            const switchable = sources.length > 1;
+            const key = name + '|' + switchable;
+            if (chip.dataset.player === key) return;
+            chip.dataset.player = key;
             chip.hidden = !name;
-            chip.innerHTML = name === 'Spotify'
+            chip.disabled = !switchable;
+            chip.setAttribute('aria-label', switchable ? `${name}. Show the next player` : name);
+            chip.innerHTML = (name === 'Spotify'
                 ? '<svg aria-hidden="true"><use href="#icon-spotify"/></svg>Spotify'
-                : `<i data-lucide="radio"></i>${escapeHtml(name)}`;
+                : `<i data-lucide="radio"></i>${escapeHtml(name)}`)
+                + (switchable ? '<i data-lucide="chevrons-up-down" class="np-switch"></i>' : '');
             renderIcons(chip);
+        }
+        function npNextSource() {
+            const m = npMedia;
+            if (!m || !Array.isArray(m.sources) || m.sources.length < 2) return;
+            const current = sourcePending ? sourcePending.id : m.source_id;
+            const i = m.sources.findIndex(src => src.id === current);
+            const next = m.sources[(i + 1) % m.sources.length];
+            sourcePending = { id: next.id, name: next.name, until: Date.now() + SOURCE_CONFIRM_MS };
+            setSource(m);
+            sendSocket('media_source', { id: next.id });
         }
 
         // Progress: anchored to the last report, advanced locally once a second.
@@ -6664,18 +6878,31 @@
         function startProgressTimer() {
             if (npTimer || !npClock || !npClock.playing || document.hidden) return;
             npTimer = setInterval(() => {
-                if (dashboardHeld) return;   // the next tick after the dialog catches up
+                if (dashboardHeld || npScrub) return;   // the next tick after the dialog catches up
                 dom.npFill.classList.toggle('is-ticking', progressGlides);
                 renderProgress(progressGlides);
             }, 1000);
         }
         function updateProgress(media) {
-            const len = Number(media && media.length), pos = Number(media && media.position);
+            const len = Number(media && media.length);
+            let pos = Number(media && media.position);
             if (!media || !(len > 0) || media.position === null || !Number.isFinite(pos)) {
                 npClock = null;
+                seekPending = null;
                 dom.npProgress.hidden = true;
+                dom.npProgress.removeAttribute('data-seek');
                 stopProgressTimer();
                 return;
+            }
+            dom.npProgress.toggleAttribute('data-seek', npCanSeek(media));
+            if (npScrub) return;                 // the finger owns the bar
+            // A seek just sent: readings from before it arrive for a moment.
+            if (seekPending) {
+                if (Date.now() > seekPending.until || !npClock || Math.abs(npPosition() - pos) <= PROGRESS_SNAP_S) {
+                    seekPending = null;
+                } else {
+                    pos = npPosition();
+                }
             }
             const playing = media.status === 'Playing';
             const jumped = !npClock || npClock.len !== len || npClock.playing !== playing
@@ -6694,6 +6921,128 @@
             if (document.hidden) stopProgressTimer();
             else if (npClock) { dom.npFill.classList.remove('is-ticking'); renderProgress(false); startProgressTimer(); }
         });
+
+        // --- Now playing: transport keys, seeking, like ---
+        // The server says what the source can do (caps) and what it is (kind):
+        // long-form and video get ↺10 / ↻30 between ⏮ and ⏭, music keeps three
+        // keys. A key the source cannot use is disabled rather than silent.
+        // Seeks move the clock at once and hold it until a reading agrees
+        // (like the faders); taps within SEEK_FOLD_MS go out as one absolute seek.
+        const SEEK_BACK_S = 10, SEEK_FWD_S = 30, SEEK_FOLD_MS = 250, SEEK_CONFIRM_MS = 2500;
+        const RESTART_AFTER_S = 3, LIKE_CONFIRM_MS = 2000;
+        let npMedia = null;                // the shown source, from sys_data
+        let seekPending = null;            // {until}: npClock holds a seek not yet read back
+        let seekSendTimer = null, seekSentAt = 0;
+        let npScrub = null;                // {left, width, to} while a finger drags the bar
+        let likePending = null;            // {liked, title, until}
+
+        function npCanSeek(m) {
+            return !!(m && m.caps && m.caps.seek && serverFeatures.has('media_seek'));
+        }
+        function setTransport(m) {
+            const caps = (m && m.caps) || null;
+            const keys = npCanSeek(m) && m.kind === 'long' ? '5' : '3';
+            if (dom.spotCtrl.dataset.keys !== keys) dom.spotCtrl.dataset.keys = keys;
+            // Previous restarts a seekable source, so it is off only when neither works.
+            const prevOff = !!(caps && !caps.prev && !caps.seek), nextOff = !!(caps && !caps.next);
+            if (dom.npPrev.disabled !== prevOff) dom.npPrev.disabled = prevOff;
+            if (dom.npNext.disabled !== nextOff) dom.npNext.disabled = nextOff;
+        }
+        function sendSeek() {
+            seekSendTimer = null;
+            if (!npClock) return;
+            seekSentAt = Date.now();
+            // Where the clock is now: it kept running while the taps folded.
+            sendSocket('media_seek', { to: Math.round(npPosition() * 10) / 10 });
+        }
+        function seekTo(to) {
+            if (!npClock) return;
+            npClock = { ...npClock, pos: Math.max(0, Math.min(npClock.len, to)), at: performance.now() };
+            seekPending = { until: Date.now() + SEEK_CONFIRM_MS };
+            dom.npFill.classList.remove('is-ticking');
+            renderProgress(false);
+            if (seekSendTimer) return;    // the trailing send picks up the latest
+            const wait = SEEK_FOLD_MS - (Date.now() - seekSentAt);
+            if (wait <= 0) sendSeek();
+            else seekSendTimer = setTimeout(sendSeek, wait);
+        }
+        function npKey(cmd) {
+            if (cmd === 'back' || cmd === 'fwd') {
+                const step = cmd === 'back' ? -SEEK_BACK_S : SEEK_FWD_S;
+                if (npClock) seekTo(Math.min(npClock.len - 1, npPosition() + step));
+                else sendSocket('media_seek', { by: step });   // no position to start from
+                return;
+            }
+            if (cmd === 'prev' && npClock && npCanSeek(npMedia) && npPosition() > RESTART_AFTER_S) {
+                // The server restarts the track (a second press goes back): show it now.
+                npClock = { ...npClock, pos: 0, at: performance.now() };
+                seekPending = { until: Date.now() + SEEK_CONFIRM_MS };
+                dom.npFill.classList.remove('is-ticking');
+                renderProgress(false);
+            }
+            act(cmd === 'prev' ? 'spot_prev' : 'spot_next');
+        }
+
+        // Drag the bar (or its times) to a point; the release seeks there.
+        (function initScrub() {
+            const bar = dom.npProgress;
+            function follow(e) {
+                const f = Math.max(0, Math.min(1, (e.clientX - npScrub.left) / npScrub.width));
+                npScrub.to = f * npClock.len;
+                dom.npFill.style.transform = `scaleX(${f.toFixed(4)})`;
+                setText(dom.npElapsed, fmtDuration(npScrub.to));
+                setText(dom.npRemaining, '−' + fmtDuration(npClock.len - npScrub.to));
+            }
+            function end() {
+                npScrub = null;
+                bar.classList.remove('is-scrubbing');
+            }
+            bar.addEventListener('pointerdown', (e) => {
+                if (!npClock || !bar.hasAttribute('data-seek') || e.button > 0) return;
+                const r = dom.npBar.getBoundingClientRect();    // once per drag, not per move
+                npScrub = { left: r.left, width: r.width || 1, to: npPosition() };
+                try { bar.setPointerCapture(e.pointerId); } catch (err) { /* already released */ }
+                bar.classList.add('is-scrubbing');
+                dom.npFill.classList.remove('is-ticking');
+                follow(e);
+            });
+            bar.addEventListener('pointermove', (e) => { if (npScrub && npClock) follow(e); });
+            bar.addEventListener('pointerup', () => {
+                if (!npScrub) return;
+                const to = npScrub.to;
+                end();
+                haptic(HAPTIC_KEY);
+                seekTo(Math.min(to, npClock ? npClock.len - 1 : to));
+            });
+            bar.addEventListener('pointercancel', () => { if (npScrub) { end(); renderProgress(false); } });
+        })();
+
+        // Spotify's like key: shows the library state, sends the state asked for.
+        function renderLike(on) {
+            const btn = dom.npLike;
+            if (btn.getAttribute('aria-pressed') === String(on)) return;
+            btn.setAttribute('aria-pressed', String(on));
+            btn.setAttribute('aria-label', on ? 'Remove from your library' : 'Save to your library');
+        }
+        function syncLike(m) {
+            const show = !!(m && typeof m.liked === 'boolean' && serverFeatures.has('media_like'));
+            if (dom.npLike.hidden === show) dom.npLike.hidden = !show;
+            if (!show) { likePending = null; return; }
+            let liked = m.liked;
+            if (likePending) {
+                if (liked === likePending.liked || likePending.title !== m.title || Date.now() > likePending.until) likePending = null;
+                else liked = likePending.liked;
+            }
+            renderLike(liked);
+        }
+        function npLike() {
+            const m = npMedia;
+            if (!m || typeof m.liked !== 'boolean') return;
+            const want = dom.npLike.getAttribute('aria-pressed') !== 'true';
+            likePending = { liked: want, title: m.title, until: Date.now() + LIKE_CONFIRM_MS };
+            renderLike(want);
+            sendSocket('media_like', { liked: want });
+        }
 
         // --- Now playing marquee ---
         // A line too long for the panel scrolls as a loop of two copies. Both
@@ -8087,16 +8436,22 @@
                         clearCover();
                     }
 
-                    setSource(d.spotify.player);
+                    npMedia = d.spotify;
+                    setSource(d.spotify);
                     updateProgress(d.spotify);
+                    setTransport(d.spotify);
+                    syncLike(d.spotify);
 
                     // Rebuilds only when the text changes.
                     npMarquee.set(d.spotify.title || '', d.spotify.artist || '');
                 } else {
                     setDisplay(dom.spotEmpty, 'flex');
                     setDisplay(dom.spotInfo, 'none');
-                    setSource('');
+                    npMedia = null;
+                    setSource(null);
                     updateProgress(null);
+                    setTransport(null);
+                    syncLike(null);
                     clearCover();
                 }
 
@@ -8333,13 +8688,15 @@
                 }
             }
 
-            if (d.spotify && d.spotify.status !== 'Auth_Required') {
-                setDisplay(dom.btnSpotAuth, 'none');
-                setDisplay(dom.spotGroup, 'flex');
-            } else {
-                setDisplay(dom.btnSpotAuth, 'flex');
-                setDisplay(dom.spotGroup, 'none');
-            }
+            // Newer servers say the sign-in state outright; older ones only
+            // through the shown media (wrong while a local player plays).
+            const spotAuth = d.spotify_auth;
+            const spotConnected = spotAuth ? spotAuth.state === 'ok' : !!(d.spotify && d.spotify.status !== 'Auth_Required');
+            // Signed in before the like key: one more sign-in adds the library scopes.
+            const needLikes = !!(spotAuth && spotAuth.state === 'ok' && !spotAuth.likes);
+            setDisplay(dom.btnSpotAuth, !spotConnected || needLikes ? 'flex' : 'none');
+            setDisplay(dom.spotGroup, spotConnected ? 'flex' : 'none');
+            setText(dom.btnSpotAuthLabel, needLikes ? 'Enable the like key' : 'Connect Spotify');
         }
 
         // --- A dialog or the full-screen clock over the dashboard (the Linux window) ---
@@ -9681,7 +10038,7 @@
 
         document.addEventListener('touchend', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
-            if (e.target.closest('.time-weather-panel, #clock-view')) { lastTapTime = 0; maxTouches = 0; return; }
+            if (e.target.closest('.time-weather-panel, #clock-view, .np-progress')) { lastTapTime = 0; maxTouches = 0; return; }
 
             if (e.touches.length > 0) return;
 
@@ -9707,7 +10064,7 @@
 
         document.addEventListener('dblclick', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.pro-slider')) return;
-            if (e.target.closest('.time-weather-panel, #clock-view')) return;
+            if (e.target.closest('.time-weather-panel, #clock-view, .np-progress')) return;
             if (e.pointerType === 'touch' || window.matchMedia("(pointer: coarse)").matches) return;
             if (window.pywebview) return;
             openSettings();

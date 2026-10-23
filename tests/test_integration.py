@@ -32,6 +32,16 @@ class _StubLock(_StubMonitor):
         return False
 
 
+class _StubMpris(_StubMonitor):
+    """No MPRIS monitor: the session bus is the real one, so it would see the
+    developer's own players. The server then polls playerctl (stubbed)."""
+    on_change = None
+    running = False
+
+    def start(self):
+        return False
+
+
 @pytest.fixture
 def mock_hardware():
     with contextlib.ExitStack() as stack:
@@ -43,11 +53,13 @@ def mock_hardware():
             "active_sink_name": "NONE",
         }
         mock_media = stack.enter_context(
-            patch("server.media_module.get_windows_media_meta_async", new_callable=AsyncMock))
-        mock_media.return_value = None
+            patch("server.media_module.get_windows_players_async", new_callable=AsyncMock))
+        mock_media.return_value = []
+        stack.enter_context(patch("server.media_module.poll_mpris_players", return_value=[]))
         stack.enter_context(patch("server._lock_monitor_mod.create", return_value=_StubLock()))
         if sys.platform.startswith("linux"):
             stack.enter_context(patch("server._mouse_battery_mod.UPowerMouseMonitor", _StubMonitor))
+            stack.enter_context(patch("server._mpris_monitor_mod.MprisMonitor", _StubMpris))
         yield
 
 # The Host check only answers to this PC's own names, and the admin role is
