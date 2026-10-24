@@ -1,12 +1,39 @@
-# Touch Dashboard
+<h1 align="center">Touch Dashboard</h1>
 
-A touch control surface for your PC: an Android tablet (or any browser) becomes a desk console with studio faders, a now-playing deck, Discord voice controls, macro keys and a live system monitor. An open alternative to Stream Deck and Touch Portal, for Linux and Windows.
+<p align="center">
+  <strong>A touch control surface for your PC: an Android tablet (or any browser) becomes a desk console with studio faders, a now-playing deck, Discord voice controls, macro keys and a live system monitor.</strong><br>
+  <em>An open alternative to Stream Deck and Touch Portal, for Linux and Windows.</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/latest"><img src="https://img.shields.io/github/v/release/Liburn-Bajraktari/Touch-Dashboard?style=flat-square&label=Release&color=3b82f6" alt="Latest Release"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20Android-10b981?style=flat-square" alt="Platform"></a>
+  <a href="#platform-notes"><img src="https://img.shields.io/badge/Linux%20Audio-PipeWire%20%2F%20MPRIS-f59e0b?style=flat-square" alt="Linux Audio"></a>
+  <a href="#how-it-works"><img src="https://img.shields.io/badge/Local%20Server-Port%208888-8b5cf6?style=flat-square" alt="Local Server Port 8888"></a>
+  <a href="docs/Touch_Dashboard_Security_Architecture.pdf"><img src="https://img.shields.io/badge/Docs-Security%20Whitepaper%20(PDF)-ef4444?style=flat-square" alt="Security Architecture Whitepaper"></a>
+</p>
+
+<p align="center">
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#first-time-setup">First-time setup</a> ·
+  <a href="#using-the-dashboard">Using the dashboard</a> ·
+  <a href="#updating">Updating</a> ·
+  <a href="#security">Security</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#platform-notes">Platform notes</a> ·
+  <a href="#for-developers">For developers</a>
+</p>
+
+---
 
 ## Heads Up
 
-This project is a tablet-oriented macro pad and system dashboard, intended as an alternative to tools like Stream Deck or Touch Portal.
-
-The code itself is mostly AI-generated, but the logic is human-reviewed. It currently exists mainly to fit my own workflow and hardware setup. I do plan to make it more modular and generally useful over time, and contributions are welcome from anyone who wants to improve it.
+> [!IMPORTANT]
+> This project is a tablet-oriented macro pad and system dashboard, intended as an alternative to tools like Stream Deck or Touch Portal.
+>
+> The code itself is mostly AI-generated, but the logic is human-reviewed. It currently exists mainly to fit my own workflow and hardware setup. I do plan to make it more modular and generally useful over time, and contributions are welcome from anyone who wants to improve it.
 
 ![Touch Dashboard in the Graphite theme: now playing with cover-tinted controls, Discord voice channel, studio faders with an output encoder, macro keys and system monitor](docs/screenshots/dashboard-graphite.png)
 
@@ -29,10 +56,12 @@ The code itself is mostly AI-generated, but the logic is human-reviewed. It curr
 - [Platform notes](#platform-notes)
 - [For developers](#for-developers)
 
+---
+
 ## What it does
 
 | Module | What you get |
-|---|---|
+| :--- | :--- |
 | **Now playing** | Cover art, title, artist, playing app and track progress, with previous / play-pause / next; long titles scroll. Works with Spotify (Web API) or any local player: MPRIS via `playerctl` on Linux, the system media controls on Windows. The cover's colour tints the play key, the progress bar and the light around the panels. |
 | **Audio mixer** | Two studio faders for speaker and microphone volume, each with a mute key, and a rotary encoder that switches the output device (one LED per device; hide the ones you never use). |
 | **Discord** | Mute, deafen, camera and screen share, the current voice channel, who is in it and who is speaking, and a leave-call key. |
@@ -43,6 +72,8 @@ The code itself is mostly AI-generated, but the logic is human-reviewed. It curr
 | **Lock screen** | When the PC locks, the tablet shows a large clock with the weather; it shifts slightly every minute to protect OLED screens. |
 | **Themes** | Graphite, Daylight, Ember, Phosphor, Amethyst and Midnight. A choice applies to every connected screen. |
 
+---
+
 ## How it works
 
 Touch Dashboard is client and server:
@@ -51,11 +82,17 @@ Touch Dashboard is client and server:
 - **The Android app** is a full-screen WebView with the dashboard built in. It connects to the PC over your local network and installs its own updates.
 - **Any browser** on the PC or the network can open the dashboard at `http://<pc-ip>:8888` as well.
 
-The PC and the tablet must be on the same network. Every tablet, and every browser on another device, is paired once: the PC shows a request and you allow it. See [Security](#security).
+> [!TIP]
+> The PC and the tablet must be on the same network. Every tablet, and every browser on another device, is paired once: the PC shows a request and you allow it. See [Security](#security).
+
+---
 
 ## Install
 
 ### Windows (Testing and Development paused for the time being)
+
+> [!WARNING]
+> **Testing and Development on Windows is paused for the time being.**
 
 1. From the [latest release](https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/latest), download `install.ps1` and `SHA256SUMS` into the same folder.
 2. Open PowerShell as administrator (so the installer can add the firewall rule), go to that folder and check the installer against the published checksum. It prints `True` when they match; if it prints `False`, delete the file and do not run it:
@@ -66,10 +103,10 @@ The PC and the tablet must be on the same network. Every tablet, and every brows
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\install.ps1
    ```
-4. A text menu opens. Press **1** to download the app, set up Python and create the Start Menu and desktop shortcuts. The app installs to `%LOCALAPPDATA%\Touch-Dashboard`.
+4. A text menu opens. Press <kbd>1</kbd> to download the app, set up Python and create the Start Menu and desktop shortcuts. The app installs to `%LOCALAPPDATA%\Touch-Dashboard`.
 5. Launch **Touch Dashboard** from the Start Menu. It opens the dashboard window and keeps running in the system tray when you close the window (you can turn that off in the window's menu).
 
-The installer also has a repair mode, an uninstaller, and an option (4) to download the latest Android APK to your PC. It installs the latest release, never unreleased code: it downloads that release's source archive and refuses it unless it matches the release's `SHA256SUMS`. Run as administrator, it opens port 8888 in Windows Firewall for private networks and your local subnet only; on a network Windows classes as Public the dashboard stays closed.
+The installer also has a repair mode, an uninstaller, and an option (<kbd>4</kbd>) to download the latest Android APK to your PC. It installs the latest release, never unreleased code: it downloads that release's source archive and refuses it unless it matches the release's `SHA256SUMS`. Run as administrator, it opens port 8888 in Windows Firewall for private networks and your local subnet only; on a network Windows classes as Public the dashboard stays closed.
 
 #### Advanced: quick install
 
@@ -93,12 +130,15 @@ The script detects Arch, Debian/Ubuntu or Fedora, installs the system packages i
 
 ### Android
 
-1. Download the latest `TouchDashboard-vX.Y.Z.apk` from the [Releases](https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases) page, or with option 4 of the Windows installer.
+1. Download the latest `TouchDashboard-vX.Y.Z.apk` from the [Releases](https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases) page, or with option <kbd>4</kbd> of the Windows installer.
 2. Copy it to your tablet or phone and install it. You may need to allow installing apps from unknown sources.
 
 After that the app keeps itself up to date (see [Updating](#updating)).
 
-**Coming from v0.11.0 or older?** Uninstall the old app first. The app is now signed with its own release key, so Android refuses to install it over one signed with the old key. Then install the new one and pair it again. This happens once.
+> [!CAUTION]
+> **Coming from v0.11.0 or older?** Uninstall the old app first. The app is now signed with its own release key, so Android refuses to install it over one signed with the old key. Then install the new one and pair it again. This happens once.
+
+---
 
 ## First-time setup
 
@@ -109,10 +149,10 @@ Start **Touch Dashboard** on the PC. Its local IP address is shown in the tray i
 ### 2. Connect the tablet
 
 1. Open the Touch Dashboard app on the tablet.
-2. On first launch it asks for the PC's IP address. Enter it and tap **Connect**. Use the address itself: host names such as `mypc.local` are refused.
-3. The tablet asks to pair. Check its name and tap **Request access**. It shows a six-digit code.
-4. On the PC, the dashboard window comes forward with a **Pairing request** showing a code. If it is the same code, click **Allow**. The request expires after a minute.
-5. The app remembers the PC and its pairing. The green light next to the title means the tablet is connected. To unpair it, tap the title and choose **Forget this PC**.
+2. On first launch it asks for the PC's IP address. Enter it and tap <kbd>Connect</kbd>. Use the address itself: host names such as `mypc.local` are refused.
+3. The tablet asks to pair. Check its name and tap <kbd>Request access</kbd>. It shows a six-digit code.
+4. On the PC, the dashboard window comes forward with a **Pairing request** showing a code. If it is the same code, click <kbd>Allow</kbd>. The request expires after a minute.
+5. The app remembers the PC and its pairing. The green light next to the title means the tablet is connected. To unpair it, tap the title and choose <kbd>Forget this PC</kbd>.
 
 A browser on another device (`http://<pc-ip>:8888`) pairs the same way. The desktop window and a browser on the PC itself (`http://127.0.0.1:8888`) need no pairing.
 
@@ -120,18 +160,18 @@ A browser on another device (`http://<pc-ip>:8888`) pairs the same way. The desk
 
 Settings, macros and soundboard pads are edited on the PC only, and apply to every connected screen:
 
-- **Desktop window:** open the menu button (top left) and choose **Settings**.
+- **Desktop window:** open the menu button (top left) and choose <kbd>Settings</kbd>.
 - **Browser on the PC:** go to `http://127.0.0.1:8888` and double-click anywhere outside a button.
 
-Click **Save & apply** when you are done (themes apply as soon as you tap them).
+Click <kbd>Save & apply</kbd> when you are done (themes apply as soon as you tap them).
 
 | Tab | What to set |
-|---|---|
+| :--- | :--- |
 | **General** | Show or hide the mouse battery and the system monitor; turn the Spotify, Weather, Discord, Audio routing and Soundboard modules on or off. |
 | **Themes** | Pick one of six presets. Each card previews its theme. |
-| **Spotify** | Create an app in the [Spotify developer dashboard](https://developer.spotify.com/dashboard), set its Redirect URI to exactly `http://127.0.0.1:8888/callback`, enter the Client ID and Secret, then click **Connect Spotify**. Do this first sign-in on the PC itself. Without Spotify, local players are still shown. |
+| **Spotify** | Create an app in the [Spotify developer dashboard](https://developer.spotify.com/dashboard), set its Redirect URI to exactly `http://127.0.0.1:8888/callback`, enter the Client ID and Secret, then click <kbd>Connect Spotify</kbd>. Do this first sign-in on the PC itself. Without Spotify, local players are still shown. |
 | **Weather** | Enter a free [OpenWeatherMap](https://openweathermap.org/) API key and your city, spelled exactly as on its OpenWeather city page. |
-| **Discord** | Create an application in the [Discord developer portal](https://discord.com/developers/applications), set its Redirect URI to exactly `http://127.0.0.1:8888/disc_callback`, enter the Client ID and Secret, then click **Authorize Discord**. Discord must be running on the PC. Optional: show the voice channel, sort active speakers to the top, and choose whether paired tablets may turn your camera and screen share on or off. |
+| **Discord** | Create an application in the [Discord developer portal](https://discord.com/developers/applications), set its Redirect URI to exactly `http://127.0.0.1:8888/disc_callback`, enter the Client ID and Secret, then click <kbd>Authorize Discord</kbd>. Discord must be running on the PC. Optional: show the voice channel, sort active speakers to the top, and choose whether paired tablets may turn your camera and screen share on or off. |
 | **Audio routing** | Give each output device a short name (up to 10 characters) for the output encoder's display, or hide it (the eye key) so the encoder skips it. |
 | **Soundboard** | The absolute path of your sounds folder (`.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`), and optional volume normalisation to a target level (needs `ffmpeg`; 89 dB is the ReplayGain standard Soundpad uses). |
 | **Paired devices** | The tablets and browsers you allowed, when each was paired and last seen. Rename one, or remove it: it is disconnected at once and has to be paired again. |
@@ -140,7 +180,7 @@ Click **Save & apply** when you are done (themes apply as soon as you tap them).
 
 Vesktop has to have its local IPC server turned on:
 
-1. In Vesktop open **Settings**, scroll to the **Vencord** section and click **Open Settings Folder**.
+1. In Vesktop open <kbd>Settings</kbd>, scroll to the **Vencord** section and click <kbd>Open Settings Folder</kbd>.
 2. Open `settings.json` (or `settings/settings.json`) in a text editor and make sure both are `true`:
    ```json
    {
@@ -152,28 +192,34 @@ Vesktop has to have its local IPC server turned on:
 
 If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot control voice: the voice channel still shows, but use the official Discord app or Vencord for mute and deafen.
 
+---
+
 ## Using the dashboard
 
 | To | Do this |
-|---|---|
-| Change volume | Drag a fader cap, or tap anywhere on its track to jump there. On Android tablets that allow it, you feel a tick every 10 %. |
-| Mute | Tap the key under a fader, or pull the fader below 0. |
-| Switch output device | Tap the encoder. The lit LED shows which device is active; devices hidden in **Audio routing** are skipped. |
-| Control playback | Previous, play/pause and next under the cover. |
-| Discord voice | Mute, deafen, camera and screen share keys; the red key next to the channel name leaves the call. Screen share brings Discord to the front on the PC with its share picker, where you choose what to share (Discord cannot pick a screen by itself, and on Wayland the system always asks). |
-| Run a macro | Tap its key. |
-| Add or edit a macro | On the PC: tap **Add**, or press and hold a key for about half a second. A macro can launch an app, send a keyboard shortcut, run a pre-made action (terminal, browser, task manager) or open the soundboard. |
-| Use the soundboard | Tap the **Soundboard** key. Tap a pad to play it; on the PC, press and hold to edit it; **Stop audio** stops playback. On Linux the bar at the top sets the soundboard volume and toggles hearing it yourself. |
-| Run a speed test | Tap the gauge at the top right. |
-| Turn off the PC | Tap the power key: it opens your desktop's shutdown prompt (KDE, GNOME, Xfce, Cinnamon, MATE or Windows). |
-| Go full screen (browser) | Double-tap an empty area. |
-| Unpair the tablet | Tap the title at the top, then **Forget this PC**. |
+| :--- | :--- |
+| **Change volume** | Drag a fader cap, or tap anywhere on its track to jump there. On Android tablets that allow it, you feel a tick every 10 %. |
+| **Mute** | Tap the key under a fader, or pull the fader below 0. |
+| **Switch output device** | Tap the encoder. The lit LED shows which device is active; devices hidden in **Audio routing** are skipped. |
+| **Control playback** | Previous, play/pause and next under the cover. |
+| **Discord voice** | Mute, deafen, camera and screen share keys; the red key next to the channel name leaves the call. Screen share brings Discord to the front on the PC with its share picker, where you choose what to share (Discord cannot pick a screen by itself, and on Wayland the system always asks). |
+| **Run a macro** | Tap its key. |
+| **Add or edit a macro** | On the PC: tap <kbd>Add</kbd>, or press and hold a key for about half a second. A macro can launch an app, send a keyboard shortcut, run a pre-made action (terminal, browser, task manager) or open the soundboard. |
+| **Use the soundboard** | Tap the <kbd>Soundboard</kbd> key. Tap a pad to play it; on the PC, press and hold to edit it; <kbd>Stop audio</kbd> stops playback. On Linux the bar at the top sets the soundboard volume and toggles hearing it yourself. |
+| **Run a speed test** | Tap the gauge at the top right. |
+| **Turn off the PC** | Tap the power key: it opens your desktop's shutdown prompt (KDE, GNOME, Xfce, Cinnamon, MATE or Windows). |
+| **Go full screen (browser)** | Double-tap an empty area. |
+| **Unpair the tablet** | Tap the title at the top, then <kbd>Forget this PC</kbd>. |
+
+---
 
 ## Updating
 
-- **Desktop app:** it checks for new releases on start and every 30 minutes, and shows an update prompt in the desktop window and in a browser on the PC. **Update** downloads that release's installer and source archive, checks both against the release's `SHA256SUMS`, installs it in the background and restarts the app. A file that does not match stops the update.
-- **Android app:** it updates itself. When a newer app is released, the tablet offers **Update now** (or requires it, when the desktop app needs the newer version). The app downloads the APK from the GitHub release, checks it against the release's `SHA256SUMS` and checks that it is signed by the same key, then Android asks you to confirm. The first time, Android asks whether Touch Dashboard may install apps: turn on **Allow from this source** and come back. Android's installer then shows the update being installed and ends with **Open**, which brings you straight back to the dashboard.
+- **Desktop app:** it checks for new releases on start and every 30 minutes, and shows an update prompt in the desktop window and in a browser on the PC. <kbd>Update</kbd> downloads that release's installer and source archive, checks both against the release's `SHA256SUMS`, installs it in the background and restarts the app. A file that does not match stops the update.
+- **Android app:** it updates itself. When a newer app is released, the tablet offers <kbd>Update now</kbd> (or requires it, when the desktop app needs the newer version). The app downloads the APK from the GitHub release, checks it against the release's `SHA256SUMS` and checks that it is signed by the same key, then Android asks you to confirm. The first time, Android asks whether Touch Dashboard may install apps: turn on <kbd>Allow from this source</kbd> and come back. Android's installer then shows the update being installed and ends with <kbd>Open</kbd>, which brings you straight back to the dashboard.
 - **Android apps from v0.11.0 and older** cannot update themselves. They show how to install the new app by hand: download it in Chrome, uninstall the old app, install the new one and pair again. Apps from before pairing (older than v0.11.0) cannot connect any more and only show this prompt.
+
+---
 
 ## Security
 
@@ -188,6 +234,8 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 > [!NOTE]
 > For a full, in-depth technical breakdown of the threat model, network filtering, and cryptographic pairing protocol, see the **[Security Architecture Whitepaper (PDF)](docs/Touch_Dashboard_Security_Architecture.pdf)**.
 
+---
+
 ## Troubleshooting
 
 - **The tablet cannot connect:** check that both are on the same network, that the IP is the one from the tray menu, and that your firewall allows incoming connections on port 8888. Connect by IP address: host names are refused. On Windows, the firewall rule only covers networks marked **Private**: if Windows set up your home network as Public, change it in **Settings → Network & internet**.
@@ -196,6 +244,8 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 - **Logs:** `~/.config/touch-dashboard/server.log` on Linux, `%APPDATA%\touch-dashboard\server.log` on Windows. A crash also writes `crash_<time>.txt` next to it, with an error code to quote when reporting it.
 - **Settings and data** live in the same folder (`config.json`, the Spotify token cache, sounds).
 
+---
+
 ## Platform notes
 
 - **Linux audio** uses PipeWire and WirePlumber (`wpctl`, `pactl`, `pw-play`, `pw-link`). The soundboard creates a virtual sink called `Dashboard-Soundboard`, plays clips into it and links it into the apps that use your microphone (Discord, OBS and so on). Routing like this depends on your setup and may need adjusting.
@@ -203,6 +253,8 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 - **Windows** integrates with WASAPI (`pycaw`), COM for switching the default device, and WinRT for the media controls.
 - **App launchers** follow your desktop environment and the `$TERMINAL` / `$BROWSER` variables instead of fixed program names.
 - **The Android app** is a small native app (`android/`, plain Java) around a WebView with the dashboard bundled in. A change to the dashboard reaches tablets with the next APK release, which the app installs itself. It asks for `REQUEST_INSTALL_PACKAGES` (its own updates) and `VIBRATE` (haptic ticks), and keeps its pairing out of cloud backups.
+
+---
 
 ## For developers
 
@@ -238,7 +290,7 @@ The suite covers the HTTP and WebSocket API, Host and Origin checks, pairing, ro
 ### Project layout
 
 | Path | What it is |
-|---|---|
+| :--- | :--- |
 | `server.py` | FastAPI app: WebSocket hub, HTTP routes, background polling, startup |
 | `desktop.py` | Desktop window (pywebview) and tray icon (pystray) |
 | `security.py` | Who may connect: paired devices, pairing requests and their limits, the Host and Origin allowlists |
@@ -264,3 +316,9 @@ The script sets the version in `version.json`, commits everything in the working
 - [docs/DESIGN.md](docs/DESIGN.md): design rules and tokens.
 - [docs/discord_documentation_links.md](docs/discord_documentation_links.md): Discord RPC and IPC documentation used by `discord_ipc.py`.
 - Contributions are welcome. Read `docs/DESIGN.md` before changing the interface; `tests/test_themes.py` fails on hard-coded colours.
+
+---
+
+<p align="center">
+  <sub><a href="#touch-dashboard">▲ Back to top</a></sub>
+</p>
