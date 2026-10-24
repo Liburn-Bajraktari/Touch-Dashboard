@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Touch Dashboard — Security Architecture & Threat Model</title>
+<style>
+  @page {
+    size: A4;
+    margin: 10mm 12mm 11mm 12mm;
+    @bottom-right {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 7.2pt;
+      font-weight: 500;
+      color: #94a3b8;
+    }
+    @bottom-left {
+      content: "Touch Dashboard • Security Architecture & Threat Model Specification";
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 7.2pt;
+      font-weight: 500;
+      color: #94a3b8;
+    }
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #1e293b;
+    background: #ffffff;
+    font-size: 8.0pt;
+    line-height: 1.38;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Header */
+  .doc-header {
+    border-bottom: 2px solid #0f172a;
+    padding-bottom: 8px;
+    margin-bottom: 11px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  .badge-top {
+    display: inline-block;
+    background: #0f172a;
+    color: #38bdf8;
+    font-size: 6.5pt;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-bottom: 4px;
+  }
+
+  .doc-title {
+    font-size: 16.5pt;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+  }
+
+  .doc-subtitle {
+    font-size: 8.8pt;
+    color: #475569;
+    margin-top: 2px;
+    font-weight: 500;
+  }
+
+  .meta-box {
+    text-align: right;
+    font-size: 7.4pt;
+    color: #64748b;
+    line-height: 1.35;
+  }
+
+  .meta-box strong {
+    color: #0f172a;
+  }
+
+  /* Headings */
+  h2 { font-size: 10.2pt;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin-top: 8px;
+    margin-bottom: 3px;
+    padding-bottom: 2.5px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  .section-num {
+    background: #e0e7ff;
+    color: #4338ca;
+    font-size: 7.2pt;
+    font-weight: 700;
+    padding: 1.5px 5px;
+    border-radius: 3px;
+  }
+
+  h3 { font-size: 8.6pt;
+    font-weight: 700;
+    color: #1e293b;
+    margin-top: 7px;
+    margin-bottom: 3.5px;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  p {
+    margin-bottom: 3px;
+    color: #334155;
+    text-align: justify;
+  }
+
+  strong {
+    color: #0f172a;
+    font-weight: 600;
+  }
+
+  ul, ol {
+    margin-left: 15px;
+    margin-bottom: 3px;
+    color: #334155;
+  }
+
+  li {
+    margin-bottom: 2px;
+  }
+
+  code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 7.5pt;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 1px 3.5px;
+    border-radius: 3px;
+    border: 1px solid #e2e8f0;
+  }
+
+  pre {
+    background: #0f172a;
+    color: #f8fafc;
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 7.2pt;
+    line-height: 1.38;
+    padding: 5px 8px; border-radius: 4px; margin: 4px 0 5px 0;
+    overflow-x: hidden;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    border: 1px solid #1e293b;
+  }
+
+  pre .comment { color: #64748b; font-style: italic; }
+  pre .keyword { color: #38bdf8; font-weight: bold; }
+  pre .string  { color: #4ade80; }
+  pre .func    { color: #f472b6; }
+  pre .accent  { color: #fbbf24; }
+
+  .callout {
+    padding: 6px 9px;
+    border-radius: 4px;
+    margin: 5px 0 7px 0;
+    font-size: 7.9pt;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    border-left: 3px solid;
+  }
+
+  .callout-title {
+    font-weight: 700;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .callout-blue    { background: #f0f9ff; border-color: #0284c7; color: #0369a1; }
+  .callout-blue .callout-title { color: #0369a1; }
+  .callout-blue p  { color: #0c4a6e; }
+
+  .callout-emerald { background: #f0fdf4; border-color: #16a34a; color: #15803d; }
+  .callout-emerald .callout-title { color: #15803d; }
+  .callout-emerald p { color: #14532d; }
+
+  .callout-amber   { background: #fffbeb; border-color: #d97706; color: #b45309; }
+  .callout-amber .callout-title { color: #b45309; }
+  .callout-amber p { color: #78350f; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 5px 0 7px 0;
+    font-size: 7.5pt;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  th {
+    background: #f8fafc;
+    color: #0f172a;
+    font-weight: 700;
+    text-align: left;
+    padding: 3.5px 5px;
+    border: 1px solid #cbd5e1;
+    font-size: 7.1pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  td {
+    padding: 2.8px 5px;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+    vertical-align: top;
+  }
+
+  tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+    margin: 5px 0 7px 0;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 4px 7px;
+  }
+
+  .card-title {
+    font-size: 8pt;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .card p {
+    font-size: 7.5pt;
+    margin-bottom: 0;
+    color: #475569;
+    line-height: 1.35;
+  }
+
+  .diagram-container {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 7px;
+    margin: 5px 0 7px 0;
+    text-align: center;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .diagram-caption {
+    font-size: 7.1pt;
+    color: #64748b;
+    margin-top: 3px;
+    font-weight: 500;
+  }
+
+  .page-target {
+    page-break-before: always;
+    break-before: always;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 4.5px;
+    font-size: 6.5pt;
+    font-weight: 600;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .pill-red    { background: #ffe4e6; color: #e11d48; }
+  .pill-green  { background: #dcfce7; color: #15803d; }
+  .pill-blue   { background: #e0f2fe; color: #0369a1; }
+  .pill-purple { background: #f3e8ff; color: #7e22ce; }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1 -->
+<div class="doc-header">
+  <div>
+    <div class="badge-top">SECURITY &amp; THREAT MODEL SPECIFICATION</div>
+    <div class="doc-title">Touch Dashboard Security Architecture</div>
+    <div class="doc-subtitle">Authentication, Pairing Protocols, Network Isolation &amp; Defense-in-Depth</div>
+  </div>
+  <div class="meta-box">
+    <div><strong>Platform:</strong> Linux / Windows</div>
+    <div><strong>Server:</strong> FastAPI / Uvicorn (Port 8888)</div>
+    <div><strong>Transport:</strong> HTTP/1.1 &amp; WebSockets</div>
+    <div><strong>Verification:</strong> 32 Hermetic Security Tests</div>
+  </div>
+</div>
+
+<h2><span class="section-num">01</span> Executive Summary &amp; LAN Threat Model</h2>
+<p>
+Touch Dashboard operates as a dual-surface system controller: a high-privilege Python backend running on the host workstation paired with touchscreens (Android tablets and browsers). The server binds to <code>0.0.0.0:8888</code> so handheld devices on the local network can connect seamlessly. Because local area networks cannot be treated as secure enclaves, Touch Dashboard operates under a <strong>zero-trust LAN assumption</strong>, actively mitigating four key threat vectors:
+</p>
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title"><span class="pill pill-red">Threat</span> DNS Rebinding &amp; CSRF</div>
+    <p>Hostile websites browsed on client machines rebind public domain names to <code>127.0.0.1</code> or host LAN IPs to bypass CORS boundaries and silently issue commands to local servers.</p>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="pill pill-red">Threat</span> LAN Snooping &amp; Impersonation</div>
+    <p>Unauthorized guest devices on shared Wi-Fi scan port 8888 to inject shell macros, synthesize virtual keystrokes, extract private API secrets, or snoop on desktop audio streams.</p>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="pill pill-red">Threat</span> Side-Channel Timing Exploits</div>
+    <p>Variable-time cryptographic comparisons in token or pairing verification reveal valid token prefixes or database indices through statistical response latency analysis.</p>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="pill pill-red">Threat</span> Local Multi-User Interference</div>
+    <p>On shared Unix/Windows systems, other unprivileged user accounts or local processes target loopback ports to trigger unauthorized shutdowns or inject IPC messages.</p>
+  </div>
+</div>
+
+<h2><span class="section-num">02</span> Network Boundary Defense &amp; Connection Filtering</h2>
+
+<h3>2.1 Host Header Guard (<code>_HostGuard</code> ASGI Middleware)</h3>
+<p>
+To defeat DNS rebinding before requests penetrate the application layer, the custom ASGI middleware <code>_HostGuard</code> intercepts every HTTP request and WebSocket handshake:
+</p>
+<ul>
+  <li><strong>Strict Host Whitelist:</strong> The <code>Host</code> header must match <code>127.0.0.1:&lt;port&gt;</code>, <code>localhost:&lt;port&gt;</code>, or one of the host PC's verified active LAN IPv4 addresses on the running port. Requests carrying foreign domains (e.g. <code>attacker.com:8888</code>) are immediately rejected with HTTP <code>403 Forbidden</code>.</li>
+  <li><strong>Handshake Rejection:</strong> WebSocket connections with invalid hosts receive close code <code>1008 (Policy Violation)</code> before the connection handshake completes.</li>
+  <li><strong>Rate-Limited Dynamic Re-Scan:</strong> When a request presents an unknown numeric IP literal on the dashboard's port (such as following a router DHCP renewal), the server refreshes local interface bindings at most once every 30 seconds (<code>LAN_REFRESH_S</code>), preventing lockout without introducing DoS risks.</li>
+</ul>
+
+<h3>2.2 WebSocket Origin Policy &amp; Android System WebView Quarantine</h3>
+<p>
+The server validates incoming <code>Origin</code> headers via <code>OriginPolicy.origin_allowed()</code>:
+</p>
+<table>
+  <thead>
+    <tr>
+      <th style="width: 25%;">Origin Value</th>
+      <th style="width: 22%;">Client Context</th>
+      <th style="width: 18%;">Assigned Role</th>
+      <th style="width: 35%;">Security Enforcement</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>http://127.0.0.1:&lt;port&gt;</code><br><code>http://localhost:&lt;port&gt;</code></td>
+      <td>Loopback client (PC desktop window or browser)</td>
+      <td><span class="pill pill-green">admin</span></td>
+      <td>Proven host peer; receives full configuration authority and direct control access.</td>
+    </tr>
+    <tr>
+      <td><code>http://&lt;lan-ip&gt;:&lt;port&gt;</code></td>
+      <td>LAN tablet or mobile browser</td>
+      <td><span class="pill pill-blue">device</span></td>
+      <td>Requires pre-approved pairing token; restricted strictly to display and trigger actions.</td>
+    </tr>
+    <tr>
+      <td><code>file://</code><br><code>https://appassets.androidplatform.net</code></td>
+      <td>Bundled Android APK local asset container</td>
+      <td><span class="pill pill-blue">device</span></td>
+      <td>Bundled local assets inside Android WebView shell; standard device sandbox.</td>
+    </tr>
+    <tr>
+      <td><code>Origin: null</code></td>
+      <td>Android WebView from non-loopback LAN IP</td>
+      <td><span class="pill pill-blue">device</span> <em style="font-size:6.5pt; color:#e11d48;">(Never Admin)</em></td>
+      <td>Accepted <strong>only</strong> if peer is non-loopback AND User-Agent matches <code>(Linux; Android ...; wv)</code>. Never elevated to admin.</td>
+    </tr>
+    <tr>
+      <td>Any unlisted origin</td>
+      <td>Foreign websites / malicious origins</td>
+      <td><span class="pill pill-red">Closed 1008</span></td>
+      <td>Rejected during WebSocket handshake; prevents cross-site hijacking.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.3 Content Security Policy (CSP) &amp; Response Hardening</h3>
+<p>
+All HTTP responses pass through <code>_SecurityHeaders</code>, injecting strict defense headers:
+</p>
+<pre><span class="keyword">Content-Security-Policy:</span> default-src 'self'; script-src 'self' 'unsafe-inline' [unsafe-eval: loopback only]; 
+                         style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; 
+                         connect-src 'self' ws://&lt;host&gt;; object-src 'none'; base-uri 'none'; 
+                         form-action 'none'; frame-ancestors 'none'
+<span class="keyword">X-Frame-Options:</span> DENY  |  <span class="keyword">X-Content-Type-Options:</span> nosniff  |  <span class="keyword">Cache-Control:</span> no-cache, must-revalidate</pre>
+<p>
+<strong>Conditional Evaluation Scoping:</strong> <code>pywebview</code> relies on <code>new Function</code> for its internal JS bridge on the desktop window. Touch Dashboard dynamically injects <code>'unsafe-eval'</code> <em>only</em> into responses served to <code>127.0.0.1</code> loopback. Pages served across the LAN never receive <code>'unsafe-eval'</code>, reducing attack surface on mobile clients.
+</p>
+
+<!-- PAGE 2 -->
+<div class="page-target"></div>
+
+<h2><span class="section-num">03</span> Authentication &amp; Cryptographic Pairing Protocol</h2>
+
+<div class="diagram-container">
+  <svg viewBox="0 0 760 235" width="100%" height="175" xmlns="http://www.w3.org/2000/svg">
+    <rect x="25" y="6" width="190" height="28" rx="4" fill="#0f172a"/>
+    <text x="120" y="25" fill="#38bdf8" font-size="9.5" font-weight="bold" text-anchor="middle" font-family="sans-serif">Connecting Tablet / Client</text>
+
+    <rect x="285" y="6" width="190" height="28" rx="4" fill="#0f172a"/>
+    <text x="380" y="25" fill="#f8fafc" font-size="9.5" font-weight="bold" text-anchor="middle" font-family="sans-serif">Touch Dashboard Server</text>
+
+    <rect x="545" y="6" width="190" height="28" rx="4" fill="#0f172a"/>
+    <text x="640" y="25" fill="#4ade80" font-size="9.5" font-weight="bold" text-anchor="middle" font-family="sans-serif">Host PC Desktop (User)</text>
+
+    <line x1="120" y1="34" x2="120" y2="230" stroke="#cbd5e1" stroke-width="1.6" stroke-dasharray="3"/>
+    <line x1="380" y1="34" x2="380" y2="230" stroke="#cbd5e1" stroke-width="1.6" stroke-dasharray="3"/>
+    <line x1="640" y1="34" x2="640" y2="230" stroke="#cbd5e1" stroke-width="1.6" stroke-dasharray="3"/>
+
+    <line x1="120" y1="52" x2="380" y2="52" stroke="#0284c7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+    <text x="250" y="47" font-size="8" font-family="sans-serif" text-anchor="middle" fill="#0369a1" font-weight="600">1. WS Handshake (Host &amp; Origin Validated)</text>
+
+    <rect x="305" y="60" width="150" height="16" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="380" y="72" font-size="7.2" font-family="sans-serif" text-anchor="middle" fill="#92400e" font-weight="bold">5s Quarantine: Must Auth or Pair</text>
+
+    <line x1="120" y1="90" x2="380" y2="90" stroke="#0284c7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+    <text x="250" y="85" font-size="8" font-family="sans-serif" text-anchor="middle" fill="#0369a1">2. pair_request {name: "Tablet"}</text>
+
+    <line x1="380" y1="110" x2="640" y2="110" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr-green)"/>
+    <text x="510" y="105" font-size="8" font-family="sans-serif" text-anchor="middle" fill="#15803d" font-weight="600">3. Wake Tray &amp; Show 6-digit Code (60s TTL)</text>
+
+    <line x1="380" y1="130" x2="120" y2="130" stroke="#64748b" stroke-width="1.5" stroke-dasharray="3" marker-end="url(#arr-gray)"/>
+    <text x="250" y="125" font-size="8" font-family="sans-serif" text-anchor="middle" fill="#475569">4. pair_code {code: "839201", expires_in: 60}</text>
+
+    <line x1="640" y1="156" x2="380" y2="156" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr-green)"/>
+    <text x="510" y="151" font-size="8" font-family="sans-serif" text-anchor="middle" fill="#15803d" font-weight="bold">5. User clicks "Allow" on PC Display</text>
+
+    <line x1="380" y1="180" x2="120" y2="180" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr-green)"/>
+    <text x="250" y="175" font-size="8" font-family="sans-serif" text-anchor="middle" fill="#15803d" font-weight="bold">6. pair_result {token: 256-bit entropy}</text>
+
+    <rect x="295" y="196" width="170" height="18" rx="3" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+    <text x="380" y="209" font-size="7.2" font-family="sans-serif" text-anchor="middle" fill="#3730a3">Commit SHA-256(token) to paired_devices.json</text>
+
+    <defs>
+      <marker id="arr-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 1 L 8 5 L 0 9 z" fill="#0284c7" /></marker>
+      <marker id="arr-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 1 L 8 5 L 0 9 z" fill="#16a34a" /></marker>
+      <marker id="arr-gray" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 1 L 8 5 L 0 9 z" fill="#64748b" /></marker>
+    </defs>
+  </svg>
+  <div class="diagram-caption">Figure 1: Two-Factor Physical Presence Verification &amp; Zero-Knowledge Token Issuance Pipeline</div>
+</div>
+
+<h3>3.1 Connection Quarantine Window (<code>AUTH_TIMEOUT_S = 5.0s</code>)</h3>
+<p>
+When a WebSocket connection opens, it is assigned to an unauthenticated socket pool. The client must transmit an <code>auth</code> or <code>pair_request</code> frame within 5.0 seconds. If this deadline lapses, or if unparsable JSON or unexpected message types are transmitted, the server delivers an update notice and severs the link with policy code <code>1008</code>.
+</p>
+
+<h3>3.2 Two-Factor Physical Presence Pairing Protocol</h3>
+<ol>
+  <li><strong>Request Initiation:</strong> Unpaired clients send <code>{"type": "pair_request", "device_name": "..."}</code>. The name is stripped of control characters and capped at 40 chars.</li>
+  <li><strong>Out-of-Band Physical Challenge:</strong> The server generates a cryptographically random 6-digit numeric code (<code>secrets.randbelow(1_000_000)</code>) with a 60-second expiration. It wakes the desktop window from the system tray (<code>_desktop_module.wakeup()</code>) and displays the pending request.</li>
+  <li><strong>User Decision &amp; Race Handling:</strong> The PC owner verifies that the 6-digit code on the desktop matches the tablet. The server awaits an <code>asyncio.Future</code>. If the client disconnects or cancels, the pairing operation aborts cleanly.</li>
+  <li><strong>Token Issuance:</strong> Upon user approval, the server generates a 256-bit URL-safe token (<code>secrets.token_urlsafe(32)</code>). The token is transmitted once over the authenticated WebSocket, after which the client caches it in persistent storage.</li>
+</ol>
+
+<h3>3.3 Zero-Knowledge Token Storage &amp; Timing Attack Immunity</h3>
+<p>
+The host PC <strong>never stores plaintext bearer tokens</strong>. Instead, only the SHA-256 digest is written to <code>~/.config/touch-dashboard/paired_devices.json</code>.
+</p>
+<div class="callout callout-emerald">
+  <div class="callout-title"><span class="pill pill-green">Cryptographic Guard</span> Constant-Time Verification Across Entire Database</div>
+  <p>
+    When a paired device connects presenting a token, the server computes its SHA-256 hash and compares it against all registered devices using <code>hmac.compare_digest()</code>. Crucially, <strong>the lookup loop never terminates early upon finding a match</strong>; it scans every single record in the database. This guarantees that execution duration is mathematically independent of token validity or database position, neutralizing remote timing attacks.
+  </p>
+</div>
+
+<!-- PAGE 3 -->
+<div class="page-target"></div>
+
+<h2><span class="section-num">04</span> Authorization, Access Control &amp; Data Redaction</h2>
+
+<h3>4.1 Centralized Role Dispatcher (<code>_dispatch()</code> &amp; <code>_refusal()</code>)</h3>
+<p>
+Access control is enforced at a single gateway prior to executing any message handler in <code>WS_HANDLERS</code>:
+</p>
+<table>
+  <thead>
+    <tr>
+      <th style="width: 24%;">Privilege Tier</th>
+      <th style="width: 44%;">Guarded Actions / Commands</th>
+      <th style="width: 32%;">Security Policy</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Administrative Operations</strong></td>
+      <td><code>save_config</code>, <code>save_macros</code>, <code>set_theme</code>, <code>set_play_key</code>, <code>check_update</code>, <code>run_update</code>, <code>pair_decision</code>, <code>rename_device</code>, <code>revoke_device</code></td>
+      <td><span class="pill pill-red">Admin Only</span><br>Paired devices receive <code>{"type": "refused", "data": {"reason": "admin_only"}}</code>.</td>
+    </tr>
+    <tr>
+      <td><strong>Credential Management</strong></td>
+      <td><code>action:spot_clear_auth</code>, <code>action:disc_auth</code>, <code>action:disc_clear_auth</code></td>
+      <td><span class="pill pill-red">Admin Only</span><br>Prevents remote revocation or token interception.</td>
+    </tr>
+    <tr>
+      <td><strong>AV Controls</strong></td>
+      <td><code>action:disc_cam</code>, <code>action:disc_screen</code> (Discord camera &amp; screen share toggles)</td>
+      <td><span class="pill pill-purple">Configurable</span><br>Requires <code>device_av_controls: true</code> on the host workstation.</td>
+    </tr>
+    <tr>
+      <td><strong>Execution by ID</strong></td>
+      <td><code>run_macro {id}</code>, <code>play_clip {id}</code></td>
+      <td><span class="pill pill-blue">Paired Devices</span><br>Invokes server-defined IDs; clients cannot submit shell strings.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>4.2 Configuration Allowlisting &amp; Secret Isolation</h3>
+<p>
+Paired devices never receive the workstation's raw <code>config.json</code> file. All state broadcast to devices is sanitized via <code>_device_config_sync()</code> using explicit field allowlists (<code>DEVICE_CFG_KEYS</code> and <code>DEVICE_SYNC_KEYS</code>):
+</p>
+<ul>
+  <li><strong>Excised Secrets:</strong> OpenWeatherMap API keys, Spotify client IDs &amp; secrets, Discord OAuth tokens &amp; client secrets, host soundboard directory paths (<code>sounds_path</code>), and raw shell execution strings are omitted entirely.</li>
+  <li><strong>Opaque Macro Identifiers:</strong> Macro definitions delivered to devices contain only display metadata: <code>{id, display_name, icon_url}</code>. To trigger an action, the device sends <code>run_macro {id: "..."}</code>. The server validates the ID against <code>ITEM_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")</code> and resolves the corresponding executable on the host machine.</li>
+</ul>
+
+<h3>4.3 Filesystem Path Traversal &amp; Command Injection Defenses</h3>
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title"><span class="pill pill-green">Defense</span> Realpath Sound Traversal Check</div>
+    <p><code>resolve_sound_path()</code> normalizes paths with <code>os.path.realpath</code> and verifies that <code>candidate.startswith(base + os.sep)</code>. Directory traversal sequences (<code>../</code>) cannot escape the configured sounds folder.</p>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="pill pill-green">Defense</span> Soundpad Parameter Sanitization</div>
+    <p>Windows Soundpad executes pad actions via <code>-rc</code> command line switches. Pad indexes are strictly constrained to numeric digits via <code>re.compile(r"[0-9]{1,6}")</code>, preventing CLI command injection.</p>
+  </div>
+</div>
+
+<h2><span class="section-num">05</span> Local IPC, Media Signatures &amp; OAuth Security</h2>
+
+<h3>5.1 Ephemeral Local Control Token (<code>LocalControlToken</code>)</h3>
+<p>
+The host endpoints <code>/api/wakeup</code> (bringing GUI to front) and <code>/api/exit</code> (installer shutdown) are reachable from loopback. Because multiple local users or web browsers share loopback:
+</p>
+<ul>
+  <li>At startup, the server generates a 256-bit random secret stored in <code>local_control.token</code> (POSIX mode <code>0600</code>).</li>
+  <li>Requests require three conditions: (1) Loopback peer address, (2) <code>Content-Type: application/json</code> (which browsers cannot send cross-origin without preflight), and (3) matching <code>Authorization: Bearer &lt;token&gt;</code> checked via <code>hmac.compare_digest</code>.</li>
+</ul>
+
+<h3>5.2 Ephemeral HMAC-SHA256 Media Art Signing</h3>
+<p>
+Standard HTML <code>&lt;img&gt;</code> tags cannot transmit custom authorization headers. To prevent unauthenticated network observers from harvesting cover art:
+</p>
+<pre><span class="comment"># Server generates random 256-bit key at startup</span>
+_ART_KEY = secrets.token_bytes(32)
+
+<span class="keyword">def</span> <span class="func">_sign_art</span>(h: str) -> str:
+    <span class="keyword">return</span> hmac.new(_ART_KEY, h.encode(), <span class="string">"sha256"</span>).hexdigest()[:32]</pre>
+<p>
+Cover URLs sent to clients are formatted as <code>/api/local_art?h=&lt;hash&gt;&amp;k=&lt;signature&gt;</code>. The endpoint verifies both that the signature matches and that $h$ matches the <strong>currently active track</strong>. Once a song ends or playback changes, older image URLs are immediately invalidated.
+</p>
+
+<h3>5.3 CSRF-Resistant OAuth State Tokens</h3>
+<p>
+Spotify and Discord OAuth login flows require authentication on the host PC. Authorization URLs embed cryptographically secure single-use <code>state</code> tokens with a 10-minute TTL. The redirect endpoints (<code>/callback</code> and <code>/disc_callback</code>) are loopback-only and atomically consume the state token via <code>_spend_oauth_state()</code>.
+</p>
+
+<!-- PAGE 4 -->
+<div class="page-target"></div>
+
+<h2><span class="section-num">06</span> Denial-of-Service &amp; Storage Integrity</h2>
+
+<div class="grid-2">
+  <div>
+    <h3>6.1 Sockets &amp; Rate Limits</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Guard Layer</th>
+          <th>Threshold</th>
+          <th>Mitigated Risk</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>PendingSockets</code></td>
+          <td>32 total / 4 per IP</td>
+          <td>Exhaustion of connection threads &amp; tasks prior to auth.</td>
+        </tr>
+        <tr>
+          <td><code>PairingRequests</code></td>
+          <td>5 per min / 1 per IP</td>
+          <td>Prompt flooding and UI denial-of-service on desktop.</td>
+        </tr>
+        <tr>
+          <td><code>WS_MAX_MESSAGE_BYTES</code></td>
+          <td>1 MiB frame limit</td>
+          <td>Memory blowup (lowered from Uvicorn's 16 MiB default).</td>
+        </tr>
+        <tr>
+          <td>Token Input Bounds</td>
+          <td>Max 256 characters</td>
+          <td>CPU exhaustion via oversized hashing inputs.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div>
+    <h3>6.2 Atomic File I/O &amp; Permissions</h3>
+    <div class="callout callout-blue">
+      <div class="callout-title">Atomic Write-Then-Swap Pattern</div>
+      <p>
+        Critical files (<code>paired_devices.json</code>, <code>config.json</code>, <code>spotify_token.json</code>, <code>local_control.token</code>) are written to temporary staging files (<code>&lt;file&gt;.tmp</code>) using POSIX file descriptor mode <code>0600</code> (read/write by owner only). They are committed using atomic <code>os.replace()</code> to ensure zero partial-write corruption and prevent multi-user eavesdropping.
+      </p>
+    </div>
+  </div>
+</div>
+
+<h2><span class="section-num">07</span> Mobile App &amp; Update Integrity</h2>
+<ul>
+  <li><strong>Cloud Backup Shield:</strong> The Android manifest explicitly declares <code>android:allowBackup="false"</code>. Paired device bearer tokens stored in the WebView's local storage never leave the tablet in automated Google cloud backups.</li>
+  <li><strong>Verified Update Pipeline:</strong> Desktop installers and the Android self-updater (<code>AppUpdater.java</code>) fetch binaries exclusively from GitHub releases over HTTPS. The payload is checked against the release's <code>SHA256SUMS</code> manifest via <code>hmac.compare_digest</code> prior to execution.</li>
+  <li><strong>Shell-Free Execution:</strong> Desktop installers execute via <code>asyncio.create_subprocess_exec</code> (direct binary execution without shell interpolation). Android updates are delivered through an unexported <code>UpdateFileProvider</code> granting scoped read permissions solely to the system <code>PackageInstaller</code>.</li>
+</ul>
+
+<h2><span class="section-num">08</span> Security Verification Matrix</h2>
+<p>
+Touch Dashboard maintains a comprehensive automated security test suite in <code>tests/test_security.py</code>. All 32 security tests execute hermetically on every commit and release build:
+</p>
+<table>
+  <thead>
+    <tr>
+      <th style="width: 28%;">Test Case Identification</th>
+      <th style="width: 38%;">Target Vulnerability / Threat</th>
+      <th style="width: 18%;">Mechanism Verified</th>
+      <th style="width: 16%;">Suite Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>test_bad_host_gets_403</code></td>
+      <td>DNS rebinding across arbitrary domain names</td>
+      <td><code>_HostGuard</code> ASGI filter</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_foreign_websocket_origin_is_closed</code></td>
+      <td>Cross-site WebSocket hijacking from third-party sites</td>
+      <td><code>OriginPolicy</code> check</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_tablet_null_origin_accepted_only_lan</code></td>
+      <td>Malicious iframe impersonating Android WebView <code>null</code></td>
+      <td>User-Agent &amp; IP checks</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_no_auth_within_five_seconds_closes</code></td>
+      <td>Connection slot hoarding and unauthenticated task leak</td>
+      <td><code>AUTH_TIMEOUT_S</code> drop</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_device_token_cannot_run_admin_actions</code></td>
+      <td>Privilege escalation from paired tablet to admin actions</td>
+      <td><code>_refusal()</code> gatekeeper</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_config_sent_to_device_has_no_secrets</code></td>
+      <td>Extraction of Spotify/Discord/Weather secrets by tablet</td>
+      <td><code>_device_config_sync()</code></td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_run_macro_runs_by_id_rejects_commands</code></td>
+      <td>Arbitrary shell command or script injection over network</td>
+      <td><code>ITEM_ID_RE</code> &amp; ID lookup</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_local_control_routes_need_token</code></td>
+      <td>Local privilege abuse of <code>/api/exit</code> or <code>/api/wakeup</code></td>
+      <td>Bearer + 0600 token</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_local_art_needs_signed_url_current_cover</code></td>
+      <td>Cover art scraping and historical URL enumeration</td>
+      <td>HMAC-SHA256 signature</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+    <tr>
+      <td><code>test_update_installer_must_match_checksum</code></td>
+      <td>Man-in-the-middle tampering of auto-update scripts</td>
+      <td><code>SHA256SUMS</code> constant-time</td>
+      <td><span class="pill pill-green">PASS</span> Verified</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-amber" style="margin-top: 8px;">
+  <div class="callout-title">Defense Summary: Zero-Trust LAN Assurance</div>
+  <p>
+    By enforcing strict origin filtering, zero-knowledge token hashing, constant-time database matching, full configuration redaction, and isolated local control tokens, Touch Dashboard provides a hardened, commercial-grade security model suitable for exposed multi-device home and office networks.
+  </p>
+</div>
+
+</body>
+</html>

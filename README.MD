@@ -179,10 +179,14 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 
 - **Local network only.** Touch Dashboard is built for your home network. Do not port-forward port 8888 or expose it to the internet in any other way.
 - **Every device is paired and approved on the PC.** A tablet or a browser on another device sends a pairing request and shows a six-digit code; the PC shows the same code and asks you to allow or deny it. Requests expire after a minute, and the PC takes at most one at a time per device and five a minute. Only the desktop window and a browser on the PC itself connect without pairing. **Settings → Paired devices** lists every device; removing one cuts it off at once.
-- **Paired devices control, the PC configures.** A paired device can use media, volume, Discord, the soundboard and your macros, by name only. Settings, macros, soundboard pads, pairing and updates can only be changed on the PC. API keys, client secrets and sign-in tokens never leave the PC.
+- **Tokens are stored safely.** Your PC never stores pairing tokens in plain text (only irreversible cryptographic hashes), and checking a token takes the same amount of time whether it is right or wrong so no one can guess it by timing responses.
+- **Paired devices control, the PC configures.** A paired device can use media, volume, Discord, the soundboard and your macros, by ID only. Tablets cannot run terminal commands or access files outside your sounds folder. Settings, macros, soundboard pads, pairing and updates can only be changed on the PC. API keys, client secrets and sign-in tokens never leave the PC.
 - **Traffic is not encrypted.** The dashboard uses plain HTTP and WebSocket, so anyone on the same network can read it, including a device's pairing token. Avoid shared and public networks (cafés, hotels, campus or office Wi-Fi).
 - **Web pages cannot reach it.** The server answers only to `127.0.0.1`, `localhost` and this PC's own addresses, and only to its own pages and the Android app. A website you visit cannot talk to it, even through DNS rebinding, and cannot finish a Spotify or Discord sign-in on your PC (each sign-in carries a one-time state value).
 - **Updates install releases only.** Installers and the in-app update fetch a published release, never the latest code on `main`, and check every file against the `SHA256SUMS` published with it. Drafts and pre-releases are never offered. The Android app downloads only from this repository's releases (the PC can name a version, not an address) and installs only an APK signed with its own release key; Android enforces the same key on every update.
+
+> [!NOTE]
+> For a full, in-depth technical breakdown of the threat model, network filtering, and cryptographic pairing protocol, see the **[Security Architecture Whitepaper (PDF)](docs/Touch_Dashboard_Security_Architecture.pdf)**.
 
 ## Troubleshooting
 
