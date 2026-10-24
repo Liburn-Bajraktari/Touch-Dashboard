@@ -1619,11 +1619,17 @@
             height: 1.5rem;
         }
 
+        /* Rows sit at fixed steps and are placed by transform (--row, set per
+           row): putting speakers on top moves them without a layout. As flex
+           items reordered by `order`, every pause in speech of a call of five
+           or more re-laid out the page, a full repaint in the Linux window,
+           and the marquee and everything else stalled about once a second.
+           The list's scroll height comes from ::before (--rows). */
         #vc-users-list {
+            --vc-row-h: 3.2rem;
+            --vc-row-gap: 0.35rem;
+            position: relative;
             overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
             flex: 1;
             min-height: 0;
             padding: 0.35rem;
@@ -1632,12 +1638,28 @@
             box-shadow: var(--well-inset);
         }
 
+        #vc-users-list::before {
+            content: '';
+            display: block;
+            height: calc(var(--rows, 0) * (var(--vc-row-h) + var(--vc-row-gap)) - var(--vc-row-gap));
+        }
+
         .vc-user {
+            position: absolute;
+            top: 0.35rem;
+            left: 0.35rem;
+            right: 0.35rem;
+            height: var(--vc-row-h);
             display: flex;
             align-items: center;
             gap: 0.8rem;
             padding: 0.35rem 0.5rem;
             border-radius: 0.6rem;
+            transform: translateY(calc(var(--row, 0) * (var(--vc-row-h) + var(--vc-row-gap))));
+        }
+
+        :where([data-fx="rich"]) .vc-user {
+            transition: transform var(--dur-spring) var(--spring);
         }
 
         .vc-avatar {
@@ -7675,10 +7697,12 @@
             setEncoderIndex(((encoderIndex ?? -1) + 1) % encoderSinks.length);
         }
 
+        // A cover that fails stays hidden until the URL changes (the next
+        // track). Clearing data-src here made every sys_data load it again and
+        // re-sample its colour, one to three times a second.
         if (dom.spotArt) {
             dom.spotArt.onerror = function () {
                 this.style.display = 'none';
-                this.removeAttribute('data-src');
             };
         }
 
@@ -8912,20 +8936,23 @@
                                 const statusVis = statusName ? 'visible' : 'hidden';
                                 if (statusIcon.style.visibility !== statusVis) statusIcon.style.visibility = statusVis;
 
-                                // Set Order (if > 4 people on call, put speakers on top based on who spoke first)
-                                if (userIds.length > 4 && (!globalCfg || globalCfg.disc_sort_speakers !== false)) {
-                                    const speakIdx = discordActiveSpeakers.indexOf(uid);
-                                    if (speakIdx !== -1) {
-                                        // Speaking: put at top, respecting order
-                                        el.style.order = speakIdx - 1000;
-                                    } else {
-                                        // Not speaking: keep original order
-                                        el.style.order = userIds.indexOf(uid);
-                                    }
-                                } else {
-                                    el.style.order = 0;
-                                }
                             });
+
+                            // With more than four in the call, speakers go on top in the order
+                            // they started; the rest keep the call's order. Rows are placed by
+                            // transform (--row), so this never re-lays out the page.
+                            const sortSpeakers = userIds.length > 4 && (!globalCfg || globalCfg.disc_sort_speakers !== false);
+                            const rows = sortSpeakers
+                                ? [...discordActiveSpeakers, ...userIds.filter(uid => !discordActiveSpeakers.includes(uid))]
+                                : userIds;
+                            rows.forEach((uid, i) => {
+                                const el = vcUserEls.get(uid);
+                                if (el && el._row !== i) { el._row = i; el.style.setProperty('--row', i); }
+                            });
+                            if (dom.vcUsersList._rows !== rows.length) {
+                                dom.vcUsersList._rows = rows.length;
+                                dom.vcUsersList.style.setProperty('--rows', rows.length);
+                            }
 
                         } else {
                             if (dom.discVcContainer.style.display !== 'none') {
@@ -8935,6 +8962,8 @@
                                 dom.panelDiscord.style.flex = '0 0 auto';
                                 dom.panelDiscord.style.maxHeight = 'none';
                                 dom.vcUsersList.innerHTML = '';
+                                dom.vcUsersList._rows = 0;
+                                dom.vcUsersList.style.setProperty('--rows', 0);
                                 vcUserEls.clear();
                             }
                         }
