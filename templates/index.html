@@ -2363,6 +2363,8 @@
         }
 
         /* ── Soundboard: drum pads that light when struck ─────────────────── */
+        /* A plate over the dashboard. On rich it zooms out of the key that opened
+           it (toggleSoundpad); lite swaps in one frame. */
         #soundpad-view {
             position: absolute;
             inset: 0;
@@ -2371,8 +2373,25 @@
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            transform-origin: center center;
             z-index: 10;
+        }
+
+        /* Dims the dashboard while the plate grows: one solid layer fading, so
+           the modules under it are never repainted for it. */
+        #view-scrim {
+            position: absolute;
+            inset: 0;
+            z-index: 9;
+            background: var(--ground);
+            visibility: hidden;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Under the open soundboard the dashboard is skipped: no style, layout
+           or paint while sys_data keeps updating it, and it comes back laid out. */
+        #main-view.is-covered > .col {
+            content-visibility: hidden;
         }
 
         #sp-inner {
@@ -2380,7 +2399,6 @@
             padding: var(--pad);
             overflow-y: auto;
             height: 100%;
-            opacity: 0;
         }
 
         #sp-grid {
@@ -2836,6 +2854,7 @@
             font-size: var(--fs-sm);
             font-weight: 500;
             text-align: center;
+            text-wrap: balance;
         }
 
         #ip-actions .btn {
@@ -5506,6 +5525,7 @@
         </div>
 
         <!-- --- Soundboard View --- -->
+        <div id="view-scrim" aria-hidden="true"></div>
         <div id="soundpad-view" class="card">
             <div id="sp-inner">
                 <div id="sp-grid"></div>
@@ -5845,14 +5865,16 @@
             socket = null;
         }
 
-        function showIpModal(message = '', value = '') {
+        // focus: false leaves the field alone, so a tablet's keyboard does not
+        // cover the form when the app falls back to it by itself.
+        function showIpModal(message = '', value = '', focus = true) {
             const modal = document.getElementById('ip-modal');
             const input = document.getElementById('ip-input');
             const error = document.getElementById('ip-error');
             input.value = value || '';
-            error.innerText = message;
+            error.textContent = message;
             modal.classList.add('active');
-            setTimeout(() => input.focus(), 50);
+            if (focus) setTimeout(() => input.focus(), 50);
         }
 
         function hideIpModal() {
@@ -5899,34 +5921,44 @@
 
         // --- Reconnecting (the Android app) ---
         // A dropped link (the PC restarting after an update, Wi-Fi, the tablet
-        // waking up) comes back by itself: attempts after 1, 2 and 3 s, then
-        // every 5 s, counted down on screen, and at once when the app returns to
-        // the front or the network comes back. Only a PC the app reached before
-        // is retried (connectSource 'auto'); an address typed into the form that
-        // fails goes back to the form with the error.
+        // waking up) comes back by itself: attempts after 1, 2, 3 and 5 s,
+        // counted down on screen, and at once when the app returns to the front
+        // or the network comes back. After the fourth failed attempt it stops
+        // and shows the address form, filled in with the PC's address, saying
+        // why. Only a PC the app reached before is retried (connectSource
+        // 'auto'); an address typed into the form that fails goes back to the
+        // form with the error.
         const RECONNECT_DELAYS_S = [1, 2, 3, 5];
+        const RECONNECT_TRIES = RECONNECT_DELAYS_S.length;
         let connectSource = 'auto';   // 'manual': the address form started this attempt
         let reconnect = null;         // {ip, attempt, timer, tick, at} while retrying
+        let linkedOnce = false;       // let in by a PC since the page loaded
 
         function scheduleReconnect(ip) {
             if (!reconnect) {
                 reconnect = { ip, attempt: 0, timer: null, tick: null, at: 0 };
                 hideIpModal();
-                setText(document.getElementById('reconnect-text'),
-                    `The connection to the PC at ${ip} dropped. It comes back by itself once the PC can be reached.`);
+                setText(document.getElementById('reconnect-text'), linkedOnce
+                    ? `The connection to the PC at ${ip} dropped. It comes back by itself once the PC can be reached.`
+                    : `The PC at ${ip} does not answer yet. Touch Dashboard may still be starting on it.`);
                 document.getElementById('reconnect-modal').classList.add('active');
             }
             clearReconnectTimers();
+            if (reconnect.attempt >= RECONNECT_TRIES) {
+                giveUpReconnect();
+                return;
+            }
             if (document.hidden) {           // in the background: wait for the app to return
                 setReconnectStatus('Waiting for the app to return…');
                 return;
             }
-            const delay = RECONNECT_DELAYS_S[Math.min(reconnect.attempt, RECONNECT_DELAYS_S.length - 1)];
+            const delay = RECONNECT_DELAYS_S[reconnect.attempt];
+            const tryNo = `${reconnect.attempt + 1} of ${RECONNECT_TRIES}`;
             reconnect.at = Date.now() + delay * 1000;
             reconnect.timer = setTimeout(reconnectNow, delay * 1000);
             const show = () => {
                 const left = Math.max(1, Math.ceil((reconnect.at - Date.now()) / 1000));
-                setReconnectStatus(`Trying again in ${left} s`);
+                setReconnectStatus(`Try ${tryNo} in ${left} s`);
             };
             show();
             reconnect.tick = setInterval(show, 1000);
@@ -5936,9 +5968,18 @@
             if (!reconnect) return;
             clearReconnectTimers();
             reconnect.attempt++;
-            setReconnectStatus('Connecting…');
+            setReconnectStatus(`Connecting… (${reconnect.attempt} of ${RECONNECT_TRIES})`);
             connectSource = 'auto';
             connectDashboardSocket(reconnect.ip);
+        }
+
+        // Out of tries: a soft failure. The form, with the address filled in,
+        // says what happened; Connect starts over from there.
+        function giveUpReconnect() {
+            const ip = reconnect.ip;
+            stopReconnect();
+            closePendingSocket();
+            showIpModal(`Couldn't reconnect to the PC at ${ip}. Is Touch Dashboard running on it?`, ip, false);
         }
 
         function clearReconnectTimers() {
@@ -6096,6 +6137,7 @@
             // Let in: retrying is over, and a later drop retries by itself.
             stopReconnect();
             connectSource = 'auto';
+            linkedOnce = true;
             lastMessageAt = Date.now();
             setLinkState(true);
             // Remember only a PC that let us in.
@@ -8947,124 +8989,190 @@
             dialogWatch.observe(el, { attributes: true, attributeFilter: ['class'] }));
 
         // --- Soundboard View ---
-        let spOrigin = {};
-
+        // Rich: the soundboard, pads and all, zooms out of the key that opened
+        // it, evenly (round corners, nothing stretched), fading in over the key,
+        // while one solid layer dims the dashboard; closing, it zooms back into
+        // the key and fades onto it. The key stays whole under the plate the
+        // whole time, so neither ever shows blank. The top bar's controls and
+        // title roll over like the clock's digits. A toggle mid-way turns around
+        // from wherever things are.
+        // Five elements move, each by a Web Animation of transform or opacity:
+        // they run on the compositor and take the theme's springs as they are.
+        // Measured on a throttled tablet against what was tried first: GSAP's
+        // tweens read each pad's computed style as it started (style and layout
+        // forced every frame, ~12 fps); a clip-path window repainted the whole
+        // plate every frame; pads rippling in one by one, even by opacity
+        // alone, halved the compositor's frames (each needs main-thread work
+        // every frame). Lite (the CPU-painted Linux window) and reduced motion:
+        // one frame, as its dialogs do; a window-sized plate moving there
+        // repaints all of it every frame.
         const elSpView = document.getElementById('soundpad-view');
-        const elSpInner = document.getElementById('sp-inner');
-        const elCols = document.querySelectorAll('#main-view .col');
+        const elViewWrapper = document.getElementById('view-wrapper');
+        const elScrim = document.getElementById('view-scrim');
         const elMainView = document.getElementById('main-view');
-        let activeSpBtn = null;
-        let activeSpBtnIcon = null;
         const elBtnBack = document.getElementById('btn-back');
         const elBattSlide = document.getElementById('batt-slide');
         const elTopRightNormal = document.getElementById('top-right-normal');
         const elTopRightSoundboard = document.getElementById('top-right-soundboard');
-        const elViewWrapper = document.getElementById('view-wrapper');
+        const elTitleSide = [document.querySelector('.bar-title .brand-mark'), document.getElementById('conn-dot')].filter(Boolean);
+        const SB_EASE_OUT = 'cubic-bezier(0.25, 1, 0.5, 1)';
+        const SB_ZOOM = 'cubic-bezier(0.22, 1, 0.36, 1)';   // no overshoot: a full-size plate would bulge past its edges
+        const SB_EASE_IN = 'cubic-bezier(0.5, 0, 0.75, 0)';
+        const SB_EASE_IN_OUT = 'cubic-bezier(0.65, 0, 0.35, 1)';
+        let sbOpen = false;
+        let sbRun = 0;             // the newest transition; older ones stand down
+        let sbAnims = [];          // its animations, until it settles
+        let sbKey = null;          // the key that opened it
+        let sbFlips = [];          // the title's neighbours gliding (FLIP)
+
+        // A theme curve (the linear() springs in themes.js) as an animation easing.
+        function tokenEasing(token, fallback) {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+            return v && CSS.supports('transition-timing-function', v) ? v : fallback;
+        }
+
+        function sbAnimate(el, keyframes, opts) {
+            const a = el.animate(keyframes, { fill: 'both', ...opts });
+            sbAnims.push(a);
+            return a;
+        }
+
+        // Turning around: every running animation leaves its current values
+        // inline and stops, and the next ones start from exactly there.
+        function sbFreeze() {
+            sbAnims.forEach(a => { try { a.commitStyles(); } catch (err) { /* not rendered */ } });
+            sbAnims.forEach(a => a.cancel());
+            sbAnims = [];
+        }
+
+        // The key to grow from and shrink into: the one pressed, or the
+        // soundboard key again if the grid was rebuilt meanwhile.
+        function soundboardKey() {
+            if (sbKey && sbKey.isConnected) return sbKey;
+            return dom.macroGrid.querySelector('[data-plugin="app_soundpad"]');
+        }
+
+        // The plate shrunk evenly onto the key: as wide as the key and centred
+        // on it (or small in the middle without a key). Measured on the view,
+        // since the plate itself may be mid-zoom.
+        function sbKeyTransform(key) {
+            const p = elViewWrapper.getBoundingClientRect();
+            const k = key ? key.getBoundingClientRect() : null;
+            if (!k || !k.width || !p.width) return 'scale(0.6)';
+            const dx = k.left + k.width / 2 - (p.left + p.width / 2);
+            const dy = k.top + k.height / 2 - (p.top + p.height / 2);
+            return `translate(${dx}px, ${dy}px) scale(${k.width / p.width})`;
+        }
+
+        // The title rolls over; the brand mark and link dot beside it glide to
+        // where the new title puts them instead of jumping (FLIP).
+        async function sbRollTitle(run, text, mode, spring) {
+            const title = dom.topTitle;
+            await sbAnimate(title, [{ opacity: 0, transform: 'translateY(-0.6rem)' }],
+                { duration: 140, easing: SB_EASE_IN }).finished;
+            if (run !== sbRun) return;
+            const before = elTitleSide.map(el => el.getBoundingClientRect().left);
+            sbFlips.forEach(a => a.cancel());
+            title.textContent = text;
+            title.classList.toggle('is-mode', mode);
+            sbFlips = elTitleSide.map((el, i) => el.animate(
+                [{ transform: `translateX(${before[i] - el.getBoundingClientRect().left}px)` }, { transform: 'none' }],
+                { duration: 280, easing: SB_EASE_OUT }));
+            await sbAnimate(title, [{ opacity: 0, transform: 'translateY(0.6rem)' }, { opacity: 1, transform: 'none' }],
+                { duration: 420, delay: 60, easing: spring }).finished;
+        }
+
+        // The controls either side of the title: the old roll up and out, the new
+        // rise into place from below.
+        function sbRollBar(outgoing, incoming, fresh, spring) {
+            outgoing.forEach(el => {
+                el.style.pointerEvents = 'none';
+                sbAnimate(el, [{ opacity: 0, transform: 'translateY(-0.7rem)' }], { duration: 160, easing: SB_EASE_IN });
+            });
+            incoming.forEach((el, i) => {
+                el.style.visibility = 'visible';
+                el.style.pointerEvents = 'auto';
+                if (fresh) { el.style.opacity = '0'; el.style.transform = 'translateY(0.7rem)'; }
+                sbAnimate(el, [{ opacity: 1, transform: 'none' }], { duration: 460, delay: 100 + i * 40, easing: spring });
+            });
+        }
+
+        // Each side's resting state: where a transition ends, and all lite does.
+        // Only what this sets is cleared: config_sync shows and hides the
+        // battery pill with an inline display.
+        function sbSettle(show) {
+            sbAnims.forEach(a => a.cancel());
+            sbAnims = [];
+            const clear = (els, props) => els.forEach(el => props.forEach(p => el.style.removeProperty(p)));
+            clear([elScrim, dom.topTitle], ['opacity', 'transform', 'visibility', 'pointer-events']);
+            clear([elSpView], ['opacity', 'transform', 'visibility', 'pointer-events']);
+            clear([elBattSlide, elTopRightNormal, elBtnBack, elTopRightSoundboard],
+                ['opacity', 'transform', 'visibility', 'pointer-events', 'transition']);
+            if (show) {
+                elSpView.style.visibility = 'visible';
+                elSpView.style.pointerEvents = 'auto';
+                [elBattSlide, elTopRightNormal].forEach(el => { el.style.opacity = '0'; el.style.visibility = 'hidden'; });
+                [elBtnBack, elTopRightSoundboard].forEach(el => { el.style.opacity = '1'; el.style.pointerEvents = 'auto'; });
+                elMainView.classList.add('is-covered');
+            }
+            isAnimating = false;
+            if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
+        }
 
         function toggleSoundpad(show, triggerBtn = null) {
+            if (show === sbOpen) return;
+            sbOpen = show;
+            if (show && triggerBtn) sbKey = triggerBtn;
+            const run = ++sbRun;
+            const fresh = sbAnims.length === 0;   // false: turning a transition around
+            sbFreeze();
             isAnimating = true;
+            npMarquee.pause(show, 'soundboard');   // under the plate
+            const text = show ? (osTarget === 'linux' ? 'Soundboard' : 'Soundpad') : 'Command Center';
 
-            if (show) {
-                activeSpBtn = triggerBtn || document.body;
-                activeSpBtnIcon = activeSpBtn.children ? activeSpBtn.children[0] : null;
-                const btnRect = activeSpBtn.getBoundingClientRect();
-                const wrapRect = elViewWrapper.getBoundingClientRect();
-
-                elMainView.style.pointerEvents = 'none';
-
-                const wrapCenterX = wrapRect.width / 2;
-                const wrapCenterY = wrapRect.height / 2;
-                const btnCenterX = (btnRect.left - wrapRect.left) + (btnRect.width / 2);
-                const btnCenterY = (btnRect.top - wrapRect.top) + (btnRect.height / 2);
-
-                spOrigin = {
-                    x: btnCenterX - wrapCenterX,
-                    y: btnCenterY - wrapCenterY,
-                    scaleX: btnRect.width / wrapRect.width,
-                    scaleY: btnRect.height / wrapRect.height
-                };
-
-                elSpView.style.willChange = 'transform';
-
-                gsap.set(elSpView, {
-                    visibility: 'visible', pointerEvents: 'auto', opacity: 1,
-                    x: spOrigin.x, y: spOrigin.y,
-                    scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY
-                });
-
-                gsap.set(elSpInner, { opacity: 0 });
-
-                const tl = gsap.timeline({
-                    onComplete: () => {
-                        elSpView.style.willChange = '';
-                        // Hidden columns cost nothing to paint while the soundboard is open.
-                        elCols.forEach(c => { c.style.display = 'none'; c.style.opacity = ''; });
-                        isAnimating = false;
-                        if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
-                    }
-                });
-
-                tl.to(elCols, { opacity: 0, duration: 0.16, ease: "power2.out" }, 0);
-                tl.to(elSpView, {
-                    duration: 0.3,
-                    x: 0, y: 0, scaleX: 1, scaleY: 1,
-                    ease: "power3.inOut"
-                }, 0);
-
-                tl.to(elSpInner, { opacity: 1, duration: 0.15, ease: "power2.out" }, 0.3);
-
-                if (activeSpBtn) tl.to(activeSpBtn, { opacity: 0, duration: 0.15 }, 0);
-
-                tl.to(elBattSlide, { x: '6rem', opacity: 0, duration: 0.3, ease: "power3.inOut" }, 0);
-                tl.to(elBtnBack, { opacity: 1, duration: 0.15 }, 0.1);
-                elBtnBack.style.pointerEvents = 'auto';
-
-                tl.to(elTopRightNormal, { x: '10rem', opacity: 0, duration: 0.3, ease: "power3.inOut" }, 0);
-                tl.to(elTopRightSoundboard, { opacity: 1, duration: 0.15 }, 0.1);
-                elTopRightSoundboard.style.pointerEvents = 'auto';
-
-            } else {
-                elMainView.style.pointerEvents = 'auto';
-
-                elSpView.style.willChange = 'transform';
-                elCols.forEach(c => { c.style.opacity = '0'; c.style.display = ''; });
-
-                const tl = gsap.timeline({
-                    onComplete: () => {
-                        gsap.set(elSpView, { visibility: 'hidden', pointerEvents: 'none', clearProps: 'all' });
-                        elSpView.style.willChange = '';
-                        elCols.forEach(c => { c.style.opacity = ''; });
-                        isAnimating = false;
-
-                        if (pendingSysData) { updateSysDataDOM(pendingSysData); pendingSysData = null; }
-                    }
-                });
-
-                tl.to(elSpInner, { opacity: 0, duration: 0.1, ease: "power2.in" }, 0);
-                tl.to(elCols, { opacity: 1, duration: 0.24, ease: "power2.out", clearProps: 'opacity' }, 0.1);
-
-                tl.to(elSpView, {
-                    duration: 0.3,
-                    x: spOrigin.x, y: spOrigin.y,
-                    scaleX: spOrigin.scaleX, scaleY: spOrigin.scaleY,
-                    ease: "power3.inOut"
-                }, 0.05);
-
-                if (activeSpBtn) tl.to(activeSpBtn, { opacity: 1, duration: 0.15, clearProps: 'opacity' }, 0.1);
-                if (activeSpBtnIcon) tl.to(activeSpBtnIcon, { opacity: 1, duration: 0.15, clearProps: 'opacity' }, 0.15);
-
-                elBtnBack.style.pointerEvents = 'none';
-                tl.to(elBtnBack, { opacity: 0, duration: 0.1, ease: "power2.out" }, 0);
-                tl.to(elBattSlide, { x: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", clearProps: 'transform,opacity' }, 0.05);
-
-                elTopRightSoundboard.style.pointerEvents = 'none';
-                tl.to(elTopRightSoundboard, { opacity: 0, duration: 0.1, ease: "power2.out" }, 0);
-                tl.to(elTopRightNormal, { x: 0, opacity: 1, duration: 0.3, ease: "power3.inOut", clearProps: 'transform,opacity' }, 0.05);
+            if (document.documentElement.dataset.fx !== 'rich' || reducedMotion.matches) {
+                dom.topTitle.textContent = text;
+                dom.topTitle.classList.toggle('is-mode', show);
+                if (!show) elMainView.classList.remove('is-covered');
+                sbSettle(show);
+                return;
             }
 
-            dom.topTitle.textContent = show ? (osTarget === 'linux' ? 'Soundboard' : 'Soundpad') : 'Command Center';
-            dom.topTitle.classList.toggle('is-mode', show);
-            gsap.fromTo(dom.topTitle, { scale: 1.04 }, { scale: 1, duration: 0.15, ease: "power2.out", clearProps: 'scale' });
+            const spring = tokenEasing('--spring', SB_EASE_OUT);
+            // The back key springs its own transform by CSS (.btn), and a running
+            // CSS transition outranks an animation: off while this moves it.
+            elBtnBack.style.transition = 'none';
+            // The dashboard comes back under the plate first, so the key can be measured.
+            if (!show) elMainView.classList.remove('is-covered');
+            const key = soundboardKey();
+            elSpView.style.visibility = elScrim.style.visibility = 'visible';
+
+            if (show) {
+                // No taps until it settles: a double tap on the key would land on
+                // whichever pad is zooming past. The scrim takes them meanwhile.
+                elSpView.style.pointerEvents = 'none';
+                elScrim.style.pointerEvents = 'auto';
+                if (fresh) {
+                    elSpView.style.opacity = '0';
+                    elSpView.style.transform = sbKeyTransform(key);
+                    elScrim.style.opacity = '0';
+                }
+                sbAnimate(elSpView, [{ opacity: 1 }], { duration: 180, easing: SB_EASE_OUT });
+                sbAnimate(elSpView, [{ transform: 'none' }], { duration: 520, easing: SB_ZOOM });
+                sbAnimate(elScrim, [{ opacity: 1 }], { duration: 340, easing: SB_EASE_OUT });
+                sbRollBar([elBattSlide, elTopRightNormal], [elBtnBack, elTopRightSoundboard], fresh, spring);
+            } else {
+                elSpView.style.pointerEvents = 'none';   // no pad plays while it closes
+                elScrim.style.pointerEvents = 'none';
+                if (fresh) elScrim.style.opacity = '1';
+                sbAnimate(elSpView, [{ transform: sbKeyTransform(key) }], { duration: 420, easing: SB_EASE_IN_OUT });
+                sbAnimate(elSpView, [{ opacity: 0 }], { duration: 240, delay: 180, easing: SB_EASE_IN });
+                sbAnimate(elScrim, [{ opacity: 0 }], { duration: 300, easing: SB_EASE_IN_OUT });
+                sbRollBar([elBtnBack, elTopRightSoundboard], [elBattSlide, elTopRightNormal], fresh, spring);
+            }
+            const moves = sbAnims.map(a => a.finished);
+            Promise.all([...moves, sbRollTitle(run, text, show, spring)])
+                .then(() => { if (run === sbRun) sbSettle(show); }, () => { /* turned around: the next run settles */ });
         }
 
         // --- Macro Editor & Grid Logic ---
@@ -9091,7 +9199,10 @@
                 btn.className = 'btn';
                 btn.setAttribute('aria-label', m.display_name || 'Macro');
 
-                if (m.type === 'plugin') btn.classList.add('btn-plugin');
+                if (m.type === 'plugin') {
+                    btn.classList.add('btn-plugin');
+                    btn.dataset.plugin = m.action_data || '';   // the soundboard finds its key again
+                }
                 const label = escapeHtml(m.display_name || '');
                 btn.innerHTML = `<span class="key-screen">${keyGlyphHtml(m)}<span class="key-label">${label}</span></span>`;
 
@@ -10056,6 +10167,7 @@
             else if (isOpen('modal')) document.getElementById('modal').classList.remove('active');
             else if (clockViewOpen) closeClockView();
             else if (document.getElementById('win-menu').classList.contains('is-open')) closeWinMenu();
+            else if (sbOpen) toggleSoundpad(false);
         });
 
         // --- Input Handling ---

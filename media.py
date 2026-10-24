@@ -132,15 +132,84 @@ BROWSERS = frozenset({
 BROWSER_BRIDGE = "plasma-browser-integration"
 
 
+# What a tab's title adds to the media's own: an unread count YouTube, Gmail
+# or Discord put first ("(3) ", "(99+) ") or a playing mark, and the site's
+# name last (" - YouTube", " | Twitch").
+_TAB_COUNT = re.compile(r"^\s*(?:[(\[]\d+\+?[)\]]|[▶►])\s*")
+_TAB_SITE = re.compile(r"\s+[-–—|·]\s+([^-–—|·]{1,40})$")
+SAME_LENGTH_S = 2.0
+
+
+def _bare_title(title: str) -> str:
+    return _TAB_COUNT.sub("", title).strip().casefold()
+
+
+def _title_forms(title: str, url: str) -> set[str]:
+    """The ways a tab's title can read: as it is, without the count, and
+    without the site's name, but only a name the page's host carries
+    ("YouTube" on www.youtube.com), so "Song - Remix" stays itself."""
+    bare = _bare_title(title)
+    forms = {title.strip().casefold(), bare}
+    site = _TAB_SITE.search(bare)
+    host = (urllib.parse.urlsplit(url).hostname or "") if url else ""
+    words = re.findall(r"\w+", site.group(1)) if site else []
+    if host and words and all(w in host for w in words):
+        forms.add(bare[:site.start()])
+    return forms - {""}
+
+
+def _same_tab(bridge: dict, own: dict) -> bool:
+    """The bridge's copy and the browser's own describe one tab. Either may
+    fall back to the page's title when it cannot read the page's media
+    metadata: the bridge does on YouTube, giving "(3) Title - YouTube" and no
+    cover beside the browser's "Title"."""
+    if not bridge["title"] or not own["title"]:
+        return False
+    url = bridge["url"]
+    if (_bare_title(own["title"]) not in _title_forms(bridge["title"], url)
+            and _bare_title(bridge["title"]) not in _title_forms(own["title"], url)):
+        return False
+    a, b = bridge["length"], own["length"]
+    return not (a and b and abs(a - b) > SAME_LENGTH_S)
+
+
+def _is_page_title(p: dict, other: dict, url: str) -> bool:
+    """p's title is other's with a tab's dressing around it."""
+    return (p["title"].casefold() != other["title"].casefold()
+            and _bare_title(other["title"]) in _title_forms(p["title"], url))
+
+
 def dedupe(players: list[dict]) -> list[dict]:
     """KDE's browser bridge republishes a tab the browser already publishes
-    itself: keep the bridge's copy (it carries the page url)."""
-    bridged = {p["title"].casefold() for p in players if p["app"] == BROWSER_BRIDGE and p["title"]}
-    if not bridged:
+    itself: one record stays. That is the bridge's (it carries the page url),
+    unless it only has the page's title: then the browser's own copy, which
+    read the page's metadata (title, artist, cover) and its media keys, stays
+    and takes the url. Whatever the kept one lacks (cover, length, position)
+    comes from the other."""
+    bridges = [p for p in players if p["app"] == BROWSER_BRIDGE and p["title"]]
+    if not bridges:
         return players
-    return [p for p in players
-            if not (p["app"] in BROWSERS and p["app"] != BROWSER_BRIDGE
-                    and p["title"].casefold() in bridged)]
+    replace: dict[str, dict] = {}
+    drop: set[str] = set()
+    for b in bridges:
+        own = next((p for p in players
+                    if p["app"] in BROWSERS and p["app"] != BROWSER_BRIDGE
+                    and p["id"] not in drop and _same_tab(b, p)), None)
+        if own is None:
+            continue
+        keep, other = (own, b) if _is_page_title(b, own, b["url"]) else (b, own)
+        merged = dict(keep)
+        # Not the track id: MPRIS SetPosition needs the kept player's own.
+        for field in ("url", "art", "album"):
+            if not merged[field] and other[field]:
+                merged[field] = other[field]
+        for field in ("length", "position"):
+            if merged[field] is None and other[field] is not None:
+                merged[field] = other[field]
+        merged["started"] = max(keep["started"], other["started"])
+        replace[keep["id"]] = merged
+        drop.add(other["id"])
+    return [replace.get(p["id"], p) for p in players if p["id"] not in drop]
 
 
 def _paused_rank(p: dict) -> tuple:

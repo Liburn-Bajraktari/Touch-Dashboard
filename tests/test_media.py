@@ -119,6 +119,56 @@ def test_browser_bridge_copy_is_dropped():
     assert [p["id"] for p in media.dedupe([own, bridge, other])] == ["p", "c"]
 
 
+YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+
+def test_bridge_copy_with_the_tab_title_gives_way_to_the_browsers_own():
+    # Seen on YouTube in Chrome: the bridge could not read the page's media
+    # metadata and published the tab's title, unread count first, and no cover.
+    own = _p("mpris:chromium.instance7", "chromium.instance7", title="Never Gonna Give You Up",
+             art="file:///tmp/.org.chromium.Chromium.abc", length=213.0, started=4.0)
+    own["artist"] = "Rick Astley"
+    bridge = _p("mpris:plasma-browser-integration", "plasma-browser-integration",
+                title="(3) Never Gonna Give You Up - YouTube", url=YT, length=212.6, started=5.0)
+    [shown] = media.dedupe([bridge, own])
+    assert shown["id"] == own["id"] and shown["title"] == "Never Gonna Give You Up"
+    assert shown["artist"] == "Rick Astley" and shown["art"] == own["art"]
+    assert shown["url"] == YT and shown["started"] == 5.0          # the page url joins it
+    assert media.media_kind(shown) == "long"                         # a video page, not music
+
+
+@pytest.mark.parametrize("tab_title", [
+    "(3) Video", "(99+) Video", "[2] Video", "▶ Video", "Video - YouTube", "(1) Video – YouTube",
+])
+def test_tab_title_forms_match(tab_title):
+    own = _p("own", "chromium", title="Video")
+    bridge = _p("bridge", "plasma-browser-integration", title=tab_title, url=YT)
+    assert [p["id"] for p in media.dedupe([own, bridge])] == ["own"]
+
+
+def test_bridge_metadata_beats_the_browsers_tab_title():
+    # The other way round: the bridge read the metadata, the browser has the
+    # tab's title. The bridge's copy stays and takes the cover it lacks.
+    own = _p("own", "firefox", title="(2) Video - YouTube", art="file:///tmp/cover.png")
+    bridge = _p("bridge", "plasma-browser-integration", title="Video", url=YT)
+    [shown] = media.dedupe([own, bridge])
+    assert shown["id"] == "bridge" and shown["title"] == "Video"
+    assert shown["art"] == "file:///tmp/cover.png"
+
+
+def test_different_tabs_stay_apart():
+    bridge = _p("bridge", "plasma-browser-integration", title="Song - Remix", url="https://example.com/x")
+    own = _p("own", "chromium", title="Song")
+    assert len(media.dedupe([bridge, own])) == 2                     # "Remix" is not the site
+    no_url = _p("bridge", "plasma-browser-integration", title="Song - YouTube")
+    assert len(media.dedupe([no_url, own])) == 2                     # no page to name
+    long_one = _p("own", "chromium", title="Video", length=600.0)
+    short_one = _p("bridge", "plasma-browser-integration", title="(1) Video", url=YT, length=212.0)
+    assert len(media.dedupe([short_one, long_one])) == 2             # two videos, one title
+    other_app = _p("own", "vlc", title="Video")                      # not a browser
+    assert len(media.dedupe([short_one, other_app])) == 2
+
+
 def test_local_spotify_app_takes_the_web_api_details():
     local = _p("mpris:spotify", "spotify", title="Song")
     api = _p("spotify:api", "spotify", title="song", art="https://i.scdn.co/x", episode=True,

@@ -155,6 +155,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Ambient light (rich) | two layers cross-fade by opacity, `ease` | 1.4 s |
 | Now playing marquee | rests 2.5 s, then 32 px/s: linear on rich, whole-pixel steps on lite (§8) | one lap per copy width |
 | First load | modules rise and fade in once (GSAP stagger 60 ms) | 700 ms |
+| Soundboard (rich) | zooms evenly out of its key, fading in over it, and back into it, fading onto it; the dashboard dims under a `--ground` layer; the top bar rolls over like the clock digits (`spring`) | 520 ms open (ease-out, no overshoot: a full-size plate would bulge past its edges), 420 ms close (ease-in-out) |
 
 - The springs are generated from a damped oscillator and written as `linear()`; engines without `linear()` fall back to `ease`.
 - While a fader is held its transitions switch off, so the cap is glued to the finger.
@@ -214,6 +215,7 @@ The rules that got there:
 - **The cover's colour sits on its three consumers** (Now playing card, full-screen clock, lock screen), not `:root`: a new colour restyles those subtrees, not the page.
 - The cover backdrop is the cover drawn into an 8×8 canvas and stretched: a blur with no filter cost.
 - Write text with `textContent`; never read `innerText` in an update path.
+- **Transitions are Web Animations of transform and opacity on few elements.** They run on the compositor and take the `linear()` springs as they are. Every element with a running animation is still restyled on the main thread each frame, so a stagger across many elements costs: pads rippling in one by one, even by opacity alone, halved the compositor's frames. Animate the container, not each item. A clip-path animation repaints its element every frame (Chrome cannot composite it). GSAP's CSS tweens read the target's computed style as each tween starts, staggered ones included, and convert `rem` through a temporary element, forcing style and layout mid-frame; keep GSAP for one-off moves of a few elements.
 
 ### Burn-in care (OLED)
 
