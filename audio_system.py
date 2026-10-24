@@ -15,6 +15,8 @@ import sys
 import threading
 import time
 
+import app_audio
+
 # ─── Monkeypatch pycaw to prevent Access Violations ───────────────────────────
 # pycaw's AudioUtilities.CreateDevice calls `value.clear()` on PROPVARIANTs.
 # comtypes's GC also tries to release them. This double-free causes 0xC0000005
@@ -457,7 +459,9 @@ class AudioSystem:
             # level, and read back what the system applied once none comes.
             if not AudioSystem._vol_event.wait(AudioSystem.VOL_SETTLE_S if touched else None):
                 for target in touched:
-                    AudioSystem.get_state(target)
+                    # An app's level is read back with the mixer's next poll (app_audio.stale).
+                    if not target.startswith(AudioSystem.APP_PREFIX):
+                        AudioSystem.get_state(target)
                 touched.clear()
                 if AudioSystem.on_volume_applied:
                     try:
@@ -471,6 +475,11 @@ class AudioSystem:
                 tasks = list(AudioSystem._vol_targets.items())
                 AudioSystem._vol_targets.clear()
             for target, val in tasks:
+                if target.startswith(AudioSystem.APP_PREFIX):
+                    kind, _, aid = target.removeprefix(AudioSystem.APP_PREFIX).partition(":")
+                    app_audio.set_volume(kind, aid, val)
+                    touched.add(target)
+                    continue
                 if sys.platform.startswith("win"):
                     _windows_set_volume(target, val)
                 else:
@@ -496,6 +505,14 @@ class AudioSystem:
         with AudioSystem._vol_lock:
             AudioSystem._vol_targets[target] = val
         AudioSystem._vol_event.set()
+
+    # One app's strip in the full-screen mixer (app_audio): queued like a
+    # master fader, so a drag's steps coalesce per app.
+    APP_PREFIX = "app:"
+
+    @staticmethod
+    def set_app_vol(kind: str, aid: str, val: int) -> None:
+        AudioSystem.set_vol(f"{AudioSystem.APP_PREFIX}{kind}:{aid}", val)
 
     # ── state queries ──────────────────────────────────────────────────────────
 

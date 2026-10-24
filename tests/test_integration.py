@@ -245,6 +245,63 @@ def test_config_sync_advertises_features(client):
     with _admin_ws(client) as websocket:
         sync = websocket.receive_json()
         assert "disc_voice" in sync["data"]["features"]
+        assert "audio_apps" in sync["data"]["features"]
+
+
+def _mixer_reading():
+    """What app_audio.read() returns: Firefox playing (an icon found), Discord on the mic."""
+    return {
+        "out": {"firefox": {"id": "firefox", "name": "Firefox", "vol": 72, "muted": False, "active": True,
+                            "streams": [10, 12], "icons": ["firefox"], "has_icon": True}},
+        "in": {"discord": {"id": "discord", "name": "Discord", "vol": 100, "muted": False, "active": True,
+                           "streams": [20], "icons": [], "has_icon": False}},
+    }
+
+
+def test_mixer_sends_app_levels_only_while_it_shows(client):
+    import server
+    reading = _mixer_reading()
+    with patch("server.app_audio.read", return_value=reading) as read, \
+            patch.object(server.app_audio, "_last", reading):
+        with _admin_ws(client) as websocket:
+            assert websocket.receive_json()["type"] == "config_sync"
+            assert read.call_count == 0          # nobody shows the mixer: no pactl at all
+            websocket.send_json({"type": "audio_apps_watch", "data": {"on": True}})
+            msg = _receive_until(websocket, "audio_apps")["data"]
+            assert msg["out"] == [{"id": "firefox", "name": "Firefox", "vol": 72, "muted": False, "active": True,
+                                   "icon": f"/api/app_icon?a=firefox&k={server._sign_icon('firefox')}"}]
+            assert msg["in"][0]["icon"] is None and "streams" not in msg["in"][0]
+            assert [c.mixer for c in server.ws_manager._clients] == [True]
+            websocket.send_json({"type": "audio_apps_watch", "data": {"on": False}})
+            websocket.send_json({"type": "audio_apps_watch", "data": {"on": "yes"}})
+            assert _receive_until(websocket, "refused")["data"]["reason"] == "invalid"
+            assert [c.mixer for c in server.ws_manager._clients] == [False]
+
+
+def test_app_levels_are_checked_clamped_and_queued(client):
+    import server
+    reading = _mixer_reading()
+    with patch.object(server.app_audio, "_last", reading), \
+            patch("server.AudioSystem.set_app_vol") as set_vol, patch("server.app_audio.set_mute") as set_mute:
+        with _admin_ws(client) as websocket:
+            assert websocket.receive_json()["type"] == "config_sync"
+            websocket.send_json({"type": "set_app_volume", "data": {"dir": "out", "id": "firefox", "val": 150}})
+            websocket.send_json({"type": "set_app_volume", "data": {"dir": "in", "id": "discord", "val": 33.6}})
+            websocket.send_json({"type": "set_app_mute", "data": {"dir": "in", "id": "discord", "muted": True}})
+            bad = [
+                {"type": "set_app_volume", "data": {"dir": "out", "id": "spotify", "val": 50}},   # not in the reading
+                {"type": "set_app_volume", "data": {"dir": "in", "id": "firefox", "val": 50}},    # the other side
+                {"type": "set_app_volume", "data": {"dir": "out", "id": "firefox", "val": True}},
+                {"type": "set_app_volume", "data": {"dir": "out", "id": "firefox", "val": "50"}},
+                {"type": "set_app_mute", "data": {"dir": "out", "id": "firefox", "muted": 1}},
+                {"type": "set_app_mute", "data": {"dir": "out", "id": ["firefox"], "muted": True}},
+            ]
+            for msg in bad:
+                websocket.send_json(msg)
+            reasons = [_receive_until(websocket, "refused")["data"]["reason"] for _ in bad]
+    assert set(reasons) == {"invalid"}
+    assert [c.args for c in set_vol.call_args_list] == [("out", "firefox", 100), ("in", "discord", 34)]
+    set_mute.assert_called_once_with("in", "discord", True)
 
 
 def test_sys_data_carries_load_sample_seq(client):

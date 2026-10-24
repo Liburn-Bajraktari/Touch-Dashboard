@@ -44,7 +44,8 @@
         }
 
         #lock-overlay,
-        #clock-view {
+        #clock-view,
+        #mixer-view {
             --ambient: var(--dyn-glow, var(--glow));
         }
 
@@ -87,6 +88,7 @@
             .theme-card,
             .scribble,
             .key-screen,
+            .mx-app,
             .stat,
             .speed-widget,
             .sb-vol-row,
@@ -294,6 +296,7 @@
            palette, so a light console can keep dark LCD readouts while its
            recessed containers (key screens, lists, tiles) stay light. */
         .scribble,
+        .mx-app,
         .speed-widget,
         .batt-slide,
         .sb-vol-row,
@@ -2098,6 +2101,41 @@
             min-width: 0;
         }
 
+        /* The encoder and its display, centred above the mixer key. */
+        .enc-group {
+            flex: 1;
+            min-height: 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 1.2rem;
+        }
+
+        /* Opens the full-screen mixer; there, in the same place, it closes it.
+           It sits on the mute keys' baseline, so the three read as one row. */
+        .mixer-key {
+            flex: 0 0 auto;
+            width: min(100%, 13rem);
+            height: 4.6rem;
+            min-height: 0;
+            padding: 0 1.1rem;
+            gap: 0.55rem;
+            color: var(--text-2);
+            font-size: var(--fs-sm);
+            font-weight: var(--weight-strong);
+        }
+
+        .mixer-key-glyph {
+            display: flex;
+        }
+
+        .mixer-key svg.lucide {
+            width: 1.6rem;
+            height: 1.6rem;
+        }
+
         /* Output encoder: a knurled knob inside a ring of LEDs, one per device. */
         .encoder {
             position: relative;
@@ -2193,6 +2231,233 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        /* ── Full-screen mixer ────────────────────────────────────────────── */
+        /* On the dashboard's own columns: the master section (the same
+           elements, moved in while it is open) keeps its place and grows to
+           the full height. Each app gets a channel strip beside it, playback
+           left of the output fader, recording right of the mic, mirrored so
+           the first app sits next to the master on both sides. Opaque, with
+           the room's light painted in, so nothing behind it shows or repaints.
+           Under the idle dim, the full-screen clock, the lock screen and
+           dialogs. */
+        #mixer-view {
+            position: fixed;
+            inset: 0;
+            z-index: 9970;
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr);
+            grid-template-rows: minmax(0, 1fr);
+            gap: var(--gap);
+            padding: var(--pad);
+            background:
+                radial-gradient(70rem 52rem at 14% 32%, var(--ambient), transparent 72%),
+                radial-gradient(56rem 42rem at 96% 108%, var(--glow), transparent 70%),
+                var(--ground);
+            outline: none;
+        }
+
+        .mx-bay {
+            gap: 1rem;
+            min-width: 0;
+        }
+
+        .mx-head .panel-title {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+        }
+
+        .mx-head .panel-title svg.lucide {
+            width: 1.35rem;
+            height: 1.35rem;
+            color: var(--text-3);
+        }
+
+        .mx-count {
+            color: var(--text-3);
+            font-size: var(--fs-xs);
+            font-weight: 500;
+        }
+
+        /* Strips share the bay down to --strip-min (five fit), then scroll
+           sideways, outwards from the master; a fade marks the side with more. */
+        .mx-strips {
+            --strip-min: 6rem;
+            --strip-max: 7.4rem;
+            --more-fade: 2.5rem;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            gap: var(--gap-sm);
+            overflow-x: auto;
+            overflow-y: hidden;
+            overscroll-behavior: contain;
+            scroll-snap-type: x proximity;
+            scrollbar-width: none;
+        }
+
+        .mx-strips::-webkit-scrollbar {
+            display: none;
+        }
+
+        .mx-strips[data-more="end"] {
+            mask-image: linear-gradient(to right, var(--mask) calc(100% - var(--more-fade)), transparent);
+        }
+
+        .mx-strips[data-more="start"] {
+            mask-image: linear-gradient(to left, var(--mask) calc(100% - var(--more-fade)), transparent);
+        }
+
+        .mx-strips[data-more="both"] {
+            mask-image: linear-gradient(to right, transparent, var(--mask) var(--more-fade),
+                    var(--mask) calc(100% - var(--more-fade)), transparent);
+        }
+
+        /* Right to left: the playback bay starts at its right edge, by the
+           master, so its start and end sides swap. */
+        #mx-out-strips {
+            direction: rtl;
+        }
+
+        #mx-out-strips[data-more="end"] {
+            mask-image: linear-gradient(to left, var(--mask) calc(100% - var(--more-fade)), transparent);
+        }
+
+        #mx-out-strips[data-more="start"] {
+            mask-image: linear-gradient(to right, var(--mask) calc(100% - var(--more-fade)), transparent);
+        }
+
+        .pro-slider.mx-strip {
+            flex: 1 0 var(--strip-min);
+            min-width: 0;   /* a long name ellipsizes instead of widening its strip */
+            max-width: var(--strip-max);
+            direction: ltr;
+            scroll-snap-align: center;
+        }
+
+        /* The app's own icon in a display window, like a display key's screen;
+           apps without one get a glyph by name, else their initial. */
+        .mx-app {
+            position: relative;
+            flex: 0 0 auto;
+            align-self: center;
+            width: 4.6rem;
+            height: 4.6rem;
+            display: grid;
+            place-items: center;
+            border-radius: calc(1rem * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+            color: var(--well-ink-2);
+        }
+
+        .mx-tile {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            place-items: center;
+        }
+
+        .mx-app img {
+            width: 60%;
+            height: 60%;
+            object-fit: contain;
+        }
+
+        .mx-app svg.lucide {
+            width: 2.1rem;
+            height: 2.1rem;
+            stroke-width: 1.6;
+        }
+
+        .mx-mono {
+            color: var(--well-ink);
+            font-size: var(--fs-lg);
+            font-weight: var(--weight-strong);
+            line-height: 1;
+        }
+
+        /* Signal LED: lit while the app plays (or records). */
+        .mx-led {
+            position: absolute;
+            top: 0.45rem;
+            right: 0.45rem;
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+            background: var(--surface-3);
+            box-shadow: inset 0 1px 0 var(--rim);
+            transition: background-color var(--dur) var(--ease);
+        }
+
+        .mx-strip.is-live .mx-led {
+            background: var(--positive);
+        }
+
+        [data-fx="rich"] .mx-strip.is-live .mx-led {
+            box-shadow: 0 0 0.6rem var(--positive);
+        }
+
+        .mx-strip .scribble {
+            padding-inline: 0.35rem;
+        }
+
+        .mx-name {
+            color: var(--well-ink);
+            font-size: var(--fs-sm);
+            font-weight: var(--weight-strong);
+        }
+
+        .mx-strip .fader-cap {
+            width: min(4.6rem, 80%);
+        }
+
+        /* Where strips would stand: an empty slot. */
+        .mx-empty {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.9rem;
+            padding: 0 1rem;
+            border: 0.14rem dashed var(--line);
+            border-radius: calc(var(--radius-key) * var(--sq));
+            color: var(--text-3);
+            font-size: var(--fs-md);
+            text-align: center;
+        }
+
+        .mx-empty svg.lucide {
+            width: 3.2rem;
+            height: 3.2rem;
+            stroke-width: 1.25;
+            color: var(--line-strong);
+        }
+
+        /* Opening and closing (rich), the master caps glide from where they
+           were to where the other travel puts them: pinned there first, then
+           let go with the fader's own spring (mixerGlide). */
+        .mx-pin :is(.slider-fill, .fader-carrier) {
+            transition: none;
+        }
+
+        .mx-glide :is(.slider-fill, .fader-carrier) {
+            transition: transform 550ms var(--spring);
+        }
+
+        /* The displays slide over their faders' slots while it opens. */
+        .mx-master > * > .scribble {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* What the transition moves is a layer for as long as the mixer shows,
+           so it starts and ends without rastering (DESIGN.md §8.1). */
+        [data-fx="rich"] #mixer-view :is(.mx-bay, .mx-master > * > .scribble, .mx-master .enc-group, .mx-master .fader-scale) {
+            will-change: transform, opacity;
         }
 
         /* ── Macro keys: display keys, a screen inside each cap ───────────── */
@@ -4480,10 +4745,18 @@
             }
         }
 
-        /* The panel that opens it: the whole panel is the key; a small glyph says so. */
+        /* The panel that opens it: the whole panel is the key. The glyph is the
+           platforms' own full-screen corners, rounded like the plates. Pressed,
+           the panel gives a little (the scale property: the first-load entrance
+           tweens its transform) and the corners open outward, the way the clock
+           will grow. */
         .time-weather-panel {
             position: relative;
             cursor: pointer;
+        }
+
+        .time-weather-panel:is(:active, .is-pressed) {
+            scale: 0.985;
         }
 
         .time-weather-panel:focus-visible {
@@ -4493,12 +4766,55 @@
 
         .tw-expand {
             position: absolute;
-            top: 1.1rem;
-            right: 1.1rem;
-            width: 1.5rem;
-            height: 1.5rem;
+            top: 1.05rem;
+            right: 1.05rem;
+            width: 1.6rem;
+            height: 1.6rem;
             color: var(--text-3);
+            overflow: visible;
             pointer-events: none;
+        }
+
+        .time-weather-panel:is(:active, .is-pressed) .tw-expand {
+            color: var(--text-2);
+        }
+
+        /* Corners in drawing order: top left, top right, bottom right, bottom left. */
+        .time-weather-panel:is(:active, .is-pressed) .tw-expand path:nth-child(1) { transform: translate(-1.5px, -1.5px); }
+        .time-weather-panel:is(:active, .is-pressed) .tw-expand path:nth-child(2) { transform: translate(1.5px, -1.5px); }
+        .time-weather-panel:is(:active, .is-pressed) .tw-expand path:nth-child(3) { transform: translate(1.5px, 1.5px); }
+        .time-weather-panel:is(:active, .is-pressed) .tw-expand path:nth-child(4) { transform: translate(-1.5px, 1.5px); }
+
+        @media (hover: hover) and (pointer: fine) {
+            .time-weather-panel:hover .tw-expand {
+                color: var(--text-2);
+            }
+        }
+
+        /* Rich: the press eases in and springs back. The panel is a layer at all
+           times and paints after the rest of the dashboard: Chrome takes an
+           element whose transform is animating to reach anywhere and promotes
+           whatever paints after it (see .top-bar), which the minute's digit roll
+           did too. Lite steps: a plate this size repainted on the CPU every frame,
+           and whatever still moves under the opened clock repaints the window. */
+        :where([data-fx="rich"]) .time-weather-panel {
+            z-index: 3;
+            will-change: transform;
+            transition: scale var(--dur-spring) var(--spring-bounce);
+        }
+
+        :where([data-fx="rich"]) .tw-expand {
+            transition: color var(--dur-fast) var(--ease);
+        }
+
+        :where([data-fx="rich"]) .tw-expand path {
+            transition: transform var(--dur-spring) var(--spring-bounce);
+        }
+
+        :where([data-fx="rich"]) .time-weather-panel:is(:active, .is-pressed),
+        :where([data-fx="rich"]) .time-weather-panel:is(:active, .is-pressed) .tw-expand path {
+            transition-duration: var(--dur-fast);
+            transition-timing-function: var(--ease);
         }
 
         /* ── Burn-in care (OLED) ──────────────────────────────────────────────
@@ -4678,6 +4994,28 @@
                 <p class="cv-hint" id="cv-hint">Tap anywhere to go back</p>
             </div>
         </div>
+    </div>
+
+    <!-- Full-screen mixer: the master section, moved here while open, with
+         each app's strip beside it (playback left, recording right). -->
+    <div id="mixer-view" role="dialog" aria-modal="true" aria-label="Mixer" tabindex="-1" hidden>
+        <section class="card panel mx-bay" id="mx-out" data-dir="out" aria-labelledby="mx-out-title">
+            <div class="panel-head mx-head">
+                <h2 class="panel-title" id="mx-out-title"><i data-lucide="volume-2"></i>Playback</h2>
+                <span class="mx-count" id="mx-out-count"></span>
+            </div>
+            <div class="mx-strips" id="mx-out-strips"></div>
+            <div class="mx-empty" id="mx-out-empty"><i data-lucide="volume-x"></i>No app is playing sound</div>
+        </section>
+        <section class="card panel slider-section mx-master" id="mx-master" aria-label="Master"></section>
+        <section class="card panel mx-bay" id="mx-in" data-dir="in" aria-labelledby="mx-in-title">
+            <div class="panel-head mx-head">
+                <h2 class="panel-title" id="mx-in-title"><i data-lucide="mic"></i>Recording</h2>
+                <span class="mx-count" id="mx-in-count"></span>
+            </div>
+            <div class="mx-strips" id="mx-in-strips"></div>
+            <div class="mx-empty" id="mx-in-empty"><i data-lucide="mic-off"></i>No app is using the mic</div>
+        </section>
     </div>
 
     <div class="desktop-titlebar" id="desktop-titlebar">
@@ -5484,7 +5822,13 @@
             <div class="col">
                 <section class="card panel time-weather-panel" role="button" tabindex="0"
                     aria-label="Time and weather. Show the clock full screen.">
-                    <i data-lucide="maximize-2" class="tw-expand" aria-hidden="true"></i>
+                    <svg class="tw-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 9V7.5A4.5 4.5 0 0 1 7.5 3H9" />
+                        <path d="M15 3h1.5A4.5 4.5 0 0 1 21 7.5V9" />
+                        <path d="M21 15v1.5a4.5 4.5 0 0 1-4.5 4.5H15" />
+                        <path d="M9 21H7.5A4.5 4.5 0 0 1 3 16.5V15" />
+                    </svg>
                     <div class="clock">
                         <div id="time" class="clock-time num">00:00</div>
                         <div class="clock-date num">
@@ -5500,7 +5844,7 @@
                     </div>
                 </section>
 
-                <section class="card panel slider-section" aria-label="Audio mixer">
+                <section class="card panel slider-section" id="mixer-card" aria-label="Audio mixer">
                     <div class="pro-slider">
                         <div class="scribble">
                             <span class="ch-name">Output</span>
@@ -5516,15 +5860,21 @@
                     </div>
 
                     <div class="audio-switch">
-                        <button class="encoder" id="encoder" onclick="act('audio_cycle')"
-                            aria-label="Switch output device">
-                            <span class="enc-leds" id="enc-leds"></span>
-                            <span class="encoder-knob" id="encoder-knob"><span class="knob-indicator"></span></span>
-                        </button>
-                        <div class="scribble encoder-display">
-                            <span class="ch-name">Output device</span>
-                            <span id="btn-audio-cycle">Device</span>
+                        <div class="enc-group">
+                            <button class="encoder" id="encoder" onclick="act('audio_cycle')"
+                                aria-label="Switch output device">
+                                <span class="enc-leds" id="enc-leds"></span>
+                                <span class="encoder-knob" id="encoder-knob"><span class="knob-indicator"></span></span>
+                            </button>
+                            <div class="scribble encoder-display">
+                                <span class="ch-name">Output device</span>
+                                <span id="btn-audio-cycle">Device</span>
+                            </div>
                         </div>
+                        <button class="btn mixer-key" id="btn-mixer" type="button" hidden aria-expanded="false"
+                            aria-controls="mixer-view" aria-label="Show every app's level, full screen"
+                            onclick="toggleMixer()"><span class="mixer-key-glyph"><i data-lucide="sliders"></i></span><span
+                                class="mixer-key-label">Apps</span></button>
                     </div>
 
                     <div class="pro-slider">
@@ -5758,7 +6108,7 @@
         // pointerdown instead (.is-pressed: the :active look) and hold it at least
         // PRESS_MIN_MS, so a quick tap still sinks. Not inside dialogs: their
         // lists scroll, which is what the browser's delay is for.
-        const PRESSABLE = '.btn, .encoder, .speed-widget, .sb-fb-btn, .vol-step-btn, .menu-row';
+        const PRESSABLE = '.btn, .encoder, .speed-widget, .sb-fb-btn, .vol-step-btn, .menu-row, .time-weather-panel';
         const PRESS_MIN_MS = 100;
         let pressed = null;               // {key, id, at}
         document.addEventListener('pointerdown', (e) => {
@@ -6984,11 +7334,12 @@
         }
 
         // The --dyn* tokens sit only on what paints them: the Now playing card,
-        // the full-screen clock and the lock screen. On :root a new colour
+        // the full-screen clock, the lock screen and the full-screen mixer's
+        // room light. On :root a new colour
         // restyled the whole page. A cover of the same colour (the next track of
         // an album) changes nothing.
         const dynHosts = [document.querySelector('.spotify'), document.getElementById('clock-view'),
-            document.getElementById('lock-overlay')].filter(Boolean);
+            document.getElementById('lock-overlay'), document.getElementById('mixer-view')].filter(Boolean);
         let dynKey = null;
         function applyDyn() {
             const theme = window.TDTheme ? TDTheme.current() : '';
@@ -8011,6 +8362,7 @@
                     if (authState !== 'authed') onAuthenticated({ role: 'legacy' });
                     globalCfg = d.cfg;
                     serverFeatures = new Set(d.features || []);
+                    setMixerAvailable(serverFeatures.has('audio_apps'));
                     requiredAppVersion = d.req_apk_version || '';
                     currentHwDevices = d.hw;
                     osTarget = d.os_target || 'windows';
@@ -8214,6 +8566,9 @@
                 else if (msg.type === 'play_key_state') {
                     if (globalCfg) globalCfg.play_key_cover = d;
                     setPlayKeyCover(d !== false);
+                }
+                else if (msg.type === 'audio_apps') {
+                    onAudioApps(d);
                 }
                 else if (msg.type === 'hw_scan_results') {
                     currentHwDevices = d;
@@ -8627,6 +8982,7 @@
             clockHintTimer = setTimeout(() => hint.classList.add('is-gone'), CLOCK_HINT_MS);
             clockWander.start();
             npMarquee.pause(true, 'clock');   // hidden behind the clock
+            clockPanel.classList.remove('is-pressed');   // now, not under the clock (lite: a full repaint)
             clockView.hidden = false;
             holdDashboard();
             clockView.focus({ preventScroll: true });
@@ -8751,6 +9107,421 @@
             if (performance.now() - clockViewAt >= CLOCK_TAP_GUARD_MS) closeClockView();
         });
 
+        // --- Full-screen mixer (the mixer card's Apps key) ---
+        // The master section, the very same faders, mute keys and encoder, moves
+        // into #mixer-view, which uses the dashboard's own columns: it keeps its
+        // place and grows to the full height. Each app playing sound gets a
+        // strip on the left, each app recording one on the right.
+        // Rich: it grows out of the card (a clip-path, like the full-screen
+        // clock); the channel displays ride the top edge up, the encoder follows
+        // the new centre, the caps glide to where the longer travel puts them and
+        // the bays slide out from the master. Closing runs it back into the card.
+        // Lite and reduced motion: it swaps in one frame, and on lite the
+        // dashboard behind holds still while the master stays live.
+        // Levels come as audio_apps only while a screen shows it (audio_apps_watch).
+        const mixerView = document.getElementById('mixer-view');
+        const mixerCard = document.getElementById('mixer-card');
+        const mixerMaster = document.getElementById('mx-master');
+        const mixerKey = document.getElementById('btn-mixer');
+        const mixerParts = Array.from(mixerCard.children);   // the two channel strips and the encoder
+        const mixerBays = [document.getElementById('mx-out'), document.getElementById('mx-in')];
+        const MIXER_OPEN_S = 0.55, MIXER_CLOSE_S = 0.42, MIXER_BAY_SHIFT_REM = 3;
+        const MIXER_DIRS = ['out', 'in'];
+        let mixerOpen = false, mixerTl = null, mixerGeo = null;
+        let mixerAppsRead = false;   // a reading arrived since it opened: "no app" can be said
+
+        function mixerRich() {
+            return document.documentElement.dataset.fx === 'rich' && !reducedMotion.matches;
+        }
+
+        function setMixerKey(open) {
+            setIcon(mixerKey.querySelector('.mixer-key-glyph'), open ? 'minimize-2' : 'sliders');
+            setText(mixerKey.querySelector('.mixer-key-label'), open ? 'Close' : 'Apps');
+            mixerKey.setAttribute('aria-expanded', String(open));
+            mixerKey.setAttribute('aria-label', open ? 'Close the mixer' : "Show every app's level, full screen");
+        }
+
+        // Older servers have no app levels: no key, and a screen showing the
+        // mixer on a new connection asks for them again.
+        function setMixerAvailable(on) {
+            mixerKey.hidden = !on;
+            if (!on) closeMixer();
+            else if (mixerOpen) sendSocket('audio_apps_watch', { on: true });
+        }
+
+        function toggleMixer(open = !mixerOpen) {
+            if (open) openMixer();
+            else closeMixer();
+        }
+
+        // What travels: each channel's display and the encoder; the tracks'
+        // caps glide; the printed scales fade (their ticks spread out at once).
+        function mixerPieces() {
+            const items = mixerParts.map(p => p.querySelector(':scope > .scribble, :scope > .enc-group')).filter(Boolean);
+            const tracks = mixerParts.map(p => p.querySelector(':scope > .slider-track-area')).filter(Boolean);
+            return { items, tracks, scales: tracks.map(t => t.querySelector('.fader-scale')) };
+        }
+
+        const capHalfOf = t => (t.querySelector('.fader-cap')?.offsetHeight || 0) / 2;
+        const trackLevel = t => (typeof t._pct === 'number' ? t._pct : 0) / 100;
+        // A cap's centre on a track at level v, and the level that puts it at y.
+        const capY = (r, half, v) => r.top + half + (1 - v) * Math.max(1, r.height - 2 * half);
+        const levelAt = (r, half, y) => Math.max(0, Math.min(1, 1 - (y - r.top - half) / Math.max(1, r.height - 2 * half)));
+        const remPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+        const midX = r => r.left + r.width / 2, midY = r => r.top + r.height / 2;
+
+        // The reveal: the card as an inset of the mixer's box, tweened as plain
+        // numbers. Tweening the clip-path string misread it: with equal sides
+        // the browser shortens it (inset(t r b round R)) and the radius was
+        // taken for an edge.
+        const mixerClip = { t: 0, r: 0, b: 0, l: 0, rad: 0 };
+        function mixerCardInset() {
+            const r = mixerCard.getBoundingClientRect(), v = mixerView.getBoundingClientRect();
+            const px = n => Math.max(0, n);
+            return { t: px(r.top - v.top), r: px(v.right - r.right), b: px(v.bottom - r.bottom), l: px(r.left - v.left),
+                     rad: parseFloat(getComputedStyle(mixerCard).borderTopLeftRadius) || 0 };
+        }
+        function applyMixerClip() {
+            const c = mixerClip, f = n => n.toFixed(1) + 'px';
+            mixerView.style.clipPath = `inset(${f(c.t)} ${f(c.r)} ${f(c.b)} ${f(c.l)} round ${f(c.rad)})`;
+        }
+        const MIXER_CLIP_OPEN = { t: 0, r: 0, b: 0, l: 0, rad: 0 };
+
+        // Put a track's cap at `from` without its transition, then let it glide to `to`.
+        function mixerGlide(track, to, from = null) {
+            if (from !== null) {
+                track.classList.remove('mx-glide');
+                track.classList.add('mx-pin');
+                track.style.setProperty('--v', from.toFixed(3));
+                getComputedStyle(track.querySelector('.fader-carrier')).transform;   // commit the start
+                track.classList.remove('mx-pin');
+            }
+            track.classList.add('mx-glide');
+            track.style.setProperty('--v', to.toFixed(3));
+        }
+
+        function openMixer() {
+            if (mixerOpen || mixerKey.hidden) return;
+            mixerOpen = true;
+            const rich = mixerRich();
+            const fresh = !mixerMaster.contains(mixerParts[0]);   // false: it is still closing
+            if (mixerTl) { mixerTl.kill(); mixerTl = null; }
+            if (fresh) {
+                // Reads first: where everything is in the card, before it moves.
+                const { items, tracks } = mixerPieces();
+                mixerGeo = rich ? {
+                    card: mixerCard.getBoundingClientRect(),
+                    items: items.map(el => el.getBoundingClientRect()),
+                    tracks: tracks.map(t => ({ rect: t.getBoundingClientRect(), half: capHalfOf(t) })),
+                } : null;
+                // The desktop window's title bar stays above it.
+                const titlebar = document.getElementById('desktop-titlebar');
+                mixerView.style.top = titlebar && titlebar.offsetHeight ? titlebar.offsetHeight + 'px' : '';
+                mixerMaster.append(...mixerParts);
+                mixerView.hidden = false;
+            }
+            setMixerKey(true);
+            if (fresh) mixerAppsRead = false;
+            renderMixerApps();
+            sendSocket('audio_apps_watch', { on: true });
+            npMarquee.pause(true, 'mixer');   // under the mixer
+            holdDashboard();
+            mixerView.focus({ preventScroll: true });
+            if (!rich || !mixerGeo) return;
+
+            const { items, tracks, scales } = mixerPieces();
+            const shift = MIXER_BAY_SHIFT_REM * remPx();
+            if (fresh) {
+                // Then start each piece from where it was in the card.
+                // By centres: the encoder sits centred in a taller group here.
+                const now = items.map(el => el.getBoundingClientRect());
+                const glideFrom = tracks.map((t, i) => {
+                    const g = mixerGeo.tracks[i];
+                    return levelAt(t.getBoundingClientRect(), g.half, capY(g.rect, g.half, trackLevel(t)));
+                });
+                Object.assign(mixerClip, mixerCardInset());
+                applyMixerClip();
+                items.forEach((el, i) => gsap.set(el, {
+                    x: midX(mixerGeo.items[i]) - midX(now[i]), y: midY(mixerGeo.items[i]) - midY(now[i]),
+                }));
+                gsap.set(mixerBays[0], { x: shift, autoAlpha: 0 });
+                gsap.set(mixerBays[1], { x: -shift, autoAlpha: 0 });
+                gsap.set(scales, { autoAlpha: 0 });
+                tracks.forEach((t, i) => mixerGlide(t, trackLevel(t), glideFrom[i]));
+            } else {
+                tracks.forEach(t => mixerGlide(t, trackLevel(t)));
+            }
+            mixerTl = gsap.timeline({
+                defaults: { duration: MIXER_OPEN_S, ease: 'power3.out' },
+                onComplete: () => {
+                    mixerTl = null;
+                    mixerView.style.clipPath = '';
+                    gsap.set([...items, ...mixerBays, ...scales], { clearProps: 'transform,opacity,visibility' });
+                    tracks.forEach(t => t.classList.remove('mx-glide'));
+                },
+            });
+            mixerTl.to(mixerClip, { ...MIXER_CLIP_OPEN, onUpdate: applyMixerClip }, 0)
+                .to(items, { x: 0, y: 0 }, 0)
+                .to(mixerBays, { x: 0, autoAlpha: 1, duration: 0.4 }, 0)
+                .to(scales, { autoAlpha: 1, duration: 0.3 }, 0.2);
+        }
+
+        function closeMixer() {
+            if (!mixerOpen) return;
+            mixerOpen = false;
+            sendSocket('audio_apps_watch', { on: false });
+            setMixerKey(false);
+            npMarquee.pause(false, 'mixer');
+            if (mixerTl) { mixerTl.kill(); mixerTl = null; }
+            if (!mixerRich() || !mixerGeo) { mixerDone(); return; }
+
+            // Back to where each piece sits in the card (the card may have moved: a resize).
+            const { items, tracks, scales } = mixerPieces();
+            const card = mixerCard.getBoundingClientRect();
+            const dx = card.left - mixerGeo.card.left, dy = card.top - mixerGeo.card.top;
+            const shift = MIXER_BAY_SHIFT_REM * remPx();
+            const now = items.map(el => {   // where each sits here, without the transform it may still have
+                const r = el.getBoundingClientRect();
+                return { left: r.left - gsap.getProperty(el, 'x'), top: r.top - gsap.getProperty(el, 'y'),
+                         width: r.width, height: r.height };
+            });
+            tracks.forEach((t, i) => {
+                const g = mixerGeo.tracks[i];
+                const old = { top: g.rect.top + dy, height: g.rect.height };
+                mixerGlide(t, levelAt(t.getBoundingClientRect(), g.half, capY(old, g.half, trackLevel(t))));
+            });
+            if (!mixerView.style.clipPath) Object.assign(mixerClip, MIXER_CLIP_OPEN);   // settled open
+            mixerTl = gsap.timeline({ defaults: { duration: MIXER_CLOSE_S, ease: 'power3.inOut' }, onComplete: mixerDone });
+            mixerTl.to(mixerClip, { ...mixerCardInset(), onUpdate: applyMixerClip }, 0);
+            items.forEach((el, i) => mixerTl.to(el, {
+                x: midX(mixerGeo.items[i]) + dx - midX(now[i]), y: midY(mixerGeo.items[i]) + dy - midY(now[i]),
+            }, 0));
+            mixerTl.to(mixerBays[0], { x: shift, autoAlpha: 0, duration: 0.3, ease: 'power2.in' }, 0)
+                .to(mixerBays[1], { x: -shift, autoAlpha: 0, duration: 0.3, ease: 'power2.in' }, 0)
+                .to(scales, { autoAlpha: 0, duration: 0.2, ease: 'power2.in' }, 0);
+        }
+
+        // Closed: the master goes back into its card, every cap at its level.
+        function mixerDone() {
+            if (mixerOpen) return;   // opened again meanwhile
+            mixerTl = null;
+            const { items, tracks, scales } = mixerPieces();
+            const hadFocus = mixerView.contains(document.activeElement);
+            mixerCard.append(...mixerParts);
+            tracks.forEach(t => {
+                t.classList.remove('mx-glide');
+                t.classList.add('mx-pin');
+                t.style.setProperty('--v', trackLevel(t).toFixed(3));
+                getComputedStyle(t.querySelector('.fader-carrier')).transform;
+                t.classList.remove('mx-pin');
+            });
+            mixerView.style.clipPath = '';
+            gsap.set([...items, ...mixerBays, ...scales], { clearProps: 'transform,opacity,visibility' });
+            mixerView.hidden = true;
+            mixerGeo = null;
+            holdDashboard();
+            if (hadFocus) mixerKey.focus({ preventScroll: true });
+        }
+
+        // --- The apps' strips ---
+        // One per app however many streams it opens. A strip keeps its place
+        // while the mixer shows (a new app joins at the outer end), so nothing
+        // shifts under a finger. Optimistic like the masters: what a fader or
+        // mute key asked for holds until a reading agrees, or AUDIO_CONFIRM_MS.
+        let mixerApps = { out: [], in: [] };
+        const appStrips = { out: new Map(), in: new Map() };   // app id → strip
+        const appPending = new Map();                            // 'dir:id' → {vol?, muted?, until}
+
+        function onAudioApps(d) {
+            mixerApps = (d && typeof d === 'object') ? d : { out: [], in: [] };
+            mixerAppsRead = true;
+            if (mixerOpen) requestAnimationFrame(renderMixerApps);
+        }
+
+        function expectApp(dir, id, patch) {
+            const k = dir + ':' + id;
+            appPending.set(k, { ...(appPending.get(k) || {}), ...patch, until: Date.now() + AUDIO_CONFIRM_MS });
+        }
+
+        function reconcileApp(dir, app) {
+            const k = dir + ':' + app.id, p = appPending.get(k);
+            const actual = { vol: Math.max(0, Math.min(100, Math.round(Number(app.vol) || 0))), muted: !!app.muted };
+            if (!p) return actual;
+            const volOk = p.vol === undefined || Math.abs(actual.vol - p.vol) <= 1;
+            const muteOk = p.muted === undefined || actual.muted === p.muted;
+            if ((volOk && muteOk) || Date.now() > p.until) {
+                appPending.delete(k);
+                return actual;
+            }
+            return { vol: p.vol !== undefined ? p.vol : actual.vol, muted: p.muted !== undefined ? p.muted : actual.muted };
+        }
+
+        function renderMixerApps() {
+            for (const dir of MIXER_DIRS) {
+                const list = Array.isArray(mixerApps[dir]) ? mixerApps[dir] : [];
+                const strips = appStrips[dir];
+                const box = document.getElementById(`mx-${dir}-strips`);
+                const seen = new Set();
+                for (const app of list) {
+                    if (!app || typeof app.id !== 'string' || seen.has(app.id)) continue;
+                    seen.add(app.id);
+                    let strip = strips.get(app.id);
+                    if (!strip) {
+                        strip = makeAppStrip(dir, app);
+                        strips.set(app.id, strip);
+                        box.appendChild(strip.el);
+                    }
+                    strip.update(app);
+                }
+                for (const [id, strip] of strips) {
+                    if (seen.has(id) || strip.dragging()) continue;   // a held strip waits for the finger
+                    strip.el.remove();
+                    strips.delete(id);
+                    appPending.delete(dir + ':' + id);
+                }
+                const n = strips.size;
+                box.hidden = n === 0;
+                markMoreStrips(box);
+                document.getElementById(`mx-${dir}-empty`).hidden = n > 0 || !mixerAppsRead;
+                setText(document.getElementById(`mx-${dir}-count`), n ? `${n} ${n === 1 ? 'app' : 'apps'}` : '');
+            }
+        }
+
+        // Which side of a bay has strips scrolled out of view (start: towards
+        // the master). Scroll positions in the right-to-left bay are negative.
+        function markMoreStrips(box) {
+            const max = box.scrollWidth - box.clientWidth;
+            const at = Math.abs(box.scrollLeft);
+            const more = max <= 1 ? '' : at <= 1 ? 'end' : at >= max - 1 ? 'start' : 'both';
+            if ((box.dataset.more || '') !== more) box.dataset.more = more;
+        }
+        for (const dir of MIXER_DIRS) {
+            const box = document.getElementById(`mx-${dir}-strips`);
+            box.addEventListener('scroll', () => markMoreStrips(box), { passive: true });
+        }
+        window.addEventListener('resize', () => {
+            if (mixerOpen) MIXER_DIRS.forEach(dir => markMoreStrips(document.getElementById(`mx-${dir}-strips`)));
+        });
+
+        // The app's own icon; else a glyph its name suggests; else its initial.
+        function appTileHtml(app) {
+            if (typeof app.icon === 'string' && app.icon) return `<img src="${escapeHtml(artSrc(app.icon))}" alt="">`;
+            return appGlyphHtml(app);
+        }
+        function appGlyphHtml(app) {
+            const glyph = appGlyph({ name: app.name || '', exec: app.id || '' });
+            if (glyph !== 'box') return `<i data-lucide="${glyph}"></i>`;
+            const initial = Array.from((app.name || app.id || '?').trim())[0] || '?';
+            return `<span class="mx-mono">${escapeHtml(initial.toUpperCase())}</span>`;
+        }
+
+        function makeAppStrip(dir, app) {
+            const out = dir === 'out';
+            const id = app.id;
+            const el = document.createElement('div');
+            el.className = 'pro-slider mx-strip';
+            el.innerHTML = `
+                <div class="mx-app"><span class="mx-tile">${appTileHtml(app)}</span><span class="mx-led"></span></div>
+                <div class="scribble">
+                    <span class="ch-name mx-name"></span>
+                    <span class="fader-val num live"><span class="live-v">0%</span></span>
+                </div>
+                <div class="slider-track-area">
+                    <div class="fader-scale"></div>
+                    <div class="fader-slot"><div class="slider-fill"></div></div>
+                    <div class="fader-carrier"><div class="fader-cap"><span class="cap-line"></span></div></div>
+                </div>
+                <button class="btn slider-icon mx-mute" type="button" aria-pressed="false"></button>`;
+            const tile = el.querySelector('.mx-app'), led = el.querySelector('.mx-led');
+            const nameEl = el.querySelector('.mx-name'), track = el.querySelector('.slider-track-area');
+            const muteKey = el.querySelector('.mx-mute');
+            const img = el.querySelector('.mx-tile img');
+            if (img) img.addEventListener('error', () => {
+                el.querySelector('.mx-tile').innerHTML = appGlyphHtml(app);
+                renderIcons(tile);
+            }, { once: true });
+            renderIcons(el);
+
+            let state = { vol: 0, muted: false }, name = '', dragging = false;
+            function showMute(muted) {
+                muteKey.classList.toggle('muted', muted);
+                muteKey.setAttribute('aria-pressed', String(muted));
+                setIcon(muteKey, out ? (muted ? 'volume-x' : 'volume-2') : (muted ? 'mic-off' : 'mic'));
+            }
+            function setMute(muted) {
+                if (state.muted === muted) return;
+                state = { ...state, muted };
+                expectApp(dir, id, { muted });
+                showMute(muted);
+                up(state.vol, muted);
+                sendSocket('set_app_mute', { dir, id, muted });
+            }
+            const up = initFader(track, track.querySelector('.slider-fill'), el.querySelector('.live-v'), {
+                dragging: (v) => { if (v !== undefined) dragging = v; return dragging; },
+                labels: false,
+                onGrab: () => { if (state.muted) showMute(false); },   // the level unmutes it, as on the masters
+                onLevel: (pct) => {
+                    state = { vol: pct, muted: false };
+                    expectApp(dir, id, { vol: pct, muted: false });
+                    sendSocket('set_app_volume', { dir, id, val: pct });
+                },
+                onMutePull: () => setMute(true),
+            });
+            muteKey.addEventListener('click', () => setMute(!state.muted));
+            showMute(false);
+
+            return {
+                el,
+                dragging: () => dragging,
+                update(a) {
+                    if (a.name !== name) {
+                        name = a.name || a.id;
+                        setText(nameEl, name);
+                        nameEl.title = name;
+                        track.setAttribute('aria-label', `${name} ${out ? 'volume' : 'microphone level'}`);
+                        muteKey.setAttribute('aria-label', `Mute ${name}`);
+                    }
+                    const live = !!a.active;
+                    if (el.classList.contains('is-live') !== live) {
+                        el.classList.toggle('is-live', live);
+                        led.title = out ? (live ? 'Playing' : 'Not playing') : (live ? 'Recording' : 'Not recording');
+                    }
+                    if (dragging) return;
+                    const next = reconcileApp(dir, a);
+                    if (next.muted !== state.muted) showMute(next.muted);
+                    state = next;
+                    up(next.vol, next.muted);
+                },
+            };
+        }
+
+        // The master section: both faders, their mute keys and the encoder.
+        function renderMasterAudio(audio) {
+            if (!audio) return;
+            const spk = reconcileAudio('spk', audio.spk);
+            const mic = reconcileAudio('mic', audio.mic);
+            lastAudioState.spk = spk;
+            lastAudioState.mic = mic;
+
+            // While the mixer closes, the caps glide to their places in the card:
+            // a reading now would pull them to the mixer's.
+            const settling = mixerTl !== null && !mixerOpen;
+            if (!settling) upSpk(spk.vol, spk.muted);
+            if (dom.iconSpk && dom.iconSpk.classList.contains('muted') !== spk.muted) {
+                dom.iconSpk.classList.toggle('muted', spk.muted);
+                setIcon(dom.iconSpk, spk.muted ? 'volume-x' : 'volume-2');
+            }
+
+            if (!settling) upMic(mic.vol, mic.muted);
+            if (dom.iconMic && dom.iconMic.classList.contains('muted') !== mic.muted) {
+                dom.iconMic.classList.toggle('muted', mic.muted);
+                setIcon(dom.iconMic, mic.muted ? 'mic-off' : 'mic');
+            }
+
+            setText(dom.btnAudioCycle, audio.active_dev);
+            syncEncoder(audio.active_dev);
+        }
+
         function updateSysDataDOM(d) {
             latestSysData = d;
             if (!_pageVisible) { pendingSysData = d; return; }
@@ -8763,6 +9534,7 @@
                     if (d.pc_locked !== undefined) window.setLockOverlay(!!d.pc_locked);
                     updateServiceStatus(d);
                     renderClockViewLive(d);
+                    if (mixerOpen) renderMasterAudio(d.audio);   // the master section is in the mixer
                 });
                 return;
             }
@@ -8803,26 +9575,7 @@
                 }
 
                 renderNowPlaying(d.spotify);
-
-                const spk = reconcileAudio('spk', d.audio.spk);
-                const mic = reconcileAudio('mic', d.audio.mic);
-                lastAudioState.spk = spk;
-                lastAudioState.mic = mic;
-
-                upSpk(spk.vol, spk.muted);
-                if (dom.iconSpk && dom.iconSpk.classList.contains('muted') !== spk.muted) {
-                    dom.iconSpk.classList.toggle('muted', spk.muted);
-                    setIcon(dom.iconSpk, spk.muted ? 'volume-x' : 'volume-2');
-                }
-
-                upMic(mic.vol, mic.muted);
-                if (dom.iconMic && dom.iconMic.classList.contains('muted') !== mic.muted) {
-                    dom.iconMic.classList.toggle('muted', mic.muted);
-                    setIcon(dom.iconMic, mic.muted ? 'mic-off' : 'mic');
-                }
-
-                setText(dom.btnAudioCycle, d.audio.active_dev);
-                syncEncoder(d.audio.active_dev);
+                renderMasterAudio(d.audio);
                 if (d.discord) {
                     if (globalCfg && globalCfg.disc_enabled === false) {
                         setDiscordPanelVisible(false);
@@ -9047,7 +9800,7 @@
         let dashboardHeld = false;
         function holdDashboard() {
             const held = document.documentElement.dataset.fx === 'lite'
-                && (clockViewOpen || !!document.querySelector('.modal-overlay.active'));
+                && (clockViewOpen || mixerOpen || !!document.querySelector('.modal-overlay.active'));
             if (held === dashboardHeld) return;
             dashboardHeld = held;
             document.documentElement.toggleAttribute('data-held', held);
@@ -10283,6 +11036,7 @@
             else if (isOpen('update-modal')) document.getElementById('update-modal').classList.remove('active');
             else if (isOpen('modal')) document.getElementById('modal').classList.remove('active');
             else if (clockViewOpen) closeClockView();
+            else if (mixerOpen) closeMixer();
             else if (document.getElementById('win-menu').classList.contains('is-open')) closeWinMenu();
             else if (sbOpen) toggleSoundpad(false);
         });
@@ -10318,20 +11072,50 @@
         const FADER_DETENT_STEP = 10;   // haptic tick every 10 %
         const FADER_MUTE_PULL = -8;     // dragging this far below 0 % mutes the channel
 
-        function renderFaderScale(scale) {
+        // labels: the figures beside the ticks (the masters); an app's strip has ticks only.
+        function renderFaderScale(scale, labels = true) {
             if (!scale) return;
             let html = '';
             for (let p = 0; p <= 100; p += FADER_TICK_STEP) {
                 const major = p % FADER_MAJOR_STEP === 0 ? ' major' : '';
                 const t = `style="--t:${p / 100}"`;
                 html += `<span class="tick l${major}" ${t}></span><span class="tick r${major}" ${t}></span>`;
-                if (major) html += `<span class="tick-label num" ${t}>${p}</span>`;
+                if (major && labels) html += `<span class="tick-label num" ${t}>${p}</span>`;
             }
             scale.innerHTML = html;
         }
 
+        // A master channel: speaker or mic, sent as set_volume.
         function initSlider(sId, fId, vId, type, dCheck) {
-            const s = document.getElementById(sId), f = document.getElementById(fId), v = document.getElementById(vId);
+            const target = type === 'speaker' ? 'spk' : 'mic';
+            function applyOptimisticUnmute() {
+                const elIcon = target === 'spk' ? dom.iconSpk : dom.iconMic;
+                if (elIcon && elIcon.classList.contains('muted')) {
+                    elIcon.classList.remove('muted');
+                    setIcon(elIcon, target === 'mic' ? 'mic' : 'volume-2');
+                    if (target === 'spk') lastAudioState.spk.muted = false;
+                    else lastAudioState.mic.muted = false;
+                }
+            }
+            return initFader(document.getElementById(sId), document.getElementById(fId), document.getElementById(vId), {
+                dragging: dCheck,
+                onGrab: applyOptimisticUnmute,
+                // Every level sent is the new expectation; the server unmutes with it.
+                onLevel: (pct) => {
+                    expectAudio(target, { vol: pct, muted: false });
+                    sendSocket('set_volume', { type: type, val: pct });
+                },
+                onMutePull: () => toggleMuteOpt(target, true),
+            });
+        }
+
+        // A studio fader: s the track, f its lit slot, v the readout. opts:
+        // dragging(v?) gets/sets the drag flag (readings wait while it is set),
+        // onGrab() as a drag starts and ends, onLevel(pct) every 80 ms and on
+        // release, onMutePull() when dragged past the bottom, labels (scale figures).
+        // Returns update(pct, muted) for readings.
+        function initFader(s, f, v, opts) {
+            const dCheck = opts.dragging;
             const cap = s.querySelector('.fader-cap');
             let lastEmit = 0; let currentPct = 0;
             let targetPct = 0;     // where the finger is now; currentPct trails it by up to a frame
@@ -10341,12 +11125,13 @@
             let grabOffset = 0;    // grabbing the cap itself moves it without a jump
             let lastDetent = null;
 
-            renderFaderScale(s.querySelector('.fader-scale'));
+            renderFaderScale(s.querySelector('.fader-scale'), opts.labels !== false);
 
             // Muting leaves the fader where it is, like a desk's mute key: the
             // level is kept, the slot goes dark and the display says Muted.
             function set(pct, isMuted = false) {
                 currentPct = pct;
+                s._pct = pct;   // the mixer's transition reads where the cap belongs
                 // One custom property drives the lit slot and the cap (transforms only).
                 s.style.setProperty('--v', (currentPct / 100).toFixed(3));
                 const txt = isMuted ? 'Muted' : currentPct + '%';
@@ -10357,23 +11142,6 @@
                     s.setAttribute('aria-valuenow', String(currentPct));
                     s.setAttribute('aria-valuetext', txt);
                 }
-            }
-
-            function applyOptimisticUnmute() {
-                const target = type === 'speaker' ? 'spk' : 'mic';
-                const elIcon = target === 'spk' ? dom.iconSpk : dom.iconMic;
-                if (elIcon && elIcon.classList.contains('muted')) {
-                    elIcon.classList.remove('muted');
-                    setIcon(elIcon, target === 'mic' ? 'mic' : 'volume-2');
-                    if (target === 'spk') lastAudioState.spk.muted = false;
-                    else lastAudioState.mic.muted = false;
-                }
-            }
-
-            // Every level sent is the new expectation; the server unmutes with it.
-            function sendLevel(pct) {
-                expectAudio(type === 'speaker' ? 'spk' : 'mic', { vol: pct, muted: false });
-                sendSocket('set_volume', { type: type, val: pct });
             }
 
             s.setAttribute('role', 'slider');
@@ -10407,7 +11175,7 @@
                     if (!s.dataset.snappedMute) {
                         s.dataset.snappedMute = 'true';
                         haptic(HAPTIC_END);
-                        toggleMuteOpt(type === 'speaker' ? 'spk' : 'mic', true);
+                        opts.onMutePull();
                     }
                 } else if (rawPct >= 0) {
                     if (s.dataset.snappedMute) s.dataset.snappedMute = '';
@@ -10422,7 +11190,7 @@
 
                 const now = Date.now();
                 if (now - lastEmit > 80 && !isMutedSnap) {
-                    sendLevel(pct);
+                    opts.onLevel(pct);
                     lastEmit = now;
                 }
             }
@@ -10439,7 +11207,7 @@
                 lastDetent = Math.round(currentPct / FADER_DETENT_STEP);
                 s.classList.add('is-dragging');
                 f.style.willChange = 'transform';
-                applyOptimisticUnmute();
+                opts.onGrab();
                 document.addEventListener('mousemove', drag, { passive: false });
                 document.addEventListener('touchmove', drag, { passive: false });
                 document.addEventListener('mouseup', endDrag);
@@ -10464,8 +11232,8 @@
                     document.removeEventListener('touchend', endDrag);
                     document.removeEventListener('touchcancel', endDrag);
                     if (!s.dataset.snappedMute) {
-                        applyOptimisticUnmute();
-                        sendLevel(currentPct);
+                        opts.onGrab();
+                        opts.onLevel(currentPct);
                     }
                 }
             }

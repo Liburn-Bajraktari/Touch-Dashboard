@@ -230,6 +230,7 @@ except ImportError:
 # ─── Local modules ─────────────────────────────────────────────────────────────
 
 from audio_system import AudioSystem
+import app_audio
 from discord_ipc import DiscordIPC
 from macro_system import MacroSystem, AppEnumerator
 import media as media_module
@@ -314,7 +315,7 @@ DEFAULT_CONFIG: dict = {
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
 SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like",
-                   "media_result"]   # see _make_config_sync
+                   "media_result", "audio_apps"]   # see _make_config_sync
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
 APP_VERSION_RE = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,4}")   # the Android app's version, from auth
@@ -729,6 +730,7 @@ class Client:
     name: str = ""
     app: str | None = None   # the Android app's version (sent since v0.11.12)
     in_app: bool = False     # an Android WebView: the app, even one too old to say its version
+    mixer: bool = False      # shows the full-screen mixer: gets audio_apps while it does
 
     @property
     def is_admin(self) -> bool:
@@ -755,6 +757,17 @@ class ConnectionManager:
 
     def device_clients(self, device_id: str) -> list[Client]:
         return [c for c in self._clients if c.device_id == device_id]
+
+    def mixer_clients(self) -> list[Client]:
+        return [c for c in self._clients if c.mixer]
+
+    async def send_to(self, clients: list[Client], msg: dict):
+        payload = _dumps(msg)
+        for c in clients:
+            try:
+                await c.ws.send_text(payload)
+            except Exception:
+                self.remove(c)
 
     async def broadcast(self, msg: dict, admin_only: bool = False):
         await self.broadcast_by_role({"admin": msg} if admin_only else {"admin": msg, "device": msg})
@@ -790,6 +803,7 @@ LOCAL_MEDIA_INTERVAL  = 1.0   # playerctl; Discord speaking events must not each
 BURST_INTERVAL        = 0.2   # while a track change is settling (MPRIS art)
 GPU_POLL_INTERVAL     = 2.0
 LOAD_SAMPLE_INTERVAL  = 1.0   # CPU/RAM sample; one sparkline point on the client
+APPS_POLL_INTERVAL    = 1.0   # app streams (2 pactl processes), only while a screen shows the mixer
 TRIGGER_COALESCE_S    = 0.025
 FORCED_MEDIA_DELAY    = 0.4   # let Spotify / the player apply a just-sent command
 SPOTIFY_RECHECK_S     = 1.5   # ...and read Spotify once more after this
@@ -842,6 +856,29 @@ def _signed_media(media: dict | None) -> dict | None:
         return media
     _current_art_h = url.removeprefix(LOCAL_ART_PREFIX)
     return {**media, "art_url": f"{url}&k={_sign_art(_current_art_h)}"}
+
+
+# App icons in the full-screen mixer, signed the same way: /api/app_icon
+# serves only an icon a reading of the app streams has found.
+APP_ICON_PREFIX = "/api/app_icon?a="
+
+
+def _sign_icon(aid: str) -> str:
+    return hmac.new(_ART_KEY, b"icon:" + aid.encode(), "sha256").hexdigest()[:32]
+
+
+def _apps_msg(reading: dict) -> dict:
+    """audio_apps: each direction's apps as a screen shows them, icons as signed URLs."""
+    data = {}
+    for kind in app_audio.DIRS:
+        rows = app_audio.public(reading.get(kind, {}))
+        for row in rows:
+            row["icon"] = f"{APP_ICON_PREFIX}{row['id']}&k={_sign_icon(row['id'])}" if row["icon"] else None
+        data[kind] = rows
+    return {"type": "audio_apps", "data": data}
+
+
+last_apps_msg: dict | None = None   # the newest audio_apps sent to the screens showing the mixer
 
 
 async def _fetch_spotify(forced: bool) -> dict | None:
@@ -996,7 +1033,7 @@ def _discord_state() -> dict:
 
 
 async def hardware_loop():
-    global last_audio_devs, spotify_reader
+    global last_audio_devs, spotify_reader, last_apps_msg
     global force_media_update, main_event_loop, sys_data_trigger
     global media_shown, media_pin, media_sources, spotify_recheck_at
 
@@ -1012,6 +1049,7 @@ async def hardware_loop():
     load_seq         = 0
     gpu_cache        = ""
     last_audio_check = 0.0
+    last_apps_check  = 0.0
     last_local_check = 0.0
     local_players: list[dict] = []
     audio_cache      = {
@@ -1059,6 +1097,11 @@ async def hardware_loop():
         if has_nvml and nvml_handle and curr - last_gpu_check > GPU_POLL_INTERVAL:
             assert pynvml is not None
             jobs["gpu"] = asyncio.to_thread(pynvml.nvmlDeviceGetUtilizationRates, nvml_handle)
+        # Per-app levels: only while a screen shows the full-screen mixer, and at
+        # once after a strip changed one (the worker's read-back wakes this loop).
+        watchers = ws_manager.mixer_clients()
+        if watchers and (app_audio.stale or curr - last_apps_check >= APPS_POLL_INTERVAL):
+            jobs["apps"] = asyncio.to_thread(app_audio.read)
         if is_linux and upower_monitor is not None:
             # Event-driven: read every tick so a battery signal shows at once.
             # Off the loop: with no UPower mouse it falls back to scanning sysfs.
@@ -1086,6 +1129,15 @@ async def hardware_loop():
             # Windows polls levels without get_state(); ordered by when this poll began.
             AudioSystem.remember("@DEFAULT_AUDIO_SINK@", audio_data["spk"], curr)
             AudioSystem.remember("@DEFAULT_AUDIO_SOURCE@", audio_data["mic"], curr)
+        if "apps" in jobs:
+            last_apps_check = curr
+            if isinstance(results["apps"], dict):
+                apps_msg = _apps_msg(results["apps"])
+                if apps_msg != last_apps_msg:
+                    last_apps_msg = apps_msg
+                    await ws_manager.send_to(ws_manager.mixer_clients(), apps_msg)
+        elif not watchers:
+            last_apps_msg = None
         if isinstance(results.get("batt"), dict):
             batt_cache = results["batt"]
         if "local" in jobs:
@@ -1822,6 +1874,17 @@ async def serve_local_art(request: Request, h: str = "", k: str = ""):
     return JSONResponse({"error": "No art"}, status_code=404)
 
 
+@_app.get("/api/app_icon")
+async def serve_app_icon(a: str = "", k: str = ""):
+    # Signed by _apps_msg(); only icons a reading of the app streams found.
+    if not (app_audio.APP_ID_RE.fullmatch(a) and hmac.compare_digest(k.encode(), _sign_icon(a).encode())):
+        return JSONResponse({"error": "No icon"}, status_code=404)
+    path = app_audio.icon_path(a)
+    if not path:
+        return JSONResponse({"error": "No icon"}, status_code=404)
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+
+
 @_app.get("/")
 async def index(request: Request):
     global last_host_url
@@ -2513,6 +2576,47 @@ async def _ws_set_volume(client: Client, msg: dict) -> None:
     AudioSystem.set_vol(target, max(0, min(100, int(data["val"]))))
 
 
+def _app_target(data: dict) -> tuple[str, str]:
+    """(direction, app id) of a strip the last reading listed; anything else is invalid."""
+    kind, aid = data["dir"], data["id"]
+    if not app_audio.known(kind, aid):
+        raise ValueError("unknown app")
+    return kind, aid
+
+
+async def _ws_audio_apps_watch(client: Client, msg: dict) -> None:
+    # The full-screen mixer opened or closed on this screen. Opening reads at
+    # once, so the strips do not wait for the next tick.
+    global last_apps_msg
+    on = msg["data"]["on"]
+    if not isinstance(on, bool):
+        raise TypeError("on must be a bool")
+    client.mixer = on
+    if on:
+        last_apps_msg = _apps_msg(await asyncio.to_thread(app_audio.read))
+        await client.ws.send_text(_dumps(last_apps_msg))
+
+
+async def _ws_set_app_volume(client: Client, msg: dict) -> None:
+    data = msg["data"]
+    kind, aid = _app_target(data)
+    val = data["val"]
+    if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
+        raise TypeError("val must be a number")
+    # Queued like a master fader: a drag's steps coalesce, then read back.
+    AudioSystem.set_app_vol(kind, aid, max(0, min(100, round(val))))
+
+
+async def _ws_set_app_mute(client: Client, msg: dict) -> None:
+    data = msg["data"]
+    kind, aid = _app_target(data)
+    if not isinstance(data["muted"], bool):
+        raise TypeError("muted must be a bool")
+    await asyncio.to_thread(app_audio.set_mute, kind, aid, data["muted"])
+    if main_event_loop and sys_data_trigger:
+        sys_data_trigger.set()   # read it back now, not on the next second
+
+
 async def _ws_disc_voice(client: Client, msg: dict) -> None:
     # The state the user asked for, not a toggle.
     data = msg.get("data")
@@ -2725,6 +2829,9 @@ WS_HANDLERS = {
     "save_config":        _ws_save_config,
     "action":             _ws_action,
     "set_volume":         _ws_set_volume,
+    "audio_apps_watch":   _ws_audio_apps_watch,
+    "set_app_volume":     _ws_set_app_volume,
+    "set_app_mute":       _ws_set_app_mute,
     "disc_voice":         _ws_disc_voice,
     "set_sb_volume":      _ws_set_sb_volume,
     "toggle_sb_feedback": _ws_toggle_sb_feedback,

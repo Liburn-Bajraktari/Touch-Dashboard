@@ -560,6 +560,33 @@ def test_local_art_needs_a_url_signed_for_the_current_cover(app, tmp_path):
         assert app.get(signed).status_code == 404
 
 
+def test_devices_may_use_the_mixer(app):
+    reading = {"out": {"firefox": {"id": "firefox", "name": "Firefox", "vol": 72, "muted": False,
+                                   "active": True, "streams": [10], "has_icon": False}}, "in": {}}
+    with patch("server.app_audio.read", return_value=reading), patch.object(server.app_audio, "_last", reading), \
+            patch("server.AudioSystem.set_app_vol") as set_vol, _device(app, _paired_token()) as ws:
+        ws.send_json({"type": "audio_apps_watch", "data": {"on": True}})
+        assert _receive_until(ws, "audio_apps")["data"]["out"][0]["id"] == "firefox"
+        ws.send_json({"type": "set_app_volume", "data": {"dir": "out", "id": "firefox", "val": 30}})
+        ws.send_json({"type": "set_app_volume", "data": {"dir": "out", "id": "../firefox", "val": 30}})
+        assert _refusals(ws, 1)[0]["reason"] == "invalid"
+    set_vol.assert_called_once_with("out", "firefox", 30)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="app icons are looked up on Linux")
+def test_app_icons_need_a_signed_url_for_an_icon_a_reading_found(app, tmp_path):
+    icon = tmp_path / "firefox.png"
+    icon.write_bytes(b"\x89PNG\r\n\x1a\n")
+    with patch.dict(server.app_audio._icons, {"firefox": str(icon), "spotify": None}):
+        ok = app.get(f"/api/app_icon?a=firefox&k={server._sign_icon('firefox')}")
+        assert ok.status_code == 200 and ok.headers["content-type"] == "image/png"
+        assert app.get("/api/app_icon?a=firefox&k=" + "0" * 32).status_code == 404
+        assert app.get("/api/app_icon?a=firefox").status_code == 404
+        assert app.get(f"/api/app_icon?a=spotify&k={server._sign_icon('spotify')}").status_code == 404
+        assert app.get(f"/api/app_icon?a=steam&k={server._sign_icon('steam')}").status_code == 404   # never read
+        assert app.get(f"/api/app_icon?a=../x&k={server._sign_icon('../x')}").status_code == 404
+
+
 # ── Store ──────────────────────────────────────────────────────────────────────
 
 def test_store_survives_a_corrupt_file_and_writes_privately(tmp_path):
