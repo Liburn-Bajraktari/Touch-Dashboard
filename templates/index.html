@@ -983,6 +983,8 @@
             background: var(--well-ink-2);
             transform: scale(0.55);
             animation: speed-wait 1s var(--ease) infinite;
+            /* Hidden dots still ran this every frame, idle or not: only while waiting. */
+            animation-play-state: paused;
         }
 
         .speed-wait span:nth-child(2) { animation-delay: 0.15s; }
@@ -995,6 +997,10 @@
 
         .speed-line[data-state="wait"] .speed-wait {
             visibility: visible;
+        }
+
+        .speed-line[data-state="wait"] .speed-wait span {
+            animation-play-state: running;
         }
 
         .speed-line[data-state="wait"] .live-v {
@@ -2388,9 +2394,47 @@
             pointer-events: none;
         }
 
-        /* Under the open soundboard the dashboard is skipped: no style, layout
-           or paint while sys_data keeps updating it, and it comes back laid out. */
-        #main-view.is-covered > .col {
+        /* Rich: everything the soundboard moves is a layer of its own at all
+           times, so opening and closing only move and fade layers: nothing is
+           repainted or rastered while it runs. Closed, the plate waits just
+           below the screen, opaque (and inert): Chrome rasters content near
+           the viewport while idle but draws none of it, and skips raster for a
+           layer at opacity 0. Hidden in place, a tablet's GPU rastered the
+           whole plate as it appeared, and the animation waited for it; the top
+           bar's controls, promoted only while they rolled, made Chrome raster
+           the bar again at both ends. */
+        :where([data-fx="rich"]) :is(#soundpad-view, #view-scrim) {
+            visibility: visible;
+            will-change: transform, opacity;
+        }
+
+        /* Its top edge just under the screen's: the page's padding and a little
+           more. Chrome pre-rasters only tiles near the viewport, and the pads
+           sit at the plate's top. */
+        :where([data-fx="rich"]) #soundpad-view {
+            transform: translateY(calc(100% + var(--pad) + 0.75rem));
+        }
+
+        :where([data-fx="rich"]) :is(#top-title, .bar-title .brand-mark, #conn-dot, #btn-back, #batt-slide,
+            #top-right-normal, #top-right-soundboard) {
+            will-change: transform, opacity;
+        }
+
+        /* ...and the top bar paints after the plate. Chrome takes an element
+           whose transform is animating to reach anywhere, so whatever paints
+           after it is promoted to new layers, rastered as the animation starts
+           (and the page again as it ends): painted before the dashboard, the
+           rolling controls pulled the whole dashboard into new layers. */
+        :where([data-fx="rich"]) .top-bar {
+            position: relative;
+            z-index: 20;
+            will-change: transform;
+        }
+
+        /* Lite: under the open soundboard the dashboard is skipped (no style,
+           layout or paint while sys_data keeps updating it); CPU-painted, it
+           would otherwise be painted under the plate on every update. */
+        :where([data-fx="lite"]) #main-view.is-covered > .col {
             content-visibility: hidden;
         }
 
@@ -5526,7 +5570,7 @@
 
         <!-- --- Soundboard View --- -->
         <div id="view-scrim" aria-hidden="true"></div>
-        <div id="soundpad-view" class="card">
+        <div id="soundpad-view" class="card" inert>
             <div id="sp-inner">
                 <div id="sp-grid"></div>
             </div>
@@ -8996,8 +9040,13 @@
         // whole time, so neither ever shows blank. The top bar's controls and
         // title roll over like the clock's digits. A toggle mid-way turns around
         // from wherever things are.
-        // Five elements move, each by a Web Animation of transform or opacity:
+        // A few elements move, each by a Web Animation of transform or opacity:
         // they run on the compositor and take the theme's springs as they are.
+        // On rich every one of them is a layer at all times (CSS above): the
+        // closed plate parks just below the screen, rastered, and the top bar
+        // paints last, so a transition rasters nothing on a tablet's GPU; the
+        // press on the key rasters the rest of the plate (sbWarm), and the
+        // marquee pauses and resumes once a transition has settled.
         // Measured on a throttled tablet against what was tried first: GSAP's
         // tweens read each pad's computed style as it started (style and layout
         // forced every frame, ~12 fps); a clip-path window repainted the whole
@@ -9064,22 +9113,34 @@
             return `translate(${dx}px, ${dy}px) scale(${k.width / p.width})`;
         }
 
+        // Steps of a transition run on timers, not on the animations' finished
+        // promises: Chrome settles those only when the main thread next renders,
+        // and with every piece on the compositor a turned-around transition
+        // could wait for that indefinitely, holding sys_data back.
+        function sbAfter(run, ms, fn) {
+            setTimeout(() => { if (run === sbRun) fn(); }, ms);
+        }
+
         // The title rolls over; the brand mark and link dot beside it glide to
-        // where the new title puts them instead of jumping (FLIP).
-        async function sbRollTitle(run, text, mode, spring) {
+        // where the new title puts them instead of jumping (FLIP). Returns when
+        // it has landed (ms).
+        const SB_TITLE_OUT_MS = 140, SB_TITLE_IN_MS = 420, SB_TITLE_GAP_MS = 60;
+        function sbRollTitle(run, text, mode, spring) {
             const title = dom.topTitle;
-            await sbAnimate(title, [{ opacity: 0, transform: 'translateY(-0.6rem)' }],
-                { duration: 140, easing: SB_EASE_IN }).finished;
-            if (run !== sbRun) return;
-            const before = elTitleSide.map(el => el.getBoundingClientRect().left);
-            sbFlips.forEach(a => a.cancel());
-            title.textContent = text;
-            title.classList.toggle('is-mode', mode);
-            sbFlips = elTitleSide.map((el, i) => el.animate(
-                [{ transform: `translateX(${before[i] - el.getBoundingClientRect().left}px)` }, { transform: 'none' }],
-                { duration: 280, easing: SB_EASE_OUT }));
-            await sbAnimate(title, [{ opacity: 0, transform: 'translateY(0.6rem)' }, { opacity: 1, transform: 'none' }],
-                { duration: 420, delay: 60, easing: spring }).finished;
+            sbAnimate(title, [{ opacity: 0, transform: 'translateY(-0.6rem)' }],
+                { duration: SB_TITLE_OUT_MS, easing: SB_EASE_IN });
+            sbAfter(run, SB_TITLE_OUT_MS, () => {
+                const before = elTitleSide.map(el => el.getBoundingClientRect().left);
+                sbFlips.forEach(a => a.cancel());
+                title.textContent = text;
+                title.classList.toggle('is-mode', mode);
+                sbFlips = elTitleSide.map((el, i) => el.animate(
+                    [{ transform: `translateX(${before[i] - el.getBoundingClientRect().left}px)` }, { transform: 'none' }],
+                    { duration: 280, easing: SB_EASE_OUT }));
+                sbAnimate(title, [{ opacity: 0, transform: 'translateY(0.6rem)' }, { opacity: 1, transform: 'none' }],
+                    { duration: SB_TITLE_IN_MS, delay: SB_TITLE_GAP_MS, easing: spring });
+            });
+            return SB_TITLE_OUT_MS + SB_TITLE_GAP_MS + SB_TITLE_IN_MS;
         }
 
         // The controls either side of the title: the old roll up and out, the new
@@ -9097,6 +9158,24 @@
             });
         }
 
+        // Pressing the key: the plate shows in place at an opacity nobody can
+        // see, so Chrome rasters what the parked plate lacks (the rows furthest
+        // from the screen) during the press, before it has to draw it. A press
+        // that does not open it (a long press, a cancel) parks it again.
+        const SB_WARM_MS = 1000;
+        let sbWarmTimer = 0;
+        function sbWarm() {
+            if (sbOpen || sbAnims.length || document.documentElement.dataset.fx !== 'rich') return;
+            elSpView.style.transform = 'none';
+            elSpView.style.opacity = '0.002';
+            clearTimeout(sbWarmTimer);
+            sbWarmTimer = setTimeout(() => {
+                if (sbOpen || sbAnims.length) return;
+                elSpView.style.removeProperty('transform');
+                elSpView.style.removeProperty('opacity');
+            }, SB_WARM_MS);
+        }
+
         // Each side's resting state: where a transition ends, and all lite does.
         // Only what this sets is cleared: config_sync shows and hides the
         // battery pill with an inline display.
@@ -9108,8 +9187,14 @@
             clear([elSpView], ['opacity', 'transform', 'visibility', 'pointer-events']);
             clear([elBattSlide, elTopRightNormal, elBtnBack, elTopRightSoundboard],
                 ['opacity', 'transform', 'visibility', 'pointer-events', 'transition']);
+            elSpView.inert = !show;
+            // Under the plate the marquee rests. Paused or resumed, its line
+            // leaves or rejoins a layer of its own and Chrome repaints around it:
+            // done here, while nothing moves, not as a transition starts.
+            npMarquee.pause(show, 'soundboard');
             if (show) {
                 elSpView.style.visibility = 'visible';
+                elSpView.style.transform = 'none';   // rich parks the closed plate below the screen
                 elSpView.style.pointerEvents = 'auto';
                 [elBattSlide, elTopRightNormal].forEach(el => { el.style.opacity = '0'; el.style.visibility = 'hidden'; });
                 [elBtnBack, elTopRightSoundboard].forEach(el => { el.style.opacity = '1'; el.style.pointerEvents = 'auto'; });
@@ -9127,7 +9212,6 @@
             const fresh = sbAnims.length === 0;   // false: turning a transition around
             sbFreeze();
             isAnimating = true;
-            npMarquee.pause(show, 'soundboard');   // under the plate
             const text = show ? (osTarget === 'linux' ? 'Soundboard' : 'Soundpad') : 'Command Center';
 
             if (document.documentElement.dataset.fx !== 'rich' || reducedMotion.matches) {
@@ -9163,6 +9247,7 @@
                 sbRollBar([elBattSlide, elTopRightNormal], [elBtnBack, elTopRightSoundboard], fresh, spring);
             } else {
                 elSpView.style.pointerEvents = 'none';   // no pad plays while it closes
+                elSpView.inert = true;
                 elScrim.style.pointerEvents = 'none';
                 if (fresh) elScrim.style.opacity = '1';
                 sbAnimate(elSpView, [{ transform: sbKeyTransform(key) }], { duration: 420, easing: SB_EASE_IN_OUT });
@@ -9170,9 +9255,9 @@
                 sbAnimate(elScrim, [{ opacity: 0 }], { duration: 300, easing: SB_EASE_IN_OUT });
                 sbRollBar([elBtnBack, elTopRightSoundboard], [elBattSlide, elTopRightNormal], fresh, spring);
             }
-            const moves = sbAnims.map(a => a.finished);
-            Promise.all([...moves, sbRollTitle(run, text, show, spring)])
-                .then(() => { if (run === sbRun) sbSettle(show); }, () => { /* turned around: the next run settles */ });
+            const moved = Math.max(0, ...sbAnims.map(a => a.effect.getComputedTiming().endTime));
+            const titled = sbRollTitle(run, text, show, spring);
+            sbAfter(run, Math.max(moved, titled) + 20, () => sbSettle(show));
         }
 
         // --- Macro Editor & Grid Logic ---
@@ -9208,7 +9293,10 @@
 
                 // Pointer events only: a tap also fires emulated mouse events after
                 // touchend, so touch + mouse listeners ran every macro twice.
-                btn.addEventListener('pointerdown', (e) => handleMacroDown(e, idx));
+                btn.addEventListener('pointerdown', (e) => {
+                    if (m.type === 'plugin' && m.action_data === 'app_soundpad') sbWarm();
+                    handleMacroDown(e, idx);
+                });
                 btn.addEventListener('pointerup', (e) => handleMacroUp(e, idx, m));
                 btn.addEventListener('pointerleave', () => clearMacroTimer());
                 btn.addEventListener('pointercancel', () => clearMacroTimer());
