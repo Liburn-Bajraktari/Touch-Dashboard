@@ -43,21 +43,6 @@
 
 ---
 
-## Contents
-
-- [What it does](#what-it-does)
-- [How it works](#how-it-works)
-- [Install](#install)
-- [First-time setup](#first-time-setup)
-- [Using the dashboard](#using-the-dashboard)
-- [Updating](#updating)
-- [Security](#security)
-- [Troubleshooting](#troubleshooting)
-- [Platform notes](#platform-notes)
-- [For developers](#for-developers)
-
----
-
 ## What it does
 
 | Module | What you get |
