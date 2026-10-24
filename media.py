@@ -158,19 +158,30 @@ def _title_forms(title: str, url: str) -> set[str]:
     return forms - {""}
 
 
-def _same_tab(bridge: dict, own: dict) -> bool:
-    """The bridge's copy and the browser's own describe one tab. Either may
-    fall back to the page's title when it cannot read the page's media
-    metadata: the bridge does on YouTube, giving "(3) Title - YouTube" and no
-    cover beside the browser's "Title"."""
-    if not bridge["title"] or not own["title"]:
+def _same_title(a: dict, b: dict, url: str) -> bool:
+    """One tab's title, perhaps dressed as the tab's: either copy may fall
+    back to the page's title when it cannot read the page's media metadata
+    (the bridge does on YouTube, giving "(3) Title - YouTube")."""
+    if not a["title"] or not b["title"]:
         return False
-    url = bridge["url"]
-    if (_bare_title(own["title"]) not in _title_forms(bridge["title"], url)
-            and _bare_title(bridge["title"]) not in _title_forms(own["title"], url)):
+    return (_bare_title(b["title"]) in _title_forms(a["title"], url)
+            or _bare_title(a["title"]) in _title_forms(b["title"], url))
+
+
+def _copy_of(copy: dict, own: dict) -> bool:
+    """copy republishes own's media. KDE's browser bridge names the browser
+    process whose tab it shows (kde:pid), the process behind the browser's own
+    player: that settles it whatever the titles say (an ad, a track change).
+    Without processes (the playerctl poll, a sandboxed browser) the bridge and
+    a browser must show one title and length."""
+    if copy["id"] == own["id"]:
         return False
-    a, b = bridge["length"], own["length"]
-    return not (a and b and abs(a - b) > SAME_LENGTH_S)
+    if copy.get("media_pid") and copy["media_pid"] == own.get("pid"):
+        return True
+    if copy["app"] != BROWSER_BRIDGE or own["app"] not in BROWSERS or own["app"] == BROWSER_BRIDGE:
+        return False
+    a, b = copy["length"], own["length"]
+    return _same_title(copy, own, copy["url"]) and not (a and b and abs(a - b) > SAME_LENGTH_S)
 
 
 def _is_page_title(p: dict, other: dict, url: str) -> bool:
@@ -179,36 +190,50 @@ def _is_page_title(p: dict, other: dict, url: str) -> bool:
             and _bare_title(other["title"]) in _title_forms(p["title"], url))
 
 
+def _lend(own: dict, copy: dict) -> dict:
+    """own, with what the copy knows about the same item that own does not."""
+    merged = dict(own)
+    merged["started"] = max(own["started"], copy["started"])
+    # The bridge's name is the browser's (Chrome, Brave), where own's bus name says Chromium.
+    if copy["app"] == BROWSER_BRIDGE and copy["name"] != _PLAYER_NAMES[BROWSER_BRIDGE]:
+        merged["name"] = copy["name"]
+    url = copy["url"] or own["url"]
+    if not _same_title(own, copy, url):
+        return merged          # the copy is on another track for now: nothing of it fits
+    if _is_page_title(own, copy, url):
+        # own has only the tab's title; the copy read the page's metadata.
+        for field in ("title", "artist", "album", "art"):
+            merged[field] = copy[field] or own[field]
+    # Not the track id: MPRIS SetPosition needs own's.
+    for field in ("url", "art", "album"):
+        if not merged[field] and copy[field]:
+            merged[field] = copy[field]
+    for field in ("length", "position"):
+        if merged[field] is None and copy[field] is not None:
+            merged[field] = copy[field]
+    return merged
+
+
 def dedupe(players: list[dict]) -> list[dict]:
-    """KDE's browser bridge republishes a tab the browser already publishes
-    itself: one record stays. That is the bridge's (it carries the page url),
-    unless it only has the page's title: then the browser's own copy, which
-    read the page's metadata (title, artist, cover) and its media keys, stays
-    and takes the url. Whatever the kept one lacks (cover, length, position)
-    comes from the other."""
-    bridges = [p for p in players if p["app"] == BROWSER_BRIDGE and p["title"]]
-    if not bridges:
+    """A player that republishes another's media is dropped: KDE's browser
+    bridge copies the tab a browser already publishes itself. The browser's
+    own player stays (its keys, its track id) and takes what the copy knows
+    that it does not: the page url, a cover, the album, a length, and the
+    page's metadata when it only has the tab's title. A bridge with no
+    browser player behind it (one that publishes none) stays a source."""
+    copies = [p for p in players if p["app"] == BROWSER_BRIDGE or p.get("media_pid")]
+    if not copies:
         return players
     replace: dict[str, dict] = {}
     drop: set[str] = set()
-    for b in bridges:
-        own = next((p for p in players
-                    if p["app"] in BROWSERS and p["app"] != BROWSER_BRIDGE
-                    and p["id"] not in drop and _same_tab(b, p)), None)
+    for c in copies:
+        # A browser player that stopped does not stand in for a copy still playing or paused.
+        own = next((p for p in players if p["id"] not in drop and _copy_of(c, p)
+                    and (p["status"] in LIVE or c["status"] not in LIVE)), None)
         if own is None:
             continue
-        keep, other = (own, b) if _is_page_title(b, own, b["url"]) else (b, own)
-        merged = dict(keep)
-        # Not the track id: MPRIS SetPosition needs the kept player's own.
-        for field in ("url", "art", "album"):
-            if not merged[field] and other[field]:
-                merged[field] = other[field]
-        for field in ("length", "position"):
-            if merged[field] is None and other[field] is not None:
-                merged[field] = other[field]
-        merged["started"] = max(keep["started"], other["started"])
-        replace[keep["id"]] = merged
-        drop.add(other["id"])
+        replace[own["id"]] = _lend(replace.get(own["id"], own), c)
+        drop.add(c["id"])
     return [replace.get(p["id"], p) for p in players if p["id"] not in drop]
 
 
@@ -438,6 +463,7 @@ def from_monitor(players: list[dict]) -> list[dict]:
             status=m["status"], title=m["title"], artist=m["artist"], album=m["album"],
             url=m["url"], art=m["art"], trackid=m["trackid"], position=m["position"],
             length=m["length"], caps=m["caps"], started=m["started"], bus=m["bus"],
+            pid=m.get("pid"), media_pid=m.get("media_pid"),
             episode="/episode/" in m["trackid"] or "/episode/" in m["url"]))
     return out
 

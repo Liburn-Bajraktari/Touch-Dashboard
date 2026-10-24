@@ -131,6 +131,22 @@ def test_sys_data_does_not_wait_for_a_spotify_read(client):
     assert waited < 8     # the first tick comes within ~2 s; the read would hold it 20
 
 
+def test_stopped_players_are_not_offered_as_sources(client):
+    # An idle Chromium-based app (Stopped, no title) made the chip switchable,
+    # and switching to it did nothing.
+    import media
+    players = [media._record(id="mpris:chromium.instance9", via="mpris", raw="chromium.instance9",
+                             name="Chromium", status="Stopped"),
+               media._record(id="mpris:firefox.instance_1_2", via="mpris", raw="firefox.instance_1_2",
+                             name="Firefox", status="Paused", title="Video")]
+    with patch("server.media_module.poll_mpris_players", return_value=players), _admin_ws(client) as websocket:
+        for _ in range(5):
+            now = _receive_until(websocket, "sys_data")["data"]["spotify"]
+            if now:
+                break
+    assert now["sources"] == [{"id": "mpris:firefox.instance_1_2", "name": "Firefox", "status": "Paused"}]
+
+
 def _receive_until(websocket, msg_type, limit=20):
     for _ in range(limit):
         msg = websocket.receive_json()

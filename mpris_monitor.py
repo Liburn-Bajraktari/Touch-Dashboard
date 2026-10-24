@@ -57,6 +57,14 @@ def _number(value) -> float | None:
     return n if n >= 0 else None
 
 
+def _pid(value) -> int | None:
+    try:
+        pid = int(value)
+    except (TypeError, ValueError):
+        return None
+    return pid if pid > 0 else None
+
+
 def parse_metadata(md: dict) -> dict:
     """An unpacked MPRIS Metadata dict → the fields the dashboard uses."""
     length = _number(md.get("mpris:length"))
@@ -68,6 +76,8 @@ def parse_metadata(md: dict) -> dict:
         "art":     _text(md.get("mpris:artUrl")),
         "trackid": _text(md.get("mpris:trackid")),
         "length":  round(length / 1e6, 1) if length else None,
+        # KDE's browser bridge names the browser process whose tab it shows.
+        "media_pid": _pid(md.get("kde:pid")),
     }
 
 
@@ -128,6 +138,7 @@ class MprisMonitor:
                     "position": round(pos, 1) if pos is not None else None,
                     "caps": dict(p["caps"]),
                     "started": p["started"],
+                    "pid": p["pid"],
                 })
         return out
 
@@ -249,6 +260,20 @@ class MprisMonitor:
             logger.debug("mpris GetAll %s failed: %s", bus, exc)
             return {}
 
+    def _pid_of(self, owner: str) -> int | None:
+        """The process behind a bus connection."""
+        if self._conn is None:
+            return None
+        try:
+            from gi.repository import Gio, GLib  # type: ignore[import-untyped]
+            reply = self._conn.call_sync(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                "GetConnectionUnixProcessID", GLib.Variant("(s)", (owner,)),
+                GLib.VariantType.new("(u)"), Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
+            return _pid(reply.unpack()[0])
+        except Exception:
+            return None
+
     def _notify(self) -> None:
         cb = self.on_change
         if cb is not None:
@@ -286,6 +311,7 @@ class MprisMonitor:
             },
             # Found playing: as if it started now, after any found earlier.
             "started": now if status == "Playing" else 0.0,
+            "pid": self._pid_of(owner),
         }
         with self._lock:
             self._owners[owner] = bus

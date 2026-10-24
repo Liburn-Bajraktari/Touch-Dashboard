@@ -114,9 +114,41 @@ def test_pin_holds_until_the_player_closes_or_another_starts():
 
 def test_browser_bridge_copy_is_dropped():
     own = _p("f", "firefox", title="Video")
-    bridge = _p("p", "plasma-browser-integration", title="Video")
+    bridge = _p("p", "plasma-browser-integration", title="Video", url=YT, art="file:///tmp/b.jpg")
     other = _p("c", "chromium", title="Other tab")
-    assert [p["id"] for p in media.dedupe([own, bridge, other])] == ["p", "c"]
+    kept = media.dedupe([own, bridge, other])
+    assert [p["id"] for p in kept] == ["f", "c"]                     # the browser's own stays
+    assert (kept[0]["url"], kept[0]["art"]) == (YT, "file:///tmp/b.jpg")
+
+
+def test_bridge_copy_of_a_browser_process_is_dropped_whatever_its_title():
+    # Seen with Firefox: the bridge names the browser's process (kde:pid), the
+    # one behind Firefox's own player. Titles and lengths may disagree for a
+    # while (an ad, the next video), and both showed as sources.
+    own = _p("mpris:firefox.instance_1_87", "firefox.instance_1_87", title="Ad", length=15.0,
+             url=YT, pid=5191)
+    bridge = _p("mpris:plasma-browser-integration", "plasma-browser-integration", title="Video",
+                length=661.3, art="file:///tmp/b.jpg", pid=5792, media_pid=5191, started=3.0)
+    [shown] = media.dedupe([own, bridge])
+    assert shown["id"] == own["id"] and shown["title"] == "Ad"
+    assert (shown["art"], shown["length"]) == ("", 15.0)             # another item: nothing lent
+    assert shown["started"] == 3.0
+    # Not "Chromium" from Chrome's bus name: the bridge names the browser.
+    chrome = _p("mpris:chromium.instance7", "chromium.instance7", title="Video", pid=7)
+    named = dict(bridge, name="Google Chrome", media_pid=7)
+    assert media.dedupe([chrome, named])[0]["name"] == "Google Chrome"
+    # Any player naming another's process is a copy, not only KDE's.
+    relay = _p("r", "relay", title="Video", media_pid=5191)
+    assert [p["id"] for p in media.dedupe([own, relay])] == [own["id"]]
+
+
+def test_bridge_of_another_process_or_a_stopped_browser_stays():
+    own = _p("own", "firefox", title="Song", pid=5191)
+    elsewhere = _p("bridge", "plasma-browser-integration", title="Video", pid=5792, media_pid=4000)
+    assert len(media.dedupe([own, elsewhere])) == 2                 # another browser's tab
+    stopped = _p("own", "firefox", status="Stopped", title="", pid=5191)
+    paused = _p("bridge", "plasma-browser-integration", status="Paused", title="Video", media_pid=5191)
+    assert [p["id"] for p in media.dedupe([stopped, paused])] == ["own", "bridge"]
 
 
 YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -146,14 +178,15 @@ def test_tab_title_forms_match(tab_title):
     assert [p["id"] for p in media.dedupe([own, bridge])] == ["own"]
 
 
-def test_bridge_metadata_beats_the_browsers_tab_title():
+def test_bridge_metadata_replaces_the_browsers_tab_title():
     # The other way round: the bridge read the metadata, the browser has the
-    # tab's title. The bridge's copy stays and takes the cover it lacks.
+    # tab's title. The browser's own player stays and shows the bridge's.
     own = _p("own", "firefox", title="(2) Video - YouTube", art="file:///tmp/cover.png")
     bridge = _p("bridge", "plasma-browser-integration", title="Video", url=YT)
+    bridge["artist"] = "Channel"
     [shown] = media.dedupe([own, bridge])
-    assert shown["id"] == "bridge" and shown["title"] == "Video"
-    assert shown["art"] == "file:///tmp/cover.png"
+    assert shown["id"] == "own" and (shown["title"], shown["artist"]) == ("Video", "Channel")
+    assert shown["art"] == "file:///tmp/cover.png" and shown["url"] == YT
 
 
 def test_different_tabs_stay_apart():
@@ -288,8 +321,12 @@ def test_monitor_metadata():
           "mpris:trackid": "/x/track/1", "mpris:artUrl": "file:///tmp/a.png"}
     assert mpris_monitor.parse_metadata(md) == {
         "title": "T", "artist": "A, B", "album": "", "url": "", "art": "file:///tmp/a.png",
-        "trackid": "/x/track/1", "length": 1501.9}
+        "trackid": "/x/track/1", "length": 1501.9, "media_pid": None}
+    assert mpris_monitor.parse_metadata({"kde:pid": 5191})["media_pid"] == 5191
+    assert mpris_monitor.parse_metadata({"kde:pid": "x"})["media_pid"] is None
     rec = media.from_monitor([{**mpris_monitor.parse_metadata(md), "bus": "org.mpris.MediaPlayer2.JelliumDesktop.instance_1",
                                "identity": "Jellium Desktop", "status": "Playing", "position": 3.0,
-                               "caps": {"prev": False, "next": True, "seek": True}, "started": 1.0}])[0]
+                               "caps": {"prev": False, "next": True, "seek": True}, "started": 1.0,
+                               "pid": 42}])[0]
     assert (rec["name"], rec["app"], rec["id"]) == ("Jellium Desktop", "jelliumdesktop", "mpris:JelliumDesktop.instance_1")
+    assert (rec["pid"], rec["media_pid"]) == (42, None)

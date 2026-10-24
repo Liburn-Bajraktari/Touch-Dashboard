@@ -1100,7 +1100,9 @@ async def hardware_loop():
 
         # The source to show and control: a pinned one, else the latest to start.
         spot = spotify_cache if spotify_cache and spotify_cache.get("status") in media_module.LIVE else None
-        media_sources = media_module.merge_spotify(media_module.dedupe(local_players), spot)
+        # A stopped player cannot be shown: the chip offered one as a second source.
+        media_sources = [p for p in media_module.merge_spotify(media_module.dedupe(local_players), spot)
+                         if p["status"] in media_module.LIVE]
         media_pin     = media_module.resolve_pin(media_sources, media_pin)
         media_shown   = media_module.pick_source(media_sources, media_pin)
         # Off the loop: a file cover is stat()ed, a data: cover decoded once.
