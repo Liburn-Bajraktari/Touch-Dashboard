@@ -4655,7 +4655,6 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
-            background: radial-gradient(64rem 44rem at 50% 38%, var(--ambient), transparent 72%), var(--ground);
             color: var(--text);
             cursor: pointer;
             -webkit-user-select: none;
@@ -4663,27 +4662,24 @@
             outline: none;
         }
 
-        /* Rich: the view grows out of the panel by an animated clip-path, which
-           the compositor cannot animate: each frame re-rasters the clip's mask,
-           and repainted the view's own layer under it too (measured on Android:
-           the full-screen ground and the clock re-rastered ~65 times an opening,
-           a new tile buffer each time). The ground is a layer of its own here and
-           the clock (.cv-inner, scaled in by GSAP) is one too, so only the mask is. */
-        :where([data-fx="rich"]) #clock-view {
-            background: none;
-        }
-
-        :where([data-fx="rich"]) #clock-view::before {
-            content: '';
+        /* The ground is an element of its own, so it can fade where the view
+           meets the panel (openClockView, closeClockView). */
+        .cv-ground {
             position: absolute;
             inset: 0;
             z-index: -1;
             background: radial-gradient(64rem 44rem at 50% 38%, var(--ambient), transparent 72%), var(--ground);
-            will-change: transform;
             pointer-events: none;
         }
 
-        :where([data-fx="rich"]) #cv-inner {
+        /* Rich: the view grows out of the panel by an animated clip-path, which
+           the compositor cannot animate: each frame re-rasters the clip's mask,
+           and repainted the view's own layer under it too (measured on Android:
+           the full-screen ground and the clock re-rastered ~65 times an opening,
+           a new tile buffer each time). So the view paints nothing itself, and
+           what moves or fades in it is a layer for as long as it shows: only the
+           mask re-rasters. */
+        :where([data-fx="rich"]) :is(.cv-ground, #cv-inner, #cv-time, #cv-date, .cv-info, .cv-call, .cv-hint) {
             will-change: transform, opacity;
         }
 
@@ -4982,6 +4978,26 @@
             transition-timing-function: var(--ease);
         }
 
+        /* Under the full-screen clock (opening, open, closing) the panel is at
+           rest, at once: a touch is still :active when its click opens the clock,
+           so the opening measured a panel sunk by however far the press had got,
+           and its spring back showed through the clearing ground. Every opening
+           now starts from the same panel. */
+        .time-weather-panel.is-under {
+            scale: none !important;
+            transition: none !important;
+        }
+
+        .time-weather-panel.is-under .tw-expand {
+            color: var(--text-3) !important;
+            transition: none !important;
+        }
+
+        .time-weather-panel.is-under .tw-expand path {
+            transform: none !important;
+            transition: none !important;
+        }
+
         /* ── Burn-in care (OLED) ──────────────────────────────────────────────
            The lock screen and the full-screen clock dim after a few minutes; the
            home screen dims when nobody touches it (tablets). Dimming is a layer
@@ -5121,6 +5137,7 @@
     <!-- --- Full-screen clock: tap the time and weather panel; a tap anywhere goes back --- -->
     <div id="clock-view" role="dialog" aria-modal="true" aria-label="Clock. Tap anywhere to go back." tabindex="-1"
         hidden>
+        <div class="cv-ground" id="cv-ground" aria-hidden="true"></div>
         <div class="cv-inner" id="cv-inner">
             <div class="cv-drift" id="cv-drift">
                 <div class="cv-clock">
@@ -9136,13 +9153,72 @@
         const clockWander = makeWanderer(clockView, document.getElementById('cv-drift'));
         let latestSysData = null, latestWeather = null;   // the newest, for opening
 
-        // The panel's rectangle as a clip-path, to grow from and shrink back into.
-        function clockPanelClip() {
+        // The window: the panel's rectangle as an inset of the view, tweened as
+        // plain numbers (like the mixer's used to be). Tweening the clip-path
+        // string made GSAP parse what the browser hands back, which drops equal
+        // sides (inset(t r b round R)): turning around mid-way it paired the
+        // numbers wrongly and drew a frame with a 290 % edge.
+        const cvClip = { t: 0, r: 0, b: 0, l: 0, rad: 0 };
+        const CV_CLIP_OPEN = { t: 0, r: 0, b: 0, l: 0, rad: 0 };
+        function cvPanelInset() {
             const r = clockPanel.getBoundingClientRect();
-            const vw = window.innerWidth, vh = window.innerHeight;
-            const pct = (v, total) => (v / total * 100).toFixed(2) + '%';
-            const radius = getComputedStyle(clockPanel).borderTopLeftRadius || '0px';
-            return `inset(${pct(r.top, vh)} ${pct(vw - r.right, vw)} ${pct(vh - r.bottom, vh)} ${pct(r.left, vw)} round ${radius})`;
+            return { t: r.top, r: window.innerWidth - r.right, b: window.innerHeight - r.bottom, l: r.left,
+                     rad: parseFloat(getComputedStyle(clockPanel).borderTopLeftRadius) || 0 };
+        }
+        function cvApplyClip() {
+            const c = cvClip, f = n => Math.max(0, n).toFixed(1) + 'px';
+            clockView.style.clipPath = `inset(${f(c.t)} ${f(c.r)} ${f(c.b)} ${f(c.l)} round ${f(c.rad)})`;
+        }
+
+        // Rich: as the window (a clip-path) leaves or reaches the panel, the big
+        // time travels between its place and the panel's own clock, the rest of
+        // the view fades, and so does the ground, so at that end the panel itself
+        // shows. The panel's clock is hidden while the big one stands in for it:
+        // closing, it lands at 80 % and only then do the two (aligned to the
+        // pixel) crossfade; shown under a time still moving they doubled. Until
+        // v0.13.4 the ground stayed opaque: closing landed as a blank dark block
+        // for ~0.2 s, then the panel appeared at once. All of it is transform and
+        // opacity on layers that stay, beside the clip-path GSAP tweens.
+        const CLOCK_OPEN_MS = 550, CLOCK_CLOSE_MS = 420;
+        const cvGround = document.getElementById('cv-ground');
+        const cvTime = document.getElementById('cv-time');
+        const panelTime = document.getElementById('time');
+        const cvRest = ['cv-date', 'cv-call', 'cv-hint'].map(id => document.getElementById(id))
+            .concat(Array.from(clockView.querySelectorAll('.cv-info')));
+        let cvAnims = [];
+        let cvRun = 0;   // the newest transition; older timers stand down
+
+        function cvAnimate(el, keyframes, opts) {
+            const a = el.animate(keyframes, { fill: 'both', ...opts });
+            cvAnims.push(a);
+            return a;
+        }
+
+        // Turning around: what runs leaves its values inline, the next starts there.
+        function cvFreeze() {
+            cvAnims.forEach(a => { try { a.commitStyles(); } catch (err) { /* not rendered */ } });
+            cvAnims.forEach(a => a.cancel());
+            cvAnims = [];
+        }
+
+        function cvClear() {
+            cvAnims.forEach(a => a.cancel());
+            cvAnims = [];
+            [cvGround, cvTime, ...cvRest].forEach(el => {
+                el.style.removeProperty('opacity');
+                el.style.removeProperty('transform');
+            });
+        }
+
+        // The panel's clock as a transform of the big one: the same digits, by
+        // the ratio of their font sizes, centre on centre.
+        function cvTimeToPanel() {
+            const own = cvTime.style.transform;
+            cvTime.style.transform = 'none';
+            const a = cvTime.getBoundingClientRect(), b = panelTime.getBoundingClientRect();
+            cvTime.style.transform = own;
+            const s = parseFloat(getComputedStyle(panelTime).fontSize) / parseFloat(getComputedStyle(cvTime).fontSize);
+            return `translate(${b.left + b.width / 2 - (a.left + a.width / 2)}px, ${b.top + b.height / 2 - (a.top + a.height / 2)}px) scale(${s})`;
         }
 
         function openClockView() {
@@ -9159,15 +9235,31 @@
             clockWander.start();
             npMarquee.pause(true, 'clock');   // hidden behind the clock
             clockPanel.classList.remove('is-pressed');   // now, not under the clock (lite: a full repaint)
+            clockPanel.classList.add('is-under');        // at rest, whatever the press (see .is-under)
             clockView.hidden = false;
             holdDashboard();
             clockView.focus({ preventScroll: true });
             if (document.documentElement.dataset.fx === 'rich') {
-                gsap.killTweensOf([clockView, '#cv-inner']);
-                gsap.fromTo(clockView, { clipPath: clockPanelClip() },
-                    { clipPath: 'inset(0% 0% 0% 0% round 0px)', duration: 0.55, ease: 'power3.out', clearProps: 'clipPath' });
-                gsap.fromTo('#cv-inner', { scale: 0.9, y: 18, autoAlpha: 0 },
-                    { scale: 1, y: 0, autoAlpha: 1, duration: 0.5, delay: 0.08, ease: 'power3.out', clearProps: 'transform,opacity,visibility' });
+                const run = ++cvRun;
+                const turning = cvAnims.length > 0;   // it was closing
+                gsap.killTweensOf(cvClip);
+                cvFreeze();
+                if (!turning) {
+                    Object.assign(cvClip, cvPanelInset());
+                    cvApplyClip();
+                    // Out of the panel: on its own clock, the ground still clear.
+                    cvTime.style.transform = cvTimeToPanel();
+                    [cvGround, ...cvRest].forEach(el => { el.style.opacity = '0'; });
+                }
+                gsap.to(cvClip, { ...CV_CLIP_OPEN, duration: CLOCK_OPEN_MS / 1000, ease: 'power3.out', onUpdate: cvApplyClip,
+                    onComplete: () => { clockView.style.removeProperty('clip-path'); } });
+                panelTime.style.visibility = 'hidden';   // the big time stands in for it
+                const out = cssEase('power3.out', 'cubic-bezier(0.22, 1, 0.36, 1)');
+                cvAnimate(cvTime, [{ transform: 'none' }], { duration: CLOCK_OPEN_MS, easing: out });
+                cvAnimate(cvTime, [{ opacity: 1 }], { duration: 120, easing: 'ease-out' });   // turning around mid-fade
+                cvAnimate(cvGround, [{ opacity: 1 }], { duration: CLOCK_OPEN_MS * 0.4, easing: 'ease-out' });
+                cvRest.forEach(el => cvAnimate(el, [{ opacity: 1 }], { duration: 320, delay: 160, easing: out }));
+                setTimeout(() => { if (run === cvRun) cvClear(); }, CLOCK_OPEN_MS);
             }
         }
 
@@ -9181,13 +9273,28 @@
                 if (clockViewOpen) return;   // opened again meanwhile
                 clockView.hidden = true;
                 clockWander.stop();
-                gsap.set([clockView, '#cv-inner'], { clearProps: 'clipPath,transform,opacity,visibility' });
+                cvClear();
+                panelTime.style.removeProperty('visibility');
+                clockPanel.classList.remove('is-under');
+                gsap.killTweensOf(cvClip);
+                clockView.style.removeProperty('clip-path');
                 holdDashboard();
             };
             if (document.documentElement.dataset.fx === 'rich') {
-                gsap.killTweensOf([clockView, '#cv-inner']);
-                gsap.to('#cv-inner', { scale: 0.94, autoAlpha: 0, duration: 0.25, ease: 'power2.in' });
-                gsap.to(clockView, { clipPath: clockPanelClip(), duration: 0.42, ease: 'power3.inOut', onComplete: done });
+                const run = ++cvRun;
+                gsap.killTweensOf(cvClip);
+                if (!clockView.style.clipPath) Object.assign(cvClip, CV_CLIP_OPEN);   // settled open
+                cvFreeze();
+                // Into the panel: the time onto its clock, where it lands at 80 %
+                // and crossfades into it as the ground clears; the rest goes
+                // before the window's edges reach it.
+                const land = CLOCK_CLOSE_MS * 0.8;
+                cvAnimate(cvTime, [{ transform: cvTimeToPanel() }], { duration: land, easing: cssEase('power3.inOut', 'ease-in-out') });
+                cvAnimate(cvTime, [{ opacity: 0 }], { duration: CLOCK_CLOSE_MS - land, delay: land, easing: 'linear' });
+                setTimeout(() => { if (run === cvRun) panelTime.style.removeProperty('visibility'); }, land);
+                cvRest.forEach(el => cvAnimate(el, [{ opacity: 0 }], { duration: 160, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' }));
+                cvAnimate(cvGround, [{ opacity: 0 }], { duration: CLOCK_CLOSE_MS * 0.45, delay: CLOCK_CLOSE_MS * 0.55, easing: 'ease-in-out' });
+                gsap.to(cvClip, { ...cvPanelInset(), duration: CLOCK_CLOSE_MS / 1000, ease: 'power3.inOut', onUpdate: cvApplyClip, onComplete: done });
             } else {
                 done();
             }
