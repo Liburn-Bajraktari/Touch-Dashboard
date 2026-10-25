@@ -2319,16 +2319,63 @@
             position: fixed;
             inset: 0;
             z-index: 9970;
+            outline: none;
+        }
+
+        .mx-stage {
+            position: absolute;
+            inset: 0;
+            isolation: isolate;
             display: grid;
             grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr);
             grid-template-rows: minmax(0, 1fr);
             gap: var(--gap);
             padding: var(--pad);
+        }
+
+        /* The room's light and the master's plate are elements of their own,
+           so they can fade where the transition meets the card (mixerMove). */
+        .mx-room {
+            position: absolute;
+            inset: 0;
+            z-index: -1;
             background:
                 radial-gradient(70rem 52rem at 14% 32%, var(--ambient), transparent 72%),
                 radial-gradient(56rem 42rem at 96% 108%, var(--glow), transparent 70%),
                 var(--ground);
-            outline: none;
+            pointer-events: none;
+        }
+
+        .mx-master {
+            position: relative;
+            isolation: isolate;
+        }
+
+        .mx-plate {
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Rich, while it opens or closes (mixerMove): the view is a window,
+           moved and scaled from the card's rectangle to just past the screen's
+           edges, with rounded corners; the stage inside gets the inverse
+           transform, so nothing in it moves or stretches. */
+        #mixer-view.mx-revealing {
+            overflow: hidden;
+            transform-origin: 0 0;
+        }
+
+        /* Closed (rich): parked just below the screen, inert, its layers kept
+           rastered (Chrome rasters what lies near the screen), like the
+           soundboard's plate: hidden, every opening rastered it all again. */
+        #mixer-view.mx-parked {
+            transform: translateY(calc(100% + 2rem));
+        }
+
+        .mx-revealing .mx-stage {
+            transform-origin: 0 0;
         }
 
         .mx-bay {
@@ -2521,36 +2568,24 @@
             transition: transform 550ms var(--spring);
         }
 
+        /* Closing, the caps land with the card (and the same curve) instead of
+           springing past the moment the master goes back into it. */
+        .mx-closing .mx-glide :is(.slider-fill, .fader-carrier) {
+            transition: transform var(--mx-close-ms) var(--mx-close-ease);
+        }
+
         /* The displays slide over their faders' slots while it opens. */
         .mx-master > * > .scribble {
             position: relative;
             z-index: 1;
         }
 
-        /* What the transition moves is a layer for as long as the mixer shows,
-           so it starts and ends without rastering (DESIGN.md §8.1). So are the
-           master plate and the room's light (::before): the view's clip-path
-           grows on the main thread, and whatever #mixer-view paints itself was
-           re-rastered on every frame of it (see #clock-view). */
-        [data-fx="rich"] #mixer-view :is(.mx-bay, .mx-master, .mx-master > * > .scribble, .mx-master .enc-group, .mx-master .fader-scale) {
+        /* What the transition moves or fades is a layer for as long as the mixer
+           shows, so it starts and ends without rastering (DESIGN.md §8.1). The
+           stage too: what it paints itself (the master's tracks and keys) would
+           otherwise move between layers as each transition starts and ends. */
+        [data-fx="rich"] #mixer-view :is(.mx-stage, .mx-room, .mx-plate, .mx-bay, .mx-master > * > .scribble, .mx-master .enc-group, .mx-master .fader-scale) {
             will-change: transform, opacity;
-        }
-
-        [data-fx="rich"] #mixer-view {
-            background: none;
-        }
-
-        [data-fx="rich"] #mixer-view::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            z-index: -1;
-            background:
-                radial-gradient(70rem 52rem at 14% 32%, var(--ambient), transparent 72%),
-                radial-gradient(56rem 42rem at 96% 108%, var(--glow), transparent 70%),
-                var(--ground);
-            will-change: transform;
-            pointer-events: none;
         }
 
         /* ── Macro keys: display keys, a screen inside each cap ───────────── */
@@ -3131,6 +3166,15 @@
 
         /* Behind a dialog in that window, nothing animates (see holdDashboard). */
         :where([data-held]) :is(.top-bar, #view-wrapper) * {
+            animation-play-state: paused !important;
+        }
+
+        /* Under the full-screen clock or mixer (any tier), what animates for good
+           stops: the speaking pulse kept the compositor drawing every frame under
+           the mixer. Named, not `*`: flipping [data-covered] restyled every
+           element of the dashboard, ~25 ms before an opening's first frame. */
+        :where([data-covered]) :is(.batt-fill, .gauge-arc, .speed-line svg.lucide, .speed-wait span),
+        :where([data-covered]) .vc-avatar::after {
             animation-play-state: paused !important;
         }
 
@@ -5120,6 +5164,8 @@
     <!-- Full-screen mixer: the master section, moved here while open, with
          each app's strip beside it (playback left, recording right). -->
     <div id="mixer-view" role="dialog" aria-modal="true" aria-label="Mixer" tabindex="-1" hidden>
+        <div class="mx-stage" id="mx-stage">
+        <div class="mx-room" id="mx-room" aria-hidden="true"></div>
         <section class="card panel mx-bay" id="mx-out" data-dir="out" aria-labelledby="mx-out-title">
             <div class="panel-head mx-head">
                 <h2 class="panel-title" id="mx-out-title"><i data-lucide="volume-2"></i>Playback</h2>
@@ -5128,7 +5174,7 @@
             <div class="mx-strips" id="mx-out-strips"></div>
             <div class="mx-empty" id="mx-out-empty"><i data-lucide="volume-x"></i>No app is playing sound</div>
         </section>
-        <section class="card panel slider-section mx-master" id="mx-master" aria-label="Master"></section>
+        <section class="panel slider-section mx-master" id="mx-master" aria-label="Master"><div class="card mx-plate" id="mx-plate" aria-hidden="true"></div></section>
         <section class="card panel mx-bay" id="mx-in" data-dir="in" aria-labelledby="mx-in-title">
             <div class="panel-head mx-head">
                 <h2 class="panel-title" id="mx-in-title"><i data-lucide="mic"></i>Recording</h2>
@@ -5137,6 +5183,7 @@
             <div class="mx-strips" id="mx-in-strips"></div>
             <div class="mx-empty" id="mx-in-empty"><i data-lucide="mic-off"></i>No app is using the mic</div>
         </section>
+        </div>
     </div>
 
     <div class="desktop-titlebar" id="desktop-titlebar">
@@ -9241,10 +9288,10 @@
         // into #mixer-view, which uses the dashboard's own columns: it keeps its
         // place and grows to the full height. Each app playing sound gets a
         // strip on the left, each app recording one on the right.
-        // Rich: it grows out of the card (a clip-path, like the full-screen
-        // clock); the channel displays ride the top edge up, the encoder follows
-        // the new centre, the caps glide to where the longer travel puts them and
-        // the bays slide out from the master. Closing runs it back into the card.
+        // Rich: it grows out of the card (mixerMove); the channel displays ride
+        // the top edge up, the encoder follows the new centre, the caps glide to
+        // where the longer travel puts them and the bays slide out from the
+        // master. Closing runs it back into the card.
         // Lite and reduced motion: it swaps in one frame, and on lite the
         // dashboard behind holds still while the master stays live.
         // Levels come as audio_apps only while a screen shows it (audio_apps_watch).
@@ -9254,9 +9301,9 @@
         const mixerKey = document.getElementById('btn-mixer');
         const mixerParts = Array.from(mixerCard.children);   // the two channel strips and the encoder
         const mixerBays = [document.getElementById('mx-out'), document.getElementById('mx-in')];
-        const MIXER_OPEN_S = 0.55, MIXER_CLOSE_S = 0.42, MIXER_BAY_SHIFT_REM = 3;
+        const MIXER_OPEN_MS = 550, MIXER_CLOSE_MS = 420, MIXER_BAY_SHIFT_REM = 3;
         const MIXER_DIRS = ['out', 'in'];
-        let mixerOpen = false, mixerTl = null, mixerGeo = null;
+        let mixerOpen = false, mixerGeo = null;
         let mixerAppsRead = false;   // a reading arrived since it opened: "no app" can be said
 
         function mixerRich() {
@@ -9276,6 +9323,7 @@
             mixerKey.hidden = !on;
             if (!on) closeMixer();
             else if (mixerOpen) sendSocket('audio_apps_watch', { on: true });
+            if (!mixerOpen && !mixerClosing) mixerPark(true);   // parked (rich) or hidden
         }
 
         function toggleMixer(open = !mixerOpen) {
@@ -9299,22 +9347,151 @@
         const remPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const midX = r => r.left + r.width / 2, midY = r => r.top + r.height / 2;
 
-        // The reveal: the card as an inset of the mixer's box, tweened as plain
-        // numbers. Tweening the clip-path string misread it: with equal sides
-        // the browser shortens it (inset(t r b round R)) and the radius was
-        // taken for an edge.
-        const mixerClip = { t: 0, r: 0, b: 0, l: 0, rad: 0 };
-        function mixerCardInset() {
-            const r = mixerCard.getBoundingClientRect(), v = mixerView.getBoundingClientRect();
-            const px = n => Math.max(0, n);
-            return { t: px(r.top - v.top), r: px(v.right - r.right), b: px(v.bottom - r.bottom), l: px(r.left - v.left),
-                     rad: parseFloat(getComputedStyle(mixerCard).borderTopLeftRadius) || 0 };
+        // The reveal (rich). #mixer-view is a window onto .mx-stage: moved and
+        // scaled from the card's rectangle to a box just past the screen's edges
+        // while the stage gets the inverse, so what is in it neither moves nor
+        // stretches. overflow: hidden rounds the window's corners (circular: an
+        // elliptical radius needs a mask layer), which end off screen; while it
+        // runs, the view is that larger box, so its scale never passes 1. The
+        // window, the stage and the travelling displays are set once a frame
+        // from here, not by Web Animations: Chrome rasters a layer under an
+        // animated scale at the largest scale the animation reaches, and the
+        // stage's inverse peaks near 2.6× (measured on a Redmi Pad 2: the bays
+        // rastered at 2×, the room at 1.3×, for as long as the mixer stayed
+        // open). Set per frame, the two scales cancel and all of it rasters at
+        // 1×. The fades and the bays' slides are Web Animations. The room's light
+        // and the master's plate fade in as it leaves the card and out as it
+        // lands, so at both ends the card itself shows and nothing pops when the
+        // master moves. Closed, the view waits just below the screen (inert)
+        // with its layers rastered, like the soundboard's plate. Up to v0.13.3 an
+        // animated clip-path did this: every frame re-rastered its mask on the
+        // main thread (35-45 fps, ~0.4 s before anything moved, a stall at the end).
+        const mixerStage = document.getElementById('mx-stage');
+        const mixerRoom = document.getElementById('mx-room');
+        const mixerPlate = document.getElementById('mx-plate');
+        const MIXER_RADIUS_K = 2;   // the window's corners, as a multiple of the card's
+        let mixerAnims = [];        // the running transition's Web Animations
+        let mixerRun = 0;           // the newest transition; older timers stand down
+        let mixerClosing = false;   // the caps glide to the card: readings wait
+        let mixerRest = null;       // the view's resting box while a transition enlarges it
+        let mixerMotion = null;     // { win, items }: where the window and the displays are
+        let mixerFrame = 0;         // the requestAnimationFrame moving them
+
+        const lerp = (a, b, p) => a + (b - a) * p;
+
+        // Closed: parked below the screen (rich, once the server has app levels), else hidden.
+        function mixerPark(on) {
+            const park = document.documentElement.dataset.fx === 'rich' && !mixerKey.hidden;
+            mixerView.hidden = on && !park;
+            mixerView.classList.toggle('mx-parked', on && park);
+            mixerView.inert = on;
         }
-        function applyMixerClip() {
-            const c = mixerClip, f = n => n.toFixed(1) + 'px';
-            mixerView.style.clipPath = `inset(${f(c.t)} ${f(c.r)} ${f(c.b)} ${f(c.l)} round ${f(c.rad)})`;
+
+        // The view's resting box (the desktop window's title bar may push it
+        // down), and while a transition runs the margin it is enlarged by.
+        function mixerBox() {
+            if (mixerRest) return mixerRest;
+            return { left: mixerView.offsetLeft, top: mixerView.offsetTop, w: mixerView.offsetWidth, h: mixerView.offsetHeight, m: 0 };
         }
-        const MIXER_CLIP_OPEN = { t: 0, r: 0, b: 0, l: 0, rad: 0 };
+
+        // The view becomes the window: a box `m` past the screen on each side
+        // (round corners of radius r fit in it), the stage back in place inside.
+        function mixerBegin(r) {
+            if (mixerRest) return;
+            const box = mixerBox(), m = Math.ceil(0.3 * r) + 2;
+            mixerRest = { ...box, m, top0: mixerView.style.top };
+            Object.assign(mixerView.style, {
+                top: `${box.top - m}px`, left: `${-m}px`, right: `${-m}px`, bottom: `${-m}px`, borderRadius: `${r}px`,
+            });
+            Object.assign(mixerStage.style, { top: `${m}px`, left: `${m}px`, right: `${m}px`, bottom: `${m}px` });
+            mixerView.classList.add('mx-revealing');
+        }
+
+        // A screen rectangle in the view's coordinates.
+        function mixerRect(r, box) {
+            return { x: r.left - box.left, y: r.top - box.top, w: r.width, h: r.height };
+        }
+
+        // The window's own box: an opening's end, its corners off screen.
+        function mixerFull(box) {
+            return { x: -box.m, y: -box.m, w: box.w + 2 * box.m, h: box.h + 2 * box.m };
+        }
+
+        // Window, stage and the displays (offsets) from one place to another, on
+        // a curve, a step each frame. The two transforms are set together, so
+        // they cancel exactly.
+        function mixerMove(items, from, to, ms, ease) {
+            cancelAnimationFrame(mixerFrame);
+            const f = gsap.parseEase(ease), box = mixerBox(), full = mixerFull(box);
+            const t0 = performance.now();
+            const set = (p) => {
+                const win = { x: lerp(from.win.x, to.win.x, p), y: lerp(from.win.y, to.win.y, p),
+                              w: lerp(from.win.w, to.win.w, p), h: lerp(from.win.h, to.win.h, p) };
+                // The window's origin is at (-m, -m), the stage's at (m, m) inside it.
+                const tx = win.x + box.m, ty = win.y + box.m, sx = win.w / full.w, sy = win.h / full.h;
+                mixerView.style.transform = `translate(${tx}px, ${ty}px) scale(${sx}, ${sy})`;
+                mixerStage.style.transform = `translate(${(box.m - tx) / sx - box.m}px, ${(box.m - ty) / sy - box.m}px) scale(${1 / sx}, ${1 / sy})`;
+                const at = items.map((el, i) => {
+                    const o = { x: lerp(from.items[i].x, to.items[i].x, p), y: lerp(from.items[i].y, to.items[i].y, p) };
+                    el.style.transform = `translate(${o.x}px, ${o.y}px)`;
+                    return o;
+                });
+                mixerMotion = { win, items: at };
+            };
+            const step = (now) => {
+                const u = Math.max(0, Math.min(1, (now - t0) / ms));
+                set(f(u));
+                mixerFrame = u < 1 ? requestAnimationFrame(step) : 0;
+            };
+            set(0);
+            mixerFrame = requestAnimationFrame(step);
+        }
+
+        function mixerAnimate(el, keyframes, opts) {
+            const a = el.animate(keyframes, { fill: 'both', ...opts });
+            mixerAnims.push(a);
+            return a;
+        }
+
+        // Turning around: the moves stop where they are (mixerMotion), the fades
+        // leave their values inline, and the next transition starts from there.
+        function mixerFreeze() {
+            cancelAnimationFrame(mixerFrame);
+            mixerFrame = 0;
+            mixerAnims.forEach(a => { try { a.commitStyles(); } catch (err) { /* not rendered */ } });
+            mixerAnims.forEach(a => a.cancel());
+            mixerAnims = [];
+        }
+
+        // Steps run on timers, not on frames or finished promises (see sbAfter).
+        function mixerAfter(run, ms, fn) {
+            setTimeout(() => { if (run === mixerRun) fn(); }, ms);
+        }
+
+        // The same curve for a CSS transition (the caps' glide).
+        function cssEase(ease, fallback) {
+            const f = gsap.parseEase(ease), n = 24;
+            const v = 'linear(' + Array.from({ length: n + 1 }, (_, i) =>
+                `${f(i / n).toFixed(4)} ${(100 * i / n).toFixed(2)}%`).join(', ') + ')';
+            return CSS.supports('transition-timing-function', v) ? v : fallback;
+        }
+
+        // What a transition leaves inline, and its classes.
+        function mixerClear(items, scales) {
+            mixerFreeze();
+            mixerAnims = [];
+            mixerMotion = null;
+            mixerView.classList.remove('mx-revealing', 'mx-closing');
+            ['transform', 'border-radius', 'left', 'right', 'bottom', '--mx-close-ms', '--mx-close-ease'].forEach(p => mixerView.style.removeProperty(p));
+            if (mixerRest) mixerView.style.top = mixerRest.top0;
+            mixerRest = null;
+            ['transform', 'top', 'left', 'right', 'bottom'].forEach(p => mixerStage.style.removeProperty(p));
+            items.forEach(el => el.style.removeProperty('transform'));
+            [...mixerBays, ...scales, mixerRoom, mixerPlate].forEach(el => {
+                el.style.removeProperty('opacity');
+                el.style.removeProperty('transform');
+            });
+        }
 
         // Put a track's cap at `from` without its transition, then let it glide to `to`.
         function mixerGlide(track, to, from = null) {
@@ -9332,14 +9509,16 @@
         function openMixer() {
             if (mixerOpen || mixerKey.hidden) return;
             mixerOpen = true;
+            mixerClosing = false;
+            const run = ++mixerRun;
             const rich = mixerRich();
             const fresh = !mixerMaster.contains(mixerParts[0]);   // false: it is still closing
-            if (mixerTl) { mixerTl.kill(); mixerTl = null; }
             if (fresh) {
                 // Reads first: where everything is in the card, before it moves.
                 const { items, tracks } = mixerPieces();
                 mixerGeo = rich ? {
                     card: mixerCard.getBoundingClientRect(),
+                    radius: parseFloat(getComputedStyle(mixerCard).borderTopLeftRadius) || 0,
                     items: items.map(el => el.getBoundingClientRect()),
                     tracks: tracks.map(t => ({ rect: t.getBoundingClientRect(), half: capHalfOf(t) })),
                 } : null;
@@ -9347,7 +9526,7 @@
                 const titlebar = document.getElementById('desktop-titlebar');
                 mixerView.style.top = titlebar && titlebar.offsetHeight ? titlebar.offsetHeight + 'px' : '';
                 mixerMaster.append(...mixerParts);
-                mixerView.hidden = false;
+                mixerPark(false);
             }
             setMixerKey(true);
             if (fresh) mixerAppsRead = false;
@@ -9360,82 +9539,100 @@
 
             const { items, tracks, scales } = mixerPieces();
             const shift = MIXER_BAY_SHIFT_REM * remPx();
+            let from;
             if (fresh) {
-                // Then start each piece from where it was in the card.
-                // By centres: the encoder sits centred in a taller group here.
+                // Each piece starts from where it was in the card. By centres:
+                // the encoder sits centred in a taller group here.
                 const now = items.map(el => el.getBoundingClientRect());
                 const glideFrom = tracks.map((t, i) => {
                     const g = mixerGeo.tracks[i];
                     return levelAt(t.getBoundingClientRect(), g.half, capY(g.rect, g.half, trackLevel(t)));
                 });
-                Object.assign(mixerClip, mixerCardInset());
-                applyMixerClip();
-                items.forEach((el, i) => gsap.set(el, {
-                    x: midX(mixerGeo.items[i]) - midX(now[i]), y: midY(mixerGeo.items[i]) - midY(now[i]),
-                }));
-                gsap.set(mixerBays[0], { x: shift, autoAlpha: 0 });
-                gsap.set(mixerBays[1], { x: -shift, autoAlpha: 0 });
-                gsap.set(scales, { autoAlpha: 0 });
+                from = {
+                    win: mixerRect(mixerGeo.card, mixerBox()),
+                    items: items.map((el, i) => ({
+                        x: midX(mixerGeo.items[i]) - midX(now[i]), y: midY(mixerGeo.items[i]) - midY(now[i]),
+                    })),
+                };
+                mixerBegin(MIXER_RADIUS_K * mixerGeo.radius);
+                mixerBays.forEach((b, i) => {
+                    b.style.transform = `translateX(${i ? -shift : shift}px)`;
+                    b.style.opacity = '0';
+                });
+                [...scales, mixerRoom, mixerPlate].forEach(el => { el.style.opacity = '0'; });
                 tracks.forEach((t, i) => mixerGlide(t, trackLevel(t), glideFrom[i]));
             } else {
+                mixerFreeze();
+                mixerView.classList.remove('mx-closing');
+                from = mixerMotion;
                 tracks.forEach(t => mixerGlide(t, trackLevel(t)));
             }
-            mixerTl = gsap.timeline({
-                defaults: { duration: MIXER_OPEN_S, ease: 'power3.out' },
-                onComplete: () => {
-                    mixerTl = null;
-                    mixerView.style.clipPath = '';
-                    gsap.set([...items, ...mixerBays, ...scales], { clearProps: 'transform,opacity,visibility' });
-                    tracks.forEach(t => t.classList.remove('mx-glide'));
-                },
+            mixerMove(items, from, { win: mixerFull(mixerBox()), items: items.map(() => ({ x: 0, y: 0 })) },
+                MIXER_OPEN_MS, 'power3.out');
+            const out = 'cubic-bezier(0.22, 1, 0.36, 1)';
+            [mixerRoom, mixerPlate].forEach(el => mixerAnimate(el, [{ opacity: 1 }], { duration: MIXER_OPEN_MS * 0.4, easing: out }));
+            mixerBays.forEach(b => mixerAnimate(b, [{ opacity: 1, transform: 'none' }], { duration: 400, delay: 60, easing: out }));
+            scales.forEach(s => mixerAnimate(s, [{ opacity: 1 }], { duration: 300, delay: 200, easing: out }));
+            mixerAfter(run, MIXER_OPEN_MS, () => {
+                mixerClear(items, scales);
+                tracks.forEach(t => t.classList.remove('mx-glide'));
             });
-            mixerTl.to(mixerClip, { ...MIXER_CLIP_OPEN, onUpdate: applyMixerClip }, 0)
-                .to(items, { x: 0, y: 0 }, 0)
-                .to(mixerBays, { x: 0, autoAlpha: 1, duration: 0.4 }, 0)
-                .to(scales, { autoAlpha: 1, duration: 0.3 }, 0.2);
         }
 
         function closeMixer() {
             if (!mixerOpen) return;
             mixerOpen = false;
+            const run = ++mixerRun;
             sendSocket('audio_apps_watch', { on: false });
             setMixerKey(false);
             npMarquee.pause(false, 'mixer');
-            if (mixerTl) { mixerTl.kill(); mixerTl = null; }
             if (!mixerRich() || !mixerGeo) { mixerDone(); return; }
+            mixerClosing = true;
+            mixerFreeze();   // an opening still running stops where it is
 
             // Back to where each piece sits in the card (the card may have moved: a resize).
             const { items, tracks, scales } = mixerPieces();
+            mixerBegin(MIXER_RADIUS_K * mixerGeo.radius);   // already, if an opening turned around
+            const box = mixerBox();
             const card = mixerCard.getBoundingClientRect();
             const dx = card.left - mixerGeo.card.left, dy = card.top - mixerGeo.card.top;
             const shift = MIXER_BAY_SHIFT_REM * remPx();
-            const now = items.map(el => {   // where each sits here, without the transform it may still have
-                const r = el.getBoundingClientRect();
-                return { left: r.left - gsap.getProperty(el, 'x'), top: r.top - gsap.getProperty(el, 'y'),
-                         width: r.width, height: r.height };
+            const from = mixerMotion || { win: mixerFull(box), items: items.map(() => ({ x: 0, y: 0 })) };
+            const targets = items.map((el, i) => {   // where each sits here, less the offset it has now
+                const r = el.getBoundingClientRect(), o = from.items[i];
+                return { x: midX(mixerGeo.items[i]) + dx - (midX(r) - o.x), y: midY(mixerGeo.items[i]) + dy - (midY(r) - o.y) };
             });
+            // The caps land with the card, on its curve.
+            mixerView.style.setProperty('--mx-close-ms', MIXER_CLOSE_MS + 'ms');
+            mixerView.style.setProperty('--mx-close-ease', cssEase('power3.inOut', 'ease-in-out'));
+            mixerView.classList.add('mx-closing');
             tracks.forEach((t, i) => {
                 const g = mixerGeo.tracks[i];
                 const old = { top: g.rect.top + dy, height: g.rect.height };
                 mixerGlide(t, levelAt(t.getBoundingClientRect(), g.half, capY(old, g.half, trackLevel(t))));
             });
-            if (!mixerView.style.clipPath) Object.assign(mixerClip, MIXER_CLIP_OPEN);   // settled open
-            mixerTl = gsap.timeline({ defaults: { duration: MIXER_CLOSE_S, ease: 'power3.inOut' }, onComplete: mixerDone });
-            mixerTl.to(mixerClip, { ...mixerCardInset(), onUpdate: applyMixerClip }, 0);
-            items.forEach((el, i) => mixerTl.to(el, {
-                x: midX(mixerGeo.items[i]) + dx - midX(now[i]), y: midY(mixerGeo.items[i]) + dy - midY(now[i]),
-            }, 0));
-            mixerTl.to(mixerBays[0], { x: shift, autoAlpha: 0, duration: 0.3, ease: 'power2.in' }, 0)
-                .to(mixerBays[1], { x: -shift, autoAlpha: 0, duration: 0.3, ease: 'power2.in' }, 0)
-                .to(scales, { autoAlpha: 0, duration: 0.2, ease: 'power2.in' }, 0);
+            mixerMove(items, from, { win: mixerRect(card, box), items: targets }, MIXER_CLOSE_MS, 'power3.inOut');
+            // The bays and scales go before the window's edges reach them; the
+            // room and the plate as it lands, onto the card.
+            const quick = { duration: 150, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' };
+            mixerBays.forEach((b, i) => {
+                mixerAnimate(b, [{ opacity: 0 }], quick);
+                mixerAnimate(b, [{ transform: `translateX(${i ? -shift : shift}px)` }], { duration: 300, easing: 'cubic-bezier(0.32, 0, 0.67, 0)' });
+            });
+            scales.forEach(s => mixerAnimate(s, [{ opacity: 0 }], quick));
+            [mixerRoom, mixerPlate].forEach(el => mixerAnimate(el, [{ opacity: 0 }],
+                { duration: MIXER_CLOSE_MS * 0.45, delay: MIXER_CLOSE_MS * 0.55, easing: 'ease-in-out' }));
+            mixerAfter(run, MIXER_CLOSE_MS, mixerDone);
         }
 
         // Closed: the master goes back into its card, every cap at its level.
         function mixerDone() {
             if (mixerOpen) return;   // opened again meanwhile
-            mixerTl = null;
+            mixerClosing = false;
             const { items, tracks, scales } = mixerPieces();
             const hadFocus = mixerView.contains(document.activeElement);
+            const rich = !!mixerGeo && mixerRich();
+            mixerFreeze();
             mixerCard.append(...mixerParts);
             tracks.forEach(t => {
                 t.classList.remove('mx-glide');
@@ -9444,12 +9641,13 @@
                 getComputedStyle(t.querySelector('.fader-carrier')).transform;
                 t.classList.remove('mx-pin');
             });
-            mixerView.style.clipPath = '';
-            gsap.set([...items, ...mixerBays, ...scales], { clearProps: 'transform,opacity,visibility' });
-            mixerView.hidden = true;
+            mixerClear(items, scales);
+            mixerPark(true);
             mixerGeo = null;
             holdDashboard();
             if (hadFocus) mixerKey.focus({ preventScroll: true });
+            // The card's scales left with the mixer's: back, softly.
+            if (rich) scales.forEach(s => s.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' }));
         }
 
         // --- The apps' strips ---
@@ -9634,7 +9832,7 @@
 
             // While the mixer closes, the caps glide to their places in the card:
             // a reading now would pull them to the mixer's.
-            const settling = mixerTl !== null && !mixerOpen;
+            const settling = mixerClosing;
             if (!settling) upSpk(spk.vol, spk.muted);
             if (dom.iconSpk && dom.iconSpk.classList.contains('muted') !== spk.muted) {
                 dom.iconSpk.classList.toggle('muted', spk.muted);
@@ -9928,6 +10126,9 @@
         // It catches up as soon as the last dialog closes.
         let dashboardHeld = false;
         function holdDashboard() {
+            // Covered whole (any tier): what animates on the dashboard stops; the
+            // speaking pulse kept the compositor drawing every frame under the mixer.
+            document.documentElement.toggleAttribute('data-covered', clockViewOpen || mixerOpen);
             const held = document.documentElement.dataset.fx === 'lite'
                 && (clockViewOpen || mixerOpen || !!document.querySelector('.modal-overlay.active'));
             if (held === dashboardHeld) return;

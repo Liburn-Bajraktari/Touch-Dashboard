@@ -8,6 +8,7 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.PerformanceHintManager;
 import android.os.Process;
+import android.os.WorkDuration;
 import android.view.Display;
 import android.view.FrameMetrics;
 import android.view.Window;
@@ -142,6 +143,10 @@ final class FrameHints implements Window.OnFrameMetricsAvailableListener, Displa
      * The frame's work on the UI thread and the RenderThread (which includes
      * waiting for WebView's compositor), not the wait for the next vsync before
      * it started: that wait is not work and would only keep the clocks up.
+     * Android 15+ also takes the frame's GPU time and its whole span, so the
+     * HAL can raise the GPU's clock too: reporting CPU work alone, frames that
+     * waited on the GPU looked on time, and the Redmi Pad 2's GPU sat at
+     * ~570 MHz of its 1 GHz while the marquee ran at 57 fps.
      */
     @Override
     public void onFrameMetricsAvailable(Window window, FrameMetrics m, int dropped) {
@@ -154,7 +159,23 @@ final class FrameHints implements Window.OnFrameMetricsAvailableListener, Displa
                 + m.getMetric(FrameMetrics.SYNC_DURATION)
                 + m.getMetric(FrameMetrics.COMMAND_ISSUE_DURATION)
                 + m.getMetric(FrameMetrics.SWAP_BUFFERS_DURATION);
-        if (work > 0) s.reportActualWorkDuration(work);
+        if (work <= 0) return;
+        if (Build.VERSION.SDK_INT >= 35) {
+            long gpu = m.getMetric(FrameMetrics.GPU_DURATION);
+            long total = Math.max(work, m.getMetric(FrameMetrics.TOTAL_DURATION));
+            try {
+                WorkDuration w = new WorkDuration();
+                w.setWorkPeriodStartTimestampNanos(m.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP));
+                w.setActualTotalDurationNanos(total);
+                w.setActualCpuDurationNanos(work);
+                w.setActualGpuDurationNanos(Math.max(0, gpu));
+                s.reportActualWorkDuration(w);
+                return;
+            } catch (IllegalArgumentException e) {
+                // A metric this device does not fill: report the CPU work alone.
+            }
+        }
+        s.reportActualWorkDuration(work);
     }
 
     /** The panel switches between 90, 60 and 50 Hz: keep the target at its frame time. */
