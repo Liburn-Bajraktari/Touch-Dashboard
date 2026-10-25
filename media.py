@@ -24,6 +24,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -144,17 +145,21 @@ def _bare_title(title: str) -> str:
     return _TAB_COUNT.sub("", title).strip().casefold()
 
 
+def _without_site(bare: str, url: str) -> str | None:
+    """A bare tab title without the site's name at its end, when the page's
+    host carries that name ("YouTube" on www.youtube.com); else None."""
+    site = _TAB_SITE.search(bare)
+    host = (urllib.parse.urlsplit(url).hostname or "") if url else ""
+    words = re.findall(r"\w+", site.group(1)) if site else []
+    return bare[:site.start()] if host and words and all(w in host for w in words) else None
+
+
 def _title_forms(title: str, url: str) -> set[str]:
     """The ways a tab's title can read: as it is, without the count, and
     without the site's name, but only a name the page's host carries
     ("YouTube" on www.youtube.com), so "Song - Remix" stays itself."""
     bare = _bare_title(title)
-    forms = {title.strip().casefold(), bare}
-    site = _TAB_SITE.search(bare)
-    host = (urllib.parse.urlsplit(url).hostname or "") if url else ""
-    words = re.findall(r"\w+", site.group(1)) if site else []
-    if host and words and all(w in host for w in words):
-        forms.add(bare[:site.start()])
+    forms = {title.strip().casefold(), bare, _without_site(bare, url) or ""}
     return forms - {""}
 
 
@@ -198,9 +203,14 @@ def _lend(own: dict, copy: dict) -> dict:
     if copy["app"] == BROWSER_BRIDGE and copy["name"] != _PLAYER_NAMES[BROWSER_BRIDGE]:
         merged["name"] = copy["name"]
     url = copy["url"] or own["url"]
-    if not _same_title(own, copy, url):
+    # One page, and own has only the tab's title: Firefox shows Twitch as
+    # "Emiru - Twitch" while the bridge reads the stream's title and streamer.
+    page_title = (bool(own["url"]) and own["url"] == copy["url"] and bool(copy["title"])
+                  and _without_site(_bare_title(own["title"]), url) is not None
+                  and _without_site(_bare_title(copy["title"]), url) is None)
+    if not (page_title or _same_title(own, copy, url)):
         return merged          # the copy is on another track for now: nothing of it fits
-    if _is_page_title(own, copy, url):
+    if page_title or _is_page_title(own, copy, url):
         # own has only the tab's title; the copy read the page's metadata.
         for field in ("title", "artist", "album", "art"):
             merged[field] = copy[field] or own[field]
@@ -295,8 +305,10 @@ _copies = _Copies()
 def local_sources(players: list[dict], now: float | None = None) -> list[dict]:
     """dedupe(), less the copies whose browser let their item go: the
     browser's own player carried it and no longer does, or it sits at its
-    end. A copy no browser player ever carried stays, as in dedupe()."""
-    return _copies.settle(players, dedupe(players), time.monotonic() if now is None else now)
+    end. A copy no browser player ever carried stays, as in dedupe().
+    Live streams come out with live=True and no length (is_live)."""
+    kept = _copies.settle(players, dedupe(players), time.monotonic() if now is None else now)
+    return [{**p, "live": True, "length": None} if is_live(p) else p for p in kept]
 
 
 def _paused_rank(p: dict) -> tuple:
@@ -362,6 +374,104 @@ def merge_spotify(players: list[dict], spot: dict | None) -> list[dict]:
     return players + [spot]
 
 
+# ── Services and live streams ────────────────────────────────────────────────
+# A browser plays a service: the chip names the service by the page's host
+# (first match wins, so YouTube Music comes before YouTube), and the browser
+# only when the host is none of these.
+SERVICES = (
+    ("music.youtube.com", "YouTube Music"), ("youtube.com", "YouTube"), ("youtu.be", "YouTube"),
+    ("twitch.tv", "Twitch"), ("kick.com", "Kick"), ("netflix.com", "Netflix"),
+    ("primevideo.com", "Prime Video"), ("disneyplus.com", "Disney+"), ("max.com", "Max"),
+    ("hbomax.com", "Max"), ("hulu.com", "Hulu"), ("crunchyroll.com", "Crunchyroll"),
+    ("tv.apple.com", "Apple TV"), ("music.apple.com", "Apple Music"), ("open.spotify.com", "Spotify"),
+    ("soundcloud.com", "SoundCloud"), ("bandcamp.com", "Bandcamp"), ("deezer.com", "Deezer"),
+    ("tidal.com", "TIDAL"), ("music.amazon.com", "Amazon Music"), ("vimeo.com", "Vimeo"),
+    ("dailymotion.com", "Dailymotion"), ("mixcloud.com", "Mixcloud"),
+    ("paramountplus.com", "Paramount+"), ("peacocktv.com", "Peacock"), ("rumble.com", "Rumble"),
+    ("app.plex.tv", "Plex"), ("pandora.com", "Pandora"),
+)
+
+
+def _host(url: str) -> str:
+    try:
+        return (urllib.parse.urlsplit(url).hostname or "") if url else ""
+    except ValueError:
+        return ""
+
+
+def service_of(url: str) -> str:
+    """'https://www.twitch.tv/emiru' → 'Twitch'; '' for a site that is none of SERVICES."""
+    host = _host(url)
+    return next((name for domain, name in SERVICES if host == domain or host.endswith("." + domain)), "")
+
+
+def source_name(p: dict) -> str:
+    """The name the chip shows: the service a browser plays, else the player's own."""
+    return (service_of(p["url"]) or p["name"]) if p["app"] in BROWSERS else p["name"]
+
+
+# A browser reports a live stream's length as Infinity (Firefox and Chrome: the
+# largest int64 of µs, ~2.6 billion hours; the page showed "-2562047…"), or
+# none at all (KDE's bridge). A channel's own page on Twitch or Kick is live;
+# its videos have a length.
+LIVE_LENGTH_S = 10 * 365 * 86400.0          # longer than any recording
+_LIVE_PAGES = {"twitch.tv": re.compile(r"/([A-Za-z0-9_]{2,25})/?"),
+               "kick.com": re.compile(r"/([A-Za-z0-9_-]{2,40})/?")}
+_NOT_CHANNELS = frozenset({"directory", "videos", "video", "settings", "search", "downloads", "jobs",
+                           "p", "turbo", "subscriptions", "inventory", "wallet", "drops", "friends",
+                           "messages", "following", "categories", "browse", "clips"})
+
+
+def _channel_page(url: str) -> tuple[str, str] | None:
+    """(site, channel) for a channel's own page on Twitch or Kick."""
+    host = _host(url).removeprefix("www.").removeprefix("m.")
+    pattern = _LIVE_PAGES.get(host)
+    m = pattern.fullmatch(urllib.parse.urlsplit(url).path) if pattern else None
+    if not m or m.group(1).lower() in _NOT_CHANNELS:
+        return None
+    return host, m.group(1)
+
+
+def is_live(p: dict) -> bool:
+    if p["length"] is not None:
+        return p["length"] >= LIVE_LENGTH_S
+    return p["app"] in BROWSERS and _channel_page(p["url"]) is not None
+
+
+class _LiveEdge:
+    """Where the live edge is in the shown stream's own timeline. It moves
+    with the clock, playing or not; the position falls behind it when the
+    stream stalls, is paused or scrubbed back. A position past it (the player
+    caught up, or went back to live) moves it there."""
+
+    def __init__(self) -> None:
+        self._key: tuple | None = None
+        self._edge = self._from = self._at = 0.0
+
+    def note(self, p: dict, now: float) -> dict | None:
+        pos = p["position"]
+        if pos is None:
+            self._key = None
+            return None
+        key = (p["id"], p["url"] or p["title"])
+        if key != self._key:
+            self._key, self._edge, self._from = key, pos, pos
+        else:
+            self._edge = max(self._edge + (now - self._at), pos)
+            self._from = min(self._from, pos)
+        self._at = now
+        return {"edge": round(self._edge, 1), "from": round(self._from, 1)}
+
+
+_live_edge = _LiveEdge()
+
+
+def live_edge(p: dict, now: float | None = None) -> dict:
+    """sys_data's `live` for a live source: {edge, from} in its position's
+    timeline (from: the earliest position seen), or {} without a position."""
+    return _live_edge.note(p, time.monotonic() if now is None else now) or {}
+
+
 # ── Key layout ───────────────────────────────────────────────────────────────
 
 LONG_FORM_S = 600       # 10 min: episodes, films, long videos, mixes
@@ -400,10 +510,13 @@ def media_kind(p: dict) -> str:
 RESTART_AFTER_S = 3.0
 
 
-def prev_plan(position: float | None, caps: dict) -> str:
+def prev_plan(position: float | None, caps: dict, live: bool = False) -> str:
     """'restart' or 'prev'. Like Spotify's own key: past 3 s Previous goes
     back to the start, a second press goes to the previous item. A player
-    that cannot go back (a single video, Jellyfin's first episode) restarts."""
+    that cannot go back (a single video, Jellyfin's first episode) restarts.
+    A live stream has no start to go back to."""
+    if live:
+        return "prev"
     if caps.get("seek") and position is not None and position > RESTART_AFTER_S:
         return "restart"
     if not caps.get("prev") and caps.get("seek"):
@@ -416,7 +529,7 @@ def public_media(p: dict, art_url: str) -> dict:
     seven keys only)."""
     return {
         "status": p["status"], "artist": p["artist"], "title": p["title"], "art_url": art_url,
-        "player": p["name"], "position": p["position"], "length": p["length"],
+        "player": source_name(p), "position": p["position"], "length": p["length"],
         "caps": p["caps"], "kind": media_kind(p),
     }
 
@@ -461,10 +574,93 @@ def get_cover(h: str) -> tuple[bytes, str] | None:
     return (data, mime) if h and h == ch else None
 
 
+# Twitch gives a stream no cover: neither the browser's player nor KDE's
+# bridge has one. Its channel page's og:image is the streamer's profile
+# picture. Fetched once per channel in the background (the tick never waits)
+# from a URL built here, not the page's own, and served from memory like a
+# data: cover. Only images on Twitch's CDN, checked by their first bytes.
+PAGE_COVER_HOSTS = {"twitch.tv": ".jtvnw.net"}
+PAGE_HEAD_MAX = 512 * 1024      # og:image is in the page's <head>
+PAGE_COVER_TIMEOUT_S = 5
+PAGE_COVER_RETRY_S = 300.0
+PAGE_COVER_KEEP = 32
+_OG_IMAGE = re.compile(rb"""<meta\s[^>]*?(?:property|name)=["']og:image["'][^>]*>""", re.I)
+_CONTENT = re.compile(rb"""content=["']([^"']+)["']""", re.I)
+_page_covers: dict[str, tuple] = {}     # page → ("busy",) | ("failed", at) | (h, data, mime)
+_page_lock = threading.Lock()
+
+
+def cover_page(p: dict) -> str:
+    """The channel page whose picture stands in for a missing cover, or ''."""
+    page = _channel_page(p["url"]) if p["app"] in BROWSERS else None
+    if not page or page[0] not in PAGE_COVER_HOSTS:
+        return ""
+    return f"https://www.{page[0]}/{page[1].lower()}"
+
+
+def _image_type(data: bytes) -> str:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
+
+
+def _get_capped(session, url: str, cap: int) -> bytes:
+    with session.get(url, timeout=PAGE_COVER_TIMEOUT_S, stream=True,
+                     headers={"User-Agent": "Touch-Dashboard"}) as r:
+        r.raise_for_status()
+        data = b""
+        for chunk in r.iter_content(64 * 1024):
+            data += chunk
+            if len(data) > cap:
+                break
+        return data
+
+
+def _load_page_cover(page: str) -> None:
+    import requests  # type: ignore[import]
+    got: tuple = ("failed", time.monotonic())
+    try:
+        with requests.Session() as session:
+            m = _OG_IMAGE.search(_get_capped(session, page, PAGE_HEAD_MAX))
+            content = _CONTENT.search(m.group(0)) if m else None
+            img = content.group(1).decode("ascii", "replace").replace("&amp;", "&") if content else ""
+            cdn = PAGE_COVER_HOSTS[_host(page).removeprefix("www.")]
+            if urllib.parse.urlsplit(img).scheme != "https" or not _host(img).endswith(cdn):
+                raise ValueError(f"no picture on {cdn} in the page ({img[:80]!r})")
+            data = _get_capped(session, img, COVER_MAX_BYTES)
+            mime = _image_type(data)
+            if len(data) > COVER_MAX_BYTES or not mime:
+                raise ValueError("not a picture we serve")
+            got = (hashlib.md5(data).hexdigest(), data, mime)
+    except Exception as e:   # network, Twitch's page changed: no cover, try again later
+        logger.info(f"Cover from {page}: {e}")
+    with _page_lock:
+        _page_covers[page] = got
+
+
+def _page_cover(page: str) -> tuple | None:
+    """(h, data, mime) once fetched; None while it loads, or after it failed."""
+    with _page_lock:
+        got = _page_covers.get(page)
+        if got and len(got) == 3:
+            return got
+        if got and (got[0] == "busy" or time.monotonic() - got[1] < PAGE_COVER_RETRY_S):
+            return None
+        while len(_page_covers) >= PAGE_COVER_KEEP:
+            del _page_covers[next(iter(_page_covers))]
+        _page_covers[page] = ("busy",)
+    threading.Thread(target=_load_page_cover, args=(page,), name="page-cover", daemon=True).start()
+    return None
+
+
 def resolve_art(p: dict) -> str:
     """The cover URL for the page: '' for none, 'WAITING' while a new track's
     cover may still appear (the page keeps the previous one meanwhile)."""
-    global _last_mpris_path
+    global _last_mpris_path, _cover
     raw, key = p.get("art") or "", _art_key(p)
     if raw.startswith("data:") and _cover[0] == key:
         _art_wait["active"] = False
@@ -474,6 +670,12 @@ def resolve_art(p: dict) -> str:
         if _full_art["key"] != key:
             _full_art.update(key=key, raw=_playerctl_art(p.get("instance", "")))
         raw = _full_art["raw"]
+    page = "" if raw else cover_page(p)
+    got = _page_cover(page) if page else None
+    if got:
+        _cover = (key, *got)
+        _art_wait["active"] = False
+        return f"/api/local_art?h={got[0]}"
     if raw.startswith("data:"):
         _art_wait["active"] = False
         return _data_cover(key, raw)

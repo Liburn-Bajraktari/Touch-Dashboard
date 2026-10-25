@@ -941,7 +941,10 @@ def _now_playing(art_url: str) -> dict | None:
         **media_module.public_media(t, art_url),
         "liked": liked,
         "like_signin": like_signin,
-        "sources": [{"id": s["id"], "name": s["name"], "status": s["status"]} for s in media_sources],
+        "sources": [{"id": s["id"], "name": media_module.source_name(s), "status": s["status"]}
+                    for s in media_sources],
+        # A live stream: no length; {edge, from} place the bar against the live edge.
+        "live": media_module.live_edge(t) if t.get("live") else None,
         "source_id": t["id"],
         "pinned": media_pin is not None,
     }
@@ -3104,7 +3107,7 @@ async def _media_command(cmd: str, value: float | None = None, ws: WebSocket | N
         await _media_result(ws, cmd, True)    # sent blind: nothing to check
         return
     if cmd == "prev":
-        plan = media_module.prev_plan(await _media_position(t), t["caps"])
+        plan = media_module.prev_plan(await _media_position(t), t["caps"], bool(t.get("live")))
         ok = await _media_do(t, "seek", 0.0) if plan == "restart" else await _media_do(t, "prev")
     elif cmd == "seek_to":
         if t["length"]:

@@ -6524,14 +6524,14 @@
 
         // --- Reconnecting (the Android app) ---
         // A dropped link (the PC restarting after an update, Wi-Fi, the tablet
-        // waking up) comes back by itself: attempts after 1, 2, 3 and 5 s,
+        // waking up) comes back by itself: 5 attempts after 5 s each,
         // counted down on screen, and at once when the app returns to the front
-        // or the network comes back. After the fourth failed attempt it stops
+        // or the network comes back. After the fifth failed attempt it stops
         // and shows the address form, filled in with the PC's address, saying
         // why. Only a PC the app reached before is retried (connectSource
         // 'auto'); an address typed into the form that fails goes back to the
         // form with the error.
-        const RECONNECT_DELAYS_S = [1, 2, 3, 5];
+        const RECONNECT_DELAYS_S = [5, 5, 5, 5, 5];
         const RECONNECT_TRIES = RECONNECT_DELAYS_S.length;
         let connectSource = 'auto';   // 'manual': the address form started this attempt
         let reconnect = null;         // {ip, attempt, timer, tick, at} while retrying
