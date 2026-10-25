@@ -330,3 +330,95 @@ def test_monitor_metadata():
                                "pid": 42}])[0]
     assert (rec["name"], rec["app"], rec["id"]) == ("Jellium Desktop", "jelliumdesktop", "mpris:JelliumDesktop.instance_1")
     assert (rec["pid"], rec["media_pid"]) == (42, None)
+
+
+# ── MPRIS monitor: brief pauses ──────────────────────────────────────────────
+
+FF_BUS = "org.mpris.MediaPlayer2.firefox.instance_1_87"
+
+
+class _Params:
+    def __init__(self, *values):
+        self._values = values
+
+    def unpack(self):
+        return self._values
+
+
+def _monitor(status="Playing"):
+    """A monitor with one player and no D-Bus: timers are collected, not run."""
+    import mpris_monitor
+    m = mpris_monitor.MprisMonitor()
+    m._owners[":1.5"] = FF_BUS
+    m._players[FF_BUS] = {
+        "identity": "Firefox", "status": status, "meta": mpris_monitor.parse_metadata({}),
+        "position": 10.0, "position_at": time.monotonic(), "rate": 1.0,
+        "caps": {"prev": True, "next": True, "seek": True}, "started": 1.0, "pid": None,
+        "held": None, "held_at": 0.0,
+    }
+    timers, notified = [], []
+    m._later = lambda seconds, fn, *args: timers.append((seconds, fn, args))
+    m.position = lambda bus: None
+    m.on_change = lambda: notified.append(1)
+    return m, timers, notified
+
+
+def _status(m, status):
+    m._on_properties_changed(None, ":1.5", None, None, None,
+                             _Params("org.mpris.MediaPlayer2.Player", {"PlaybackStatus": status}, []))
+
+
+def _run(timers):
+    for _, fn, args in timers:
+        fn(*args)
+    timers.clear()
+
+
+def test_a_blip_of_pause_never_shows():
+    # Firefox reports ~100 ms pauses every few seconds while a video buffers.
+    import mpris_monitor
+    m, timers, _ = _monitor()
+    _status(m, "Paused")
+    assert m.players()[0]["status"] == "Playing"          # held
+    assert timers[0][0] == mpris_monitor.PAUSE_SETTLE_S
+    _status(m, "Playing")
+    _run(timers)
+    p = m.players()[0]
+    assert p["status"] == "Playing"
+    assert p["started"] == 1.0                            # not "started again": the card stays put
+
+
+def test_a_pause_that_lasts_shows_where_it_stopped():
+    m, timers, notified = _monitor()
+    _status(m, "Paused")
+    held_at = m._players[FF_BUS]["held_at"]
+    before = len(notified)
+    _run(timers)
+    p = m._players[FF_BUS]
+    assert p["status"] == "Paused" and p["held"] is None
+    assert p["position_at"] == held_at                    # frozen at the pause, not at the timer
+    assert len(notified) == before + 1
+
+
+def test_a_pause_after_a_blip_waits_its_own_time():
+    m, timers, _ = _monitor()
+    _status(m, "Paused")
+    _status(m, "Playing")                                 # blip
+    _status(m, "Paused")                                  # a real pause, a moment later
+    first, second = timers
+    first[1](*first[2])                                   # the blip's timer: not this pause's
+    assert m.players()[0]["status"] == "Playing"
+    second[1](*second[2])
+    assert m.players()[0]["status"] == "Paused"
+
+
+def test_stopping_while_held_and_resuming_after():
+    m, timers, _ = _monitor()
+    _status(m, "Paused")
+    _status(m, "Stopped")                                 # still one hold, now for Stopped
+    assert len(timers) == 1
+    _run(timers)
+    assert m.players()[0]["status"] == "Stopped"
+    _status(m, "Playing")                                 # a real resume shows at once
+    p = m.players()[0]
+    assert p["status"] == "Playing" and p["started"] > 1.0

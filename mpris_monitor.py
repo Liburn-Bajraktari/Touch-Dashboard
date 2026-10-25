@@ -41,6 +41,12 @@ NO_TRACK = "/org/mpris/MediaPlayer2/TrackList/NoTrack"
 CALL_TIMEOUT_MS   = 1000
 START_TIMEOUT_S   = 3.0
 POSITION_RESYNC_S = 10
+# Leaving Playing shows only once it has lasted this long. Firefox reports a
+# pause of ~100 ms every few seconds while a video buffers (measured: at 1, 3.4,
+# 8.5, 13.8 s...); each one flipped every screen's play key twice, repainted the
+# whole Linux window both times, and its resume re-stamped "started", so the
+# player could take the card from another one that was playing.
+PAUSE_SETTLE_S = 0.6
 
 
 def _text(value) -> str:
@@ -312,6 +318,8 @@ class MprisMonitor:
             # Found playing: as if it started now, after any found earlier.
             "started": now if status == "Playing" else 0.0,
             "pid": self._pid_of(owner),
+            "held": None,     # a status that left Playing, not shown yet (PAUSE_SETTLE_S)
+            "held_at": 0.0,
         }
         with self._lock:
             self._owners[owner] = bus
@@ -364,13 +372,18 @@ class MprisMonitor:
                 return
             if "PlaybackStatus" in changed:
                 status = str(changed["PlaybackStatus"])
-                if status != p["status"]:
+                if p["status"] == "Playing" and status != "Playing":
+                    # Shown as still playing until it lasts (_settle).
+                    if p["held"] is None:
+                        p["held_at"] = now
+                        self._later(PAUSE_SETTLE_S, self._settle, bus, now)
+                    p["held"] = status
+                elif status == "Playing" and p["held"] is not None:
+                    p["held"] = None        # a blip: it never stopped, nor started again
+                    reread_position = True  # it may have jumped meanwhile
+                elif status != p["status"]:
                     if status == "Playing":
                         p["started"] = now
-                    elif p["status"] == "Playing" and p["position"] is not None:
-                        # Freeze the extrapolated position where playback stopped.
-                        p["position"] += (now - p["position_at"]) * p["rate"]
-                        p["position_at"] = now
                     p["status"] = status
                     reread_position = True
             if "Metadata" in changed:
@@ -386,6 +399,27 @@ class MprisMonitor:
                     p["caps"][key] = bool(changed[prop])
         if reread_position:
             self.position(bus)
+        self._notify()
+
+    def _later(self, seconds: float, fn, *args) -> None:
+        """Run fn(*args) on the monitor thread after `seconds`."""
+        from gi.repository import GLib  # type: ignore[import-untyped]
+        src = GLib.timeout_source_new(int(seconds * 1000))
+        src.set_callback(lambda *_: (fn(*args), False)[1])
+        src.attach(self._context)
+
+    def _settle(self, bus: str, held_at: float) -> None:
+        """A status that left Playing at held_at and has lasted: show it."""
+        with self._lock:
+            p = self._players.get(bus)
+            if p is None or p["held"] is None or p["held_at"] != held_at:
+                return   # gone, back to playing, or a later pause holds its own timer
+            if p["position"] is not None:
+                # Freeze the extrapolated position where playback stopped.
+                p["position"] += (held_at - p["position_at"]) * p["rate"]
+                p["position_at"] = held_at
+            p["status"], p["held"] = p["held"], None
+        self.position(bus)
         self._notify()
 
     def _on_seeked(self, _conn, sender, _path, _iface, _signal, params, *_user) -> None:

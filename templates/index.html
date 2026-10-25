@@ -1290,6 +1290,16 @@
             white-space: nowrap;
         }
 
+        /* A scrolling line always has a transform, translateX(0) at rest. The
+           lite loop took it away at each lap's end and gave it back as the next
+           lap moved off, and WebKitGTK dropped and rebuilt the line's layer each
+           time: a full-window repaint at the reset, at each tick of the 2.5 s
+           rest, and three frames running at the restart (measured: 18 frames
+           over 35 ms a minute with a long title, now none). */
+        .marquee-wrapper.is-scrolling .marquee-content {
+            transform: translateX(0);
+        }
+
         /* An overflowing line is two copies of the text; the marquee script sizes
            each to a whole number of device pixels, gap included. */
         .marquee-copy {
@@ -1476,6 +1486,19 @@
             width: calc(var(--k) * 0.4);
             height: calc(var(--k) * 0.4);
             fill: currentColor;
+        }
+
+        /* Play and pause share one cell and swap by visibility, which repaints
+           only the key. Swapped by display, they re-laid out the page: a
+           full-window repaint in the Linux window, twice for each of a player's
+           brief pauses. */
+        .spot-ctrl .btn-play {
+            display: grid;
+            place-items: center;
+        }
+
+        .spot-ctrl .btn-play svg.lucide {
+            grid-area: 1 / 1;
         }
 
         /* The panel head: the like key (Spotify) and the source chip, which
@@ -1820,6 +1843,19 @@
         @keyframes digit-roll {
             from { transform: translateY(-0.32em); opacity: 0; }
             to { transform: none; opacity: 1; }
+        }
+
+        /* Lite: the digits roll by transform alone. Fading in from opacity 0 gave
+           each a layer of its own for the roll and took it away at the end, a
+           full-window repaint at both ends (measured: 6 frames over 35 ms each
+           minute, now 3). */
+        @keyframes digit-roll-lite {
+            from { transform: translateY(-0.32em); }
+            to { transform: none; }
+        }
+
+        :where([data-fx="lite"]) .dg.roll {
+            animation-name: digit-roll-lite;
         }
 
         .clock-date {
@@ -5774,7 +5810,7 @@
                         <button class="btn round np-key btn-play" id="btn-spot-play" onclick="act('spot_play')"
                             aria-label="Play or pause">
                             <i data-lucide="play" id="icon-spot-play"></i>
-                            <i data-lucide="pause" id="icon-spot-pause" style="display: none;"></i>
+                            <i data-lucide="pause" id="icon-spot-pause" style="visibility: hidden;"></i>
                         </button>
                         <button class="btn round np-key np-seek" onclick="npKey('fwd')"
                             aria-label="Forward 30 seconds"><i data-lucide="rotate-cw"></i><span class="np-n num"
@@ -7565,8 +7601,8 @@
             else stopProgressTimer();
         }
         function renderPlayIcon(playing) {
-            setDisplay(dom.iconSpotPlay, playing ? 'none' : '');
-            setDisplay(dom.iconSpotPause, playing ? '' : 'none');
+            setVisible(dom.iconSpotPlay, !playing);
+            setVisible(dom.iconSpotPause, playing);
         }
         // The reading as the page shows it: what a key changed holds until the
         // reading agrees (or the hold ends).
@@ -7640,7 +7676,7 @@
         }
         function npPlayNow() {
             // The play glyph is showing: this press plays.
-            const playing = dom.iconSpotPlay.style.display !== 'none';
+            const playing = dom.iconSpotPlay.style.visibility !== 'hidden';
             playPending = { playing, until: holdUntil() };
             renderPlayIcon(playing);
             moveClock({ playing });
@@ -8100,6 +8136,12 @@
 
         function setDisplay(el, value) {
             if (el && el.style.display !== value) el.style.display = value;
+        }
+
+        // Shown or hidden without a layout (the element keeps its box).
+        function setVisible(el, on) {
+            const value = on ? '' : 'hidden';
+            if (el && el.style.visibility !== value) el.style.visibility = value;
         }
 
         function setDiscordPanelVisible(show) {
