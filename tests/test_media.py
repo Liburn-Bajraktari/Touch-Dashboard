@@ -154,6 +154,76 @@ def test_bridge_of_another_process_or_a_stopped_browser_stays():
 YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 
+def _firefox(status="Paused", position=55.0):
+    return _p("mpris:firefox.instance_1_9", "firefox.instance_1_9", status, title="Video",
+              length=661.3, position=position, pid=900810)
+
+
+def _bridge(status="Paused", title="Video", position=55.0):
+    return _p("mpris:plasma-browser-integration", "plasma-browser-integration", status,
+              title=title, url=YT, length=661.3, position=position, media_pid=900810)
+
+
+def _ids(players):
+    return [p["id"] for p in players]
+
+
+@pytest.fixture
+def copies(monkeypatch):
+    monkeypatch.setattr(media, "_copies", media._Copies())
+
+
+def test_a_copy_its_browser_let_go_leaves_the_card(copies):
+    # Seen with Firefox: the video's window closed, Firefox's player left, and
+    # the bridge's stayed Paused on the video for good.
+    bridge = _bridge()
+    assert _ids(media.local_sources([_firefox(), bridge], now=0.0)) == ["mpris:firefox.instance_1_9"]
+    assert _ids(media.local_sources([bridge], now=1.0)) == [bridge["id"]]     # it may come back
+    assert _ids(media.local_sources([bridge], now=3.9)) == [bridge["id"]]
+    assert media.local_sources([bridge], now=4.0) == []
+
+
+def test_a_copy_its_browser_stopped_leaves_the_card(copies):
+    # Chrome's player stays on the bus and goes Stopped instead of leaving.
+    chrome = _p("mpris:chromium.instance7", "chromium.instance7", "Paused", title="Video", pid=900810)
+    bridge = _bridge()
+    assert _ids(media.local_sources([chrome, bridge], now=0.0)) == [chrome["id"]]
+    stopped = dict(chrome, status="Stopped", title="")
+    assert _ids(media.local_sources([stopped, bridge], now=1.0)) == [stopped["id"], bridge["id"]]
+    assert _ids(media.local_sources([stopped, bridge], now=4.0)) == [stopped["id"]]
+
+
+def test_a_copy_resumed_in_the_tab_waits_for_the_browser_again(copies):
+    media.local_sources([_firefox(), _bridge()], now=0.0)
+    media.local_sources([_bridge()], now=1.0)
+    playing = _bridge("Playing")
+    assert _ids(media.local_sources([playing], now=3.5)) == [playing["id"]]   # its status changed
+    assert _ids(media.local_sources([_firefox("Playing"), playing], now=4.0)) == ["mpris:firefox.instance_1_9"]
+    assert _ids(media.local_sources([playing], now=5.0)) == [playing["id"]]
+    assert media.local_sources([playing], now=8.0) == []
+
+
+def test_a_copy_on_another_item_or_never_carried_stays(copies):
+    media.local_sources([_firefox(), _bridge()], now=0.0)
+    other = _bridge(title="Next video", position=2.0)        # the tab went on; its browser player follows
+    assert _ids(media.local_sources([other], now=10.0)) == [other["id"]]
+    # A bridge with no browser player behind it (one that publishes none).
+    alone = _p("bridge", "plasma-browser-integration", "Paused", title="Song", length=200.0, position=80.0)
+    assert _ids(media.local_sources([alone], now=0.0)) == ["bridge"]
+    assert _ids(media.local_sources([alone], now=100.0)) == ["bridge"]
+    assert _ids(media.local_sources([_p("v", "vlc", "Paused", length=60.0, position=60.0)], now=0.0)) == ["v"]
+
+
+def test_a_copy_paused_at_its_end_leaves_the_card(copies):
+    # Firefox stops controlling media that ended. Found that way (the server
+    # started later), nothing says a browser carried it.
+    ended = _bridge(position=661.3)
+    assert _ids(media.local_sources([ended], now=0.0)) == [ended["id"]]
+    assert media.local_sources([ended], now=3.0) == []
+    near = _bridge("Playing", position=661.3)                # still playing: not ended
+    assert _ids(media.local_sources([near], now=10.0)) == [near["id"]]
+
+
 def test_bridge_copy_with_the_tab_title_gives_way_to_the_browsers_own():
     # Seen on YouTube in Chrome: the bridge could not read the page's media
     # metadata and published the tab's title, unread count first, and no cover.

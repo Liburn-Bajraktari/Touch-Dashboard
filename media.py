@@ -237,6 +237,68 @@ def dedupe(players: list[dict]) -> list[dict]:
     return [replace.get(p["id"], p) for p in players if p["id"] not in drop]
 
 
+# KDE's bridge can miss a tab closing (closing its window): its player then
+# stays Paused on that tab's item for good. The browser's own player does not:
+# Firefox drops its player when the tab closes or the media ends (it keeps a
+# paused tab for 24 h), Chrome's goes Stopped. Seen with a YouTube video that
+# played to its end in a window then closed: Firefox's player left at the end,
+# the bridge's stayed Paused at 11:01 of 11:01, and the card kept it.
+LET_GO_S = 3.0          # a browser player may leave and come back between two items
+END_SLACK_S = 1.0
+
+
+def _ended(p: dict) -> bool:
+    return (p["status"] != "Playing" and bool(p["length"]) and p["position"] is not None
+            and p["position"] >= p["length"] - END_SLACK_S)
+
+
+class _Copies:
+    """Copies standing alone with an item their browser let go (local_sources)."""
+
+    def __init__(self) -> None:
+        self._carried: dict[str, tuple] = {}   # copy id → its item when the browser's own player last had it
+        self._alone: dict[str, tuple] = {}     # copy id → ((item, status), since): let go, not dropped yet
+
+    def settle(self, players: list[dict], kept: list[dict], now: float) -> list[dict]:
+        kept_ids = {p["id"] for p in kept}
+        present, stale = set(), set()
+        for c in players:
+            if not (c["app"] == BROWSER_BRIDGE or c.get("media_pid")):
+                continue
+            present.add(c["id"])
+            item = (c["title"], c["url"])
+            if c["id"] not in kept_ids:          # dedupe() merged it: the browser carries it
+                self._carried[c["id"]] = item
+                self._alone.pop(c["id"], None)
+                continue
+            if self._carried.get(c["id"]) != item:
+                self._carried.pop(c["id"], None)  # another item since (or never carried)
+                if not _ended(c):
+                    self._alone.pop(c["id"], None)
+                    continue
+            # A change (resumed in the tab) waits for the browser's player again.
+            state = (item, c["status"])
+            held = self._alone.get(c["id"])
+            if held is None or held[0] != state:
+                held = self._alone[c["id"]] = (state, now)
+            if now - held[1] >= LET_GO_S:
+                stale.add(c["id"])
+        for known in (self._carried, self._alone):
+            for sid in [s for s in known if s not in present]:
+                del known[sid]
+        return [p for p in kept if p["id"] not in stale]
+
+
+_copies = _Copies()
+
+
+def local_sources(players: list[dict], now: float | None = None) -> list[dict]:
+    """dedupe(), less the copies whose browser let their item go: the
+    browser's own player carried it and no longer does, or it sits at its
+    end. A copy no browser player ever carried stays, as in dedupe()."""
+    return _copies.settle(players, dedupe(players), time.monotonic() if now is None else now)
+
+
 def _paused_rank(p: dict) -> tuple:
     # Never played since we started watching: Spotify, then the browser bridge.
     return (p["started"], p["app"] == "spotify", p["app"] == BROWSER_BRIDGE)
