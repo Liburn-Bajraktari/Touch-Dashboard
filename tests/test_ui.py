@@ -94,3 +94,20 @@ def test_screen_share_key_is_a_push_key():
     code = _script()
     assert not re.search(r"btnDiscScreen[^;\n]*vid-active", code)
     assert "pressKey(dom.btnDiscScreen)" in code
+
+
+def test_android_draws_round_corners():
+    """Squircle corners (corner-shape) made a Redmi Pad 2 raster the page with
+    MSAA and without partial raster: 6-7 fps in a Discord call, against 92-100
+    with round corners. Every squircle rule is scoped to
+    html[data-corners="squircle"], which themes.js does not set on Android."""
+    css = TEMPLATE.read_text(encoding="utf-8")
+    for m in re.finditer(r"corner-shape\s*:\s*squircle", css):
+        head = css[:m.start()]
+        if head.rstrip().endswith("@supports ("):
+            continue   # the feature test itself
+        brace = head.rindex("{")
+        selector = head[max(head.rindex("}", 0, brace), head.rindex("{", 0, brace)) + 1:brace]
+        assert '[data-corners="squircle"]' in selector, selector.strip()
+    themes = (TEMPLATE.parent.parent / "static" / "themes.js").read_text(encoding="utf-8")
+    assert re.search(r"dataset\.corners\s*=\s*/Android/\.test\(navigator\.userAgent\)\s*\?\s*'round'", themes)

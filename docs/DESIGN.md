@@ -137,11 +137,11 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `--light` | `applyAmbient()`, on one `.ambient` layer | The ambient light behind the dashboard: the colour that layer shows (unset: `--glow`) |
 | `--v` | the fader | 0–1, drives the lit slot and the cap by transform |
 | `--angle` | the encoder | Where the knob points |
-| `--sq` | `@supports (corner-shape: squircle)` | 1.6 where continuous corners exist, else 1 |
+| `--sq` | `@supports (corner-shape: squircle)` and `html[data-corners="squircle"]` | 1.6 where continuous corners are drawn, else 1 |
 
 ## 6. Shape
 
-- Continuous (squircle) corners on plates, keys, displays and dialogs where the engine supports `corner-shape` (Chromium 139+, so the Android app). Squircles need about 1.6× the radius to read the same, hence `--sq`. Round things (`.round`, knobs, LEDs, avatars) stay circles.
+- Continuous (squircle) corners on plates, keys, displays and dialogs where the engine supports `corner-shape` (Chromium 139+) and the GPU can afford them: not on Android, where `themes.js` sets `html[data-corners="round"]` and everything keeps round corners, as in the Linux window (§8.2). Squircles need about 1.6× the radius to read the same, hence `--sq`. Round things (`.round`, knobs, LEDs, avatars) stay circles.
 - Nested radii step down: plate → key → screen inside the key.
 - Discord's voice keys are a connected group: inner corners tight, outer corners round; a key that turns on morphs into a pill.
 
@@ -173,7 +173,7 @@ The desktop window on Linux is WebKitGTK with GPU compositing disabled (NVIDIA/X
 
 | Tier | Where | What changes |
 |---|---|---|
-| `rich` | Android app, browsers, Windows WebView2 | Everything in this file |
+| `rich` | Android app, browsers, Windows WebView2 | Everything in this file (Android: round corners, §8.2) |
 | `lite` | Linux desktop window (WebKitGTK) | No light spill (slot, LED, key glows), no speaking pulse, no ambient cross-fade (the light changes at once, by visibility), no first-load entrance; keys press and light without changing their shadow; the marquee steps a whole pixel every few frames and has no edge fade |
 
 ### What costs a full repaint in the Linux window
@@ -217,11 +217,31 @@ The rules that got there:
 - **Shadows never animate.** A shadow can only animate on the main thread, repainting the element every frame: keys swap to the press shade in one repaint while the compositor sinks them, and the play key's cover colour fades but its coloured shadow changes at once.
 - **What redraws every second is a small layer** (`will-change: transform`): the sparklines and the progress fill. So are the transport keys, which otherwise got a layer for each press's sink and lost it after the spring, re-rastering the card under them. Not the `.live` figure boxes: as layers they pulled ~25 overlapping elements into layers with them. Check the layer list after adding one (CDP `LayerTree`, compositing reason `Overlap`).
 - **The cover's colour sits on its consumers** (Now playing card, full-screen clock, lock screen, the full-screen mixer's room light), not `:root`: a new colour restyles those subtrees, not the page.
-- **The full-screen mixer** is opaque (it paints the room's light itself), so the dashboard under it composites as it was and never repaints. What its transition moves (the bays, the master's displays, encoder and scales) is a `will-change` layer for as long as it shows; its clip-path reveal repaints the mixer on each of its frames (Chrome cannot composite a clip-path), like the full-screen clock's, once per open and close. App levels are polled only while some screen shows it.
+- **The full-screen mixer** is opaque (it paints the room's light itself), so the dashboard under it composites as it was and never repaints. What its transition moves (the bays, the master plate, its displays, encoder and scales) and the room's light (`::before`) are `will-change` layers for as long as it shows, so its clip-path reveal re-rasters only the clip's mask on each frame (§8.2), like the full-screen clock's. App levels are polled only while some screen shows it.
 - The cover backdrop is the cover drawn into an 8×8 canvas and stretched: a blur with no filter cost.
 - Write text with `textContent`; never read `innerText` in an update path.
 - **A transition rasters nothing.** Everything it moves is a layer before it starts and after it ends (`will-change` on the rich tier), and nothing it starts or stops repaints the page: Chrome takes an element whose transform is animating to reach anywhere and promotes whatever paints after it, so rolling the top bar's controls (painted before the dashboard) pulled the whole dashboard into new layers at both ends; the top bar now paints last, and so does the clock panel, which is pressed like a key (a layer with `z-index: 3`; this also keeps the minute's digit roll from promoting the modules painted after it). A layer at opacity 0 is never rastered, so a hidden plate waits opaque just off screen, where Chrome pre-rasters it. Pausing an animation drops its layer too (the marquee pauses once the soundboard has settled, not as it starts). Never wait on `animation.finished` for a transition's next step: with everything on the compositor, Chrome may not render the main thread to settle it.
-- **Transitions are Web Animations of transform and opacity on few elements.** They run on the compositor and take the `linear()` springs as they are. Every element with a running animation is still restyled on the main thread each frame, so a stagger across many elements costs: pads rippling in one by one, even by opacity alone, halved the compositor's frames. Animate the container, not each item. A clip-path animation repaints its element every frame (Chrome cannot composite it). GSAP's CSS tweens read the target's computed style as each tween starts, staggered ones included, and convert `rem` through a temporary element, forcing style and layout mid-frame; keep GSAP for one-off moves of a few elements.
+- **Transitions are Web Animations of transform and opacity on few elements.** They run on the compositor and take the `linear()` springs as they are. Every element with a running animation is still restyled on the main thread each frame, so a stagger across many elements costs: pads rippling in one by one, even by opacity alone, halved the compositor's frames. Animate the container, not each item. A clip-path animation re-rasters its mask every frame and repaints whatever its element paints itself (Chrome cannot composite it, as a Web Animation either): the element paints nothing, its content is layers (§8.2). GSAP's CSS tweens read the target's computed style as each tween starts, staggered ones included, and convert `rem` through a temporary element, forcing style and layout mid-frame; keep GSAP for one-off moves of a few elements.
+
+### 8.2 Measured on the tablet itself
+
+The rules above came from Chrome emulating the tablet. On the Redmi Pad 2 itself (Helio G99-class, Mali-G57 MC2, 2560×1600 at 90 Hz, Android 16, WebView 155; wireless adb, Perfetto and WebView DevTools, AGENTS.md "Measuring on the tablet"), v0.13.2 against now, with a long title scrolling and one update a second:
+
+| | v0.13.2 | Now |
+|---|---|---|
+| Frames on every vsync | 50–96 % (53–85 fps) | 99–100 % (89–90 fps) |
+| The same in a Discord call (someone talking) | 26–44 %, 38–67 stalls over 100 ms in ~10 s | 94–98 %, worst frame 33 ms |
+| Touch to pressed key on screen, in a call | 128–1424 ms (median ~1 s) | 24–48 ms |
+| Render passes per frame | 6–7 | 2: the page and the marquee's edge fade |
+| GPU clock | pinned at 1 GHz | ~610 MHz average |
+
+What it took:
+
+- **No squircles on Android.** Chrome draws `corner-shape` corners as paths and their inset rims and shadow clips as non-convex ones; a layer with a few of those is rastered with MSAA and without partial raster, so each figure that changed once a second re-rastered a 2560×415 strip of the page, squircle shadows and all, on a GPU that then had nothing left for the frames. Round corners (`html[data-corners="round"]`, test-enforced) took the marquee from 63 to the panel's 90 fps and a call from 6–7 fps to 92–100.
+- **No layer inside a rounded clip.** An `overflow` clip with rounded corners around two or more layers (or one with an animation) makes the compositor draw the box offscreen and mask it on every frame; a squircle clip does it around any layer (a "synthesized clip" mask). Now playing clipped its keys, title and progress fill so; the stat tiles their sparklines; the voice list its speaking rings. Clip what only paints (the cover backdrop sits in `.np-ground`), let a layer clip itself (the sparkline's own lower corners), or clip with a rectangle where nothing shows the difference (the voice list scrolls inside `.vc-well`). Check the effect tree: a trace with `disabled-by-default-cc.debug` names each render surface's reason (`rounded corner`, `backdrop scope`…).
+- **A layer that comes and goes with state stays.** The speaking pulse was added and removed with each turn of a conversation: a box in the layout and a layer, several times a second. It is now always there, transparent, and speech starts and stops its animation.
+- **A clip-path reveal paints nothing itself.** The full-screen clock's ground was painted by `#clock-view`, whose clip-path grows on the main thread: each frame re-rastered the whole screen under the mask, a new tile buffer each time (~65 rasters an opening). The ground is now a `::before` layer and the clock a layer; only the mask re-rasters (79–88 % of frames on vsync, from ~60 %). The mixer is built the same way. Opening still costs one frame of 100–230 ms: the view's layers are rastered the first time it shows.
+- **The app tells Android how late frames are** (`FrameHints`, ADPF). WebView draws on the app's RenderThread, which waits on WebView's compositor (VizWebView) and GPU thread; with no hint session the big cores averaged 1.27 of 2.2 GHz, the compositor ran on the little ones, a frame took ~14 ms of the 11.1 ms a 90 Hz panel allows, and half the frames were shown twice. The session reports each frame's work against the panel's frame time, and the power HAL raises clocks only while frames run late.
 
 ### Burn-in care (OLED)
 
@@ -267,5 +287,6 @@ Retired ids still resolve: `aliases` in the registry maps `classic` to `midnight
 - [ ] Every new icon-only control has an `aria-label`; every new state reads without colour.
 - [ ] Anything that moves uses transform/opacity and a token curve; nothing new animates forever.
 - [ ] Nothing that changes every second sits in the text flow (use `.live`), and no state toggle changes a `box-shadow` or crosses `opacity: 1` on the lite tier (§8).
+- [ ] No layer (`will-change`, a running animation) inside a rounded `overflow` clip, and no new squircle outside `[data-corners="squircle"]` (§8.2); on the tablet, render passes per frame did not go up.
 - [ ] Any user, media or device string reaching `innerHTML` goes through `escapeHtml()`.
 - [ ] UI changes reach tablets only through a new APK: `./scripts/release.sh <tag> --apk`.

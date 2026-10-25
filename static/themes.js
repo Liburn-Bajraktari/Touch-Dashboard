@@ -455,6 +455,10 @@
 
   document.documentElement.dataset.fx = effectsTier();
 
+  // Corner shape: squircles (corner-shape) cost a phone or tablet GPU far more
+  // than round corners (index.html, the @supports rule), so Android gets round.
+  document.documentElement.dataset.corners = /Android/.test(navigator.userAgent) ? 'round' : 'squircle';
+
   window.TDTheme = {
     list: () => REGISTRY.themes.slice(),
     current: () => currentId,

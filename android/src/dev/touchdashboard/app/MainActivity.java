@@ -43,6 +43,8 @@ public class MainActivity extends Activity implements AppUpdater.Listener {
     private AppUpdater updater;
     /** Held while the app is in front: see createWifiLock(). Null without Wi-Fi. */
     private WifiManager.WifiLock wifiLock;
+    /** Frame deadlines for the power HAL while the app is in front: see FrameHints. */
+    private FrameHints frameHints;
     /** Updated on the UI thread; the bridge (a binder thread) only reads it. */
     private volatile String currentUrl = "";
 
@@ -56,6 +58,7 @@ public class MainActivity extends Activity implements AppUpdater.Listener {
         super.onCreate(savedInstanceState);
         updater = new AppUpdater(this, this);
         wifiLock = createWifiLock();
+        frameHints = new FrameHints(this);
 
         // No layer type of its own: a hardware layer made the WebView draw
         // every frame into an extra full-screen texture first.
@@ -95,10 +98,12 @@ public class MainActivity extends Activity implements AppUpdater.Listener {
         webView.onResume();
         updater.onHostResumed();
         if (wifiLock != null) wifiLock.acquire();
+        frameHints.start();
     }
 
     @Override
     protected void onPause() {
+        frameHints.stop();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
         webView.onPause();
         super.onPause();

@@ -76,23 +76,31 @@
             will-change: opacity;
         }
 
-        /* Continuous ("squircle") corners where supported; they need a larger radius to read the same. */
+        /* Continuous ("squircle") corners where supported; they need a larger radius to read the same.
+           Not on Android (html[data-corners="round"], themes.js): Chrome draws them as
+           paths, and their inset rims as non-convex ones; a layer with a few of those is
+           rastered with MSAA and without partial raster, so each 1 Hz figure re-rastered
+           a screen-wide strip of the page. Measured on a Redmi Pad 2 with the marquee
+           running: 63 fps and 14-18 % janky frames, 6-7 fps in a Discord call; round,
+           92-100 fps (the panel's 90 Hz) and under 1 %. */
         @supports (corner-shape: squircle) {
-            :root {
+            :root[data-corners="squircle"] {
                 --sq: 1.6;
             }
 
-            .card,
-            .btn:not(.round),
-            .modal-card,
-            .theme-card,
-            .scribble,
-            .key-screen,
-            .mx-app,
-            .stat,
-            .speed-widget,
-            .sb-vol-row,
-            .tp {
+            [data-corners="squircle"] :is(.card,
+                .btn:not(.round),
+                .modal-card,
+                .theme-card,
+                .scribble,
+                .key-screen,
+                .mx-app,
+                .stat,
+                .spark,
+                .np-ground,
+                .speed-widget,
+                .sb-vol-row,
+                .tp) {
                 corner-shape: squircle;
             }
         }
@@ -1158,10 +1166,23 @@
         .spotify {
             flex: 1;
             position: relative;
-            overflow: hidden;
             isolation: isolate;
             justify-content: space-between;
             container-type: inline-size;
+        }
+
+        /* The backdrop and its fade, clipped to the plate. The plate itself clips
+           nothing: with the keys, the marquee and the progress fill (layers) inside
+           its rounded clip, the compositor drew the whole card offscreen and masked
+           it on every frame (Android: one extra render pass per frame). Nothing in
+           here is a layer, so this clip is applied once, when it is rastered. */
+        .np-ground {
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            border-radius: inherit;
+            overflow: hidden;
+            pointer-events: none;
         }
 
         /* The cover, drawn into an 8×8 canvas and stretched: a free blur. */
@@ -1170,23 +1191,19 @@
             inset: -12%;
             width: 124%;
             height: 124%;
-            z-index: -2;
             opacity: 0;
             transition: opacity 0.9s var(--ease);
-            pointer-events: none;
         }
 
         .np-backdrop.is-on {
             opacity: var(--backdrop-opacity);
         }
 
-        .spotify::after {
+        .np-ground::after {
             content: '';
             position: absolute;
             inset: 0;
-            z-index: -1;
             background: linear-gradient(180deg, transparent 0%, var(--surface) 82%);
-            pointer-events: none;
         }
 
         .spot-empty {
@@ -1565,7 +1582,8 @@
             justify-content: center;
             align-items: stretch;
             gap: 1rem;
-            overflow: hidden;
+            /* No clip of its own (the voice list scrolls): a rounded clip around
+               the list's layers made the compositor draw the panel offscreen. */
             transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
         }
 
@@ -1651,6 +1669,19 @@
            or more re-laid out the page, a full repaint in the Linux window,
            and the marquee and everything else stalled about once a second.
            The list's scroll height comes from ::before (--rows). */
+        /* The well is drawn by .vc-well; the list inside clips with a plain
+           rectangle (the rows have no background, so nothing shows the difference
+           at the corners). A rounded clip around the speaking rings and gliding
+           rows (layers) made the compositor draw the list offscreen every frame. */
+        .vc-well {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+            border-radius: calc(0.9rem * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+        }
+
         #vc-users-list {
             --vc-row-h: 3.2rem;
             --vc-row-gap: 0.35rem;
@@ -1659,9 +1690,6 @@
             flex: 1;
             min-height: 0;
             padding: 0.35rem;
-            border-radius: calc(0.9rem * var(--sq));
-            background: var(--well);
-            box-shadow: var(--well-inset);
         }
 
         #vc-users-list::before {
@@ -1721,15 +1749,24 @@
             visibility: visible;
         }
 
-        /* Speaking pulse: a ring that grows and fades, transform + opacity only. */
-        [data-fx="rich"] .vc-avatar.speaking::after {
+        /* Speaking pulse: a ring that grows and fades, transform + opacity only.
+           It is always there (a small layer, transparent at rest) and speech only
+           starts and stops its animation: made with the speaking class, each turn
+           of a conversation added a box to the layout and a layer to the page and
+           took them away again, several times a second in a call. */
+        [data-fx="rich"] .vc-avatar::after {
             content: '';
             position: absolute;
             inset: -0.16rem;
             border-radius: 50%;
             box-shadow: 0 0 0 0.16rem var(--positive);
-            animation: speak-pulse 1.1s var(--ease) infinite;
+            opacity: 0;
+            will-change: transform, opacity;
             pointer-events: none;
+        }
+
+        [data-fx="rich"] .vc-avatar.speaking::after {
+            animation: speak-pulse 1.1s var(--ease) infinite;
         }
 
         @keyframes speak-pulse {
@@ -2491,9 +2528,29 @@
         }
 
         /* What the transition moves is a layer for as long as the mixer shows,
-           so it starts and ends without rastering (DESIGN.md §8.1). */
-        [data-fx="rich"] #mixer-view :is(.mx-bay, .mx-master > * > .scribble, .mx-master .enc-group, .mx-master .fader-scale) {
+           so it starts and ends without rastering (DESIGN.md §8.1). So are the
+           master plate and the room's light (::before): the view's clip-path
+           grows on the main thread, and whatever #mixer-view paints itself was
+           re-rastered on every frame of it (see #clock-view). */
+        [data-fx="rich"] #mixer-view :is(.mx-bay, .mx-master, .mx-master > * > .scribble, .mx-master .enc-group, .mx-master .fader-scale) {
             will-change: transform, opacity;
+        }
+
+        [data-fx="rich"] #mixer-view {
+            background: none;
+        }
+
+        [data-fx="rich"] #mixer-view::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background:
+                radial-gradient(70rem 52rem at 14% 32%, var(--ambient), transparent 72%),
+                radial-gradient(56rem 42rem at 96% 108%, var(--glow), transparent 70%),
+                var(--ground);
+            will-change: transform;
+            pointer-events: none;
         }
 
         /* ── Macro keys: display keys, a screen inside each cap ───────────── */
@@ -2627,7 +2684,6 @@
             border-radius: calc(0.9rem * var(--sq));
             background: var(--well);
             box-shadow: var(--well-inset);
-            overflow: hidden;
         }
 
         .stat.is-high {
@@ -2663,6 +2719,10 @@
             color: var(--well-ink);
         }
 
+        /* Clipped to the tile's lower corners by itself: on the rich tier it is a
+           layer, and a layer inside the tile's rounded clip (with the figure's
+           overlap layer) made the compositor draw each tile offscreen every
+           frame. Its own clip is drawn with it. SPARK_PAD keeps the stroke inside. */
         .spark {
             position: absolute;
             left: 0;
@@ -2670,7 +2730,8 @@
             bottom: 0;
             width: 100%;
             height: 52%;
-            overflow: visible;
+            overflow: hidden;
+            border-radius: 0 0 calc(0.9rem * var(--sq)) calc(0.9rem * var(--sq));
         }
 
         .spark-line {
@@ -4558,6 +4619,30 @@
             outline: none;
         }
 
+        /* Rich: the view grows out of the panel by an animated clip-path, which
+           the compositor cannot animate: each frame re-rasters the clip's mask,
+           and repainted the view's own layer under it too (measured on Android:
+           the full-screen ground and the clock re-rastered ~65 times an opening,
+           a new tile buffer each time). The ground is a layer of its own here and
+           the clock (.cv-inner, scaled in by GSAP) is one too, so only the mask is. */
+        :where([data-fx="rich"]) #clock-view {
+            background: none;
+        }
+
+        :where([data-fx="rich"]) #clock-view::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background: radial-gradient(64rem 44rem at 50% 38%, var(--ambient), transparent 72%), var(--ground);
+            will-change: transform;
+            pointer-events: none;
+        }
+
+        :where([data-fx="rich"]) #cv-inner {
+            will-change: transform, opacity;
+        }
+
         .cv-inner {
             display: flex;
             justify-content: center;
@@ -5767,7 +5852,9 @@
         <div class="grid-container view-layer active" id="main-view">
             <div class="col">
                 <section class="card panel spotify" aria-label="Now playing">
-                    <canvas class="np-backdrop" id="np-backdrop" width="8" height="8" aria-hidden="true"></canvas>
+                    <div class="np-ground" aria-hidden="true">
+                        <canvas class="np-backdrop" id="np-backdrop" width="8" height="8"></canvas>
+                    </div>
                     <div class="panel-head">
                         <h2 class="panel-title">Now playing</h2>
                         <div class="np-head-keys">
@@ -5838,7 +5925,7 @@
                             </button>
                         </div>
 
-                        <div id="vc-users-list"></div>
+                        <div class="vc-well"><div id="vc-users-list"></div></div>
                     </div>
 
                     <div class="disc-keys" role="group" aria-label="Voice controls">
