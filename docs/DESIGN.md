@@ -53,7 +53,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 
 ## 3. Principles
 
-1. **Colour belongs to data, state and light.** Plates, keys and text are neutral. One accent per theme carries the levels; status hues carry meaning (red muted, green live/speaking, amber attention); the cover's colour carries the music. The accent and the three status hues stay at least 0.11 apart in OKLab (tested), so a lit key, an LED and a load trace never look alike. When the accent takes a status hue's colour family (Phosphor's green, Ember's amber), the status hue moves, not the accent.
+1. **Colour belongs to data, state and light.** Plates, keys and text are neutral. One accent per theme carries the levels; status hues carry meaning (red muted, green live/speaking, amber attention; a live stream's on-air light is red too, a tally as on any broadcast, and says LIVE beside it); the cover's colour carries the music. The accent and the three status hues stay at least 0.11 apart in OKLab (tested), so a lit key, an LED and a load trace never look alike. When the accent takes a status hue's colour family (Phosphor's green, Ember's amber), the status hue moves, not the accent.
 2. **Displays hold the numbers.** Values that change live (levels, battery, load, device names) sit in recessed display windows in tabular figures. Static labels sit on the plate.
 3. **Sentence case.** "Now playing", "Output device", "Save & apply". Proper names keep their capitals ("Command Center").
 4. **Value balance.** Large neighbouring surfaces (ground, plates, keys, wells, displays) stay within 1.5:1 of each other (tested); the extreme values belong to text and small details. On a light theme, near-black is for text and icons only, never containers or readouts (Daylight: under 1 % of the screen).
@@ -105,7 +105,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `inverse`, `inverse-ink` | Primary pill actions, weekday pill | 4.5:1 |
 | `positive`, `positive-ink` | Live keys, speaking ring, link light, battery high | 3:1 graphic, 4.5:1 ink |
 | `warning` | Battery mid, load ≥ 85 %, ping | 3:1 graphic |
-| `negative`, `negative-ink`, `negative-text`, `negative-soft` | Mute, critical load, errors, destructive actions | 4.5:1 ink; 3:1 on wells |
+| `negative`, `negative-ink`, `negative-text`, `negative-soft` | Mute, critical load, errors, destructive actions, a live stream's on-air light | 4.5:1 ink; 3:1 on wells |
 | `cap-hi`, `cap`, `cap-lo`, `cap-index` | Fader caps, the encoder knob, switch knobs | index 3:1 on cap |
 | `rim`, `edge`, `depth` | The light model: top highlight, bottom lip and inner shade, cast shadow | — |
 | `glow` | The theme's own ambient light (8-digit hex with alpha) | — |

@@ -328,6 +328,118 @@ def test_media_kind(record, kind):
 ])
 def test_prev_plan(position, caps, plan):
     assert media.prev_plan(position, caps) == plan
+    assert media.prev_plan(position, caps, live=True) == "prev"      # a stream has no start
+
+
+TWITCH = "https://www.twitch.tv/emiru"
+INFINITY_US = 9223372036854000000 / 1e6          # Firefox's length for a live stream
+
+
+@pytest.mark.parametrize("app, url, name", [
+    ("firefox", YT, "YouTube"),
+    ("firefox", "https://music.youtube.com/watch?v=x", "YouTube Music"),
+    ("chromium", TWITCH, "Twitch"),
+    ("plasma-browser-integration", "https://www.netflix.com/watch/1", "Netflix"),
+    ("firefox", "https://notyoutube.com/watch", "firefox"),            # not the service's host
+    ("firefox", "https://example.com/video", "firefox"),               # unknown: the browser
+    ("firefox", "", "firefox"),
+    ("vlc", YT, "vlc"),                                                # not a browser
+])
+def test_a_browser_source_is_named_for_its_service(app, url, name):
+    assert media.source_name(_p(app=app, url=url)) == name
+
+
+def test_twitch_in_firefox_shows_the_stream_live(copies):
+    # Seen on Twitch: Firefox's player has the tab's title and an infinite
+    # length, KDE's bridge the stream's title and streamer, no length.
+    own = _p("mpris:firefox.instance_1_1341", "firefox.instance_1_1341", title="Emiru - Twitch",
+             url=TWITCH, length=INFINITY_US, position=392.0, pid=900810)
+    bridge = _p("mpris:plasma-browser-integration", "plasma-browser-integration",
+                title="SUB SUNDAY!!! 2B COSPLAY", url=TWITCH, position=392.9, media_pid=900810)
+    bridge["artist"] = "Emiru"
+    [shown] = media.local_sources([own, bridge], now=0.0)
+    assert shown["id"] == own["id"]                                    # its keys, its track id
+    assert (shown["title"], shown["artist"]) == ("SUB SUNDAY!!! 2B COSPLAY", "Emiru")
+    assert shown["live"] and shown["length"] is None
+    assert media.source_name(shown) == "Twitch"
+    assert media.public_media(shown, "")["length"] is None            # older pages show no bar
+    # The tab title and the stream's title on another page are two things.
+    other = dict(bridge, url="https://www.twitch.tv/someone")
+    assert media.local_sources([own, other], now=0.0)[0]["title"] == "Emiru - Twitch"
+
+
+@pytest.mark.parametrize("app, url, length, live", [
+    ("firefox", YT, INFINITY_US, True),
+    ("plasma-browser-integration", TWITCH, None, True),               # the bridge: no length
+    ("plasma-browser-integration", "https://kick.com/xqc", None, True),
+    ("plasma-browser-integration", "https://www.twitch.tv/videos/2290", None, False),
+    ("plasma-browser-integration", "https://www.twitch.tv/directory", None, False),
+    ("plasma-browser-integration", YT, None, False),
+    ("vlc", TWITCH, None, False),
+    ("firefox", TWITCH, 3600.0, False),                                # a length is a length
+])
+def test_live(app, url, length, live):
+    assert media.is_live(_p(app=app, url=url, length=length)) is live
+
+
+def test_the_live_edge_moves_with_the_clock():
+    edge = media._LiveEdge()
+    p = _p("t", "firefox", url=TWITCH, position=100.0)
+    assert edge.note(p, 0.0) == {"edge": 100.0, "from": 100.0}
+    assert edge.note(dict(p, position=110.0), 10.0) == {"edge": 110.0, "from": 100.0}   # at the edge
+    assert edge.note(dict(p, position=90.0), 12.0)["edge"] == 112.0                     # scrubbed back
+    assert edge.note(dict(p, position=90.0), 20.0)["edge"] == 120.0                     # paused: falls behind
+    assert edge.note(dict(p, position=125.0), 21.0)["edge"] == 125.0                    # back to live
+    assert edge.note(dict(p, url="https://www.twitch.tv/other", position=5.0), 22.0) == {"edge": 5.0, "from": 5.0}
+    assert edge.note(dict(p, position=None), 23.0) is None
+
+
+@pytest.mark.parametrize("app, url, page", [
+    ("firefox", TWITCH, TWITCH),
+    ("firefox", "https://twitch.tv/Emiru?tt=1", TWITCH),
+    ("plasma-browser-integration", "https://m.twitch.tv/emiru/", TWITCH),
+    ("firefox", "https://www.twitch.tv/videos/2290", ""),
+    ("firefox", "https://kick.com/xqc", ""),
+    ("firefox", YT, ""),
+    ("vlc", TWITCH, ""),
+])
+def test_cover_page(app, url, page):
+    assert media.cover_page(_p(app=app, url=url)) == page
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + bytes(64)
+
+
+def _twitch_site(pages: dict):
+    def get(session, url, cap):
+        return pages[url]
+    return get
+
+
+@pytest.mark.parametrize("image_url, image, served", [
+    ("https://static-cdn.jtvnw.net/jtv_user_pictures/x-profile_image-300x300.png", PNG, True),
+    ("https://evil.example/x.png", PNG, False),                         # not Twitch's CDN
+    ("http://static-cdn.jtvnw.net/x.png", PNG, False),                  # not https
+    ("https://static-cdn.jtvnw.net/x.svg", b"<svg onload=alert(1)>", False),
+])
+def test_a_streams_cover_is_the_channels_picture(monkeypatch, image_url, image, served):
+    monkeypatch.setattr(media, "_page_covers", {})
+    head = f'<head><meta property="og:image" content="{image_url}"/></head>'.encode()
+    monkeypatch.setattr(media, "_get_capped", _twitch_site({TWITCH: head, image_url: image}))
+    p = _p("t", "firefox", title="Stream", url=TWITCH, art="")
+    assert media.resolve_art(p) == "WAITING"           # fetched in the background; the tick goes on
+    for _ in range(100):
+        if media._page_covers[TWITCH][0] != "busy":
+            break
+        time.sleep(0.01)
+    url = media.resolve_art(p)
+    if served:
+        h = url.removeprefix("/api/local_art?h=")
+        assert media.get_cover(h) == (PNG, "image/png")
+    else:
+        assert url in ("", "WAITING")
+        assert media._page_covers[TWITCH][0] == "failed"                 # not asked again for a while
+        assert media._page_cover(TWITCH) is None
 
 
 def test_data_cover_is_decoded_once_and_served_from_memory():

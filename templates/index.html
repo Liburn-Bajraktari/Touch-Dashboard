@@ -1396,6 +1396,53 @@
             text-align: right;
         }
 
+        /* A live stream: the end time gives way to an on-air light, a tally
+           (red, as on any broadcast). Lit at the live edge; unlit once the
+           stream is behind it, and the left time then says how far behind.
+           Swapped by visibility, so nothing is laid out again. */
+        .np-onair {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.45rem;
+            font-weight: var(--weight-strong);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-3);
+            visibility: hidden;
+        }
+
+        .np-led {
+            flex: none;
+            width: 0.55rem;
+            height: 0.55rem;
+            border-radius: 50%;
+            background: var(--surface-3);
+            box-shadow: inset 0 1px 0 var(--rim);
+        }
+
+        .np-progress[data-live] #np-remaining {
+            visibility: hidden;
+        }
+
+        .np-progress[data-live] .np-onair {
+            visibility: visible;
+        }
+
+        .np-progress[data-live="on"] .np-onair {
+            color: var(--text-2);
+        }
+
+        .np-progress[data-live="on"] .np-led {
+            background: var(--negative);
+        }
+
+        :where([data-fx="rich"]) .np-progress[data-live="on"] .np-led {
+            box-shadow: 0 0 0.6rem var(--negative);
+        }
+
         /* Transport: ⏮ ⏯ ⏭ for music; ⏮ ↺10 ⏯ ↻30 ⏭ for long-form and video
            (data-keys, from the server's `kind`). Each key is its full size or
            its share of the card's width, whichever is smaller; the shares add up
@@ -5948,7 +5995,8 @@
                         <div class="np-progress" id="np-progress" hidden>
                             <div class="np-bar"><div class="np-fill" id="np-fill"></div></div>
                             <div class="np-times num"><span class="live np-t"><span class="live-v" id="np-elapsed">0:00</span></span><span
-                                    class="live np-t np-t-end"><span class="live-v" id="np-remaining">0:00</span></span></div>
+                                    class="live np-t np-t-end"><span class="live-v" id="np-remaining">0:00</span><span
+                                        class="np-onair"><span class="np-led"></span>Live</span></span></div>
                         </div>
                     </div>
 
@@ -7612,6 +7660,9 @@
         // player closes or another one starts playing).
         let sourcePending = null;          // {id, name, until}: a pick not yet reported back
         const SOURCE_CONFIRM_MS = 2000;
+        // A browser source is named for the service it plays (the server's
+        // media.SERVICES); the ones lucide draws get their own glyph.
+        const SERVICE_GLYPHS = { 'YouTube': 'youtube', 'YouTube Music': 'youtube', 'Twitch': 'twitch' };
         function setSource(m) {
             const chip = dom.npSource;
             if (!chip) return;
@@ -7630,7 +7681,7 @@
             chip.setAttribute('aria-label', switchable ? `${name}. Show the next player` : name);
             chip.innerHTML = (name === 'Spotify'
                 ? '<svg aria-hidden="true"><use href="#icon-spotify"/></svg>Spotify'
-                : `<i data-lucide="radio"></i>${escapeHtml(name)}`)
+                : `<i data-lucide="${SERVICE_GLYPHS[name] || 'radio'}"></i>${escapeHtml(name)}`)
                 + (switchable ? '<i data-lucide="chevrons-up-down" class="np-switch"></i>' : '');
             renderIcons(chip);
         }
@@ -7649,41 +7700,75 @@
         // The bar steps, on every tier: it moves a pixel or two a second, and a
         // glide (back-to-back 1 s transitions) kept the compositor drawing every
         // frame for as long as anything played, a 2560×1600 tablet included.
+        // A live stream has no length: the server sends where its live edge is
+        // in the stream's own timeline ({edge, from}). The edge moves with the
+        // clock, playing or not; at it (within LIVE_EDGE_S) the bar is full and
+        // the light is on. Behind it (scrubbed back, paused, stalled) the bar
+        // spans what was seen of the stream, at least LIVE_SPAN_MIN_S.
         let npClock = null;
         let npTimer = null;
+        const LIVE_EDGE_S = 3, LIVE_SPAN_MIN_S = 60;
 
         function fmtDuration(sec) {
             sec = Math.max(0, Math.floor(sec));
             const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), r = sec % 60;
             return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(r).padStart(2, '0');
         }
+        function npEdge() {
+            const live = npClock.live;
+            return live.edge + (performance.now() - live.at) / 1000;
+        }
+        function npEnd() {
+            return npClock.live ? npEdge() : npClock.len;
+        }
         function npPosition() {
             if (!npClock) return 0;
             const p = npClock.playing ? npClock.pos + (performance.now() - npClock.at) / 1000 : npClock.pos;
-            return Math.min(npClock.len, Math.max(0, p));
+            return Math.min(npEnd(), Math.max(0, p));
+        }
+        // Live: how far behind the edge `pos` is, and the bar's share for it.
+        function liveSpot(pos) {
+            const edge = npEdge(), behind = Math.max(0, edge - pos);
+            if (behind <= LIVE_EDGE_S) return { onAir: true, behind: 0, f: 1 };
+            const span = Math.max(LIVE_SPAN_MIN_S, edge - npClock.live.from);
+            return { onAir: false, behind, f: Math.max(0, 1 - behind / span) };
+        }
+        function renderTimes(pos, spot) {
+            if (spot) {
+                setText(dom.npElapsed, spot.onAir ? fmtDuration(pos) : '−' + fmtDuration(spot.behind));
+                const state = spot.onAir ? 'on' : 'behind';
+                if (dom.npProgress.dataset.live !== state) dom.npProgress.dataset.live = state;
+                return;
+            }
+            setText(dom.npElapsed, fmtDuration(pos));
+            setText(dom.npRemaining, '−' + fmtDuration(npClock.len - pos));
+            if (dom.npProgress.dataset.live) delete dom.npProgress.dataset.live;
         }
         function renderProgress() {
             if (!npClock) return;
             const pos = npPosition();
-            dom.npFill.style.transform = `scaleX(${(pos / npClock.len).toFixed(4)})`;
-            setText(dom.npElapsed, fmtDuration(pos));
-            setText(dom.npRemaining, '−' + fmtDuration(npClock.len - pos));
+            const spot = npClock.live ? liveSpot(pos) : null;
+            const f = spot ? spot.f : pos / npClock.len;
+            dom.npFill.style.transform = `scaleX(${f.toFixed(4)})`;
+            renderTimes(pos, spot);
         }
         function stopProgressTimer() {
             clearInterval(npTimer);
             npTimer = null;
         }
         function startProgressTimer() {
-            if (npTimer || !npClock || !npClock.playing || document.hidden) return;
+            // Live, the edge moves on while paused: how far behind keeps growing.
+            if (npTimer || !npClock || !(npClock.playing || npClock.live) || document.hidden) return;
             npTimer = setInterval(() => {
                 if (dashboardHeld || npScrub) return;   // the next tick after the dialog catches up
                 renderProgress();
             }, 1000);
         }
         function updateProgress(media) {
+            const live = media && media.live && Number.isFinite(Number(media.live.edge)) ? media.live : null;
             const len = Number(media && media.length);
             let pos = Number(media && media.position);
-            if (!media || !(len > 0) || media.position === null || !Number.isFinite(pos)) {
+            if (!media || !(live || len > 0) || media.position === null || !Number.isFinite(pos)) {
                 npClock = null;
                 seekPending = null;
                 dom.npProgress.hidden = true;
@@ -7702,15 +7787,21 @@
                 }
             }
             const playing = media.status === 'Playing';
-            const jumped = !npClock || npClock.len !== len || npClock.playing !== playing
-                || Math.abs(npPosition() - pos) > PROGRESS_SNAP_S;
-            npClock = { pos, len, at: performance.now(), playing };
+            const jumped = !npClock || !npClock.live !== !live || (!live && npClock.len !== len)
+                || npClock.playing !== playing || Math.abs(npPosition() - pos) > PROGRESS_SNAP_S;
+            const now = performance.now();
+            let edge = null;
+            if (live) {
+                const e = Number(live.edge), from = Number(live.from);
+                edge = { edge: e, from: Number.isFinite(from) ? Math.min(from, e) : e, at: now };
+            }
+            npClock = { pos, len: live ? null : len, at: now, playing, live: edge };
             dom.npProgress.hidden = false;
             if (jumped) {
                 // Seek, new track or play/pause: move now, not on the next tick.
                 renderProgress();
             }
-            if (playing) startProgressTimer();
+            if (playing || live) startProgressTimer();
             else stopProgressTimer();
         }
         document.addEventListener('visibilitychange', () => {
@@ -7746,9 +7837,9 @@
         function moveClock(patch) {
             if (!npClock) return;
             npClock = { ...npClock, pos: npPosition(), at: performance.now(), ...patch };
-            npClock.pos = Math.max(0, Math.min(npClock.len, npClock.pos));
+            npClock.pos = Math.max(0, Math.min(npEnd(), npClock.pos));
             renderProgress();
-            if (npClock.playing) startProgressTimer();
+            if (npClock.playing || npClock.live) startProgressTimer();
             else stopProgressTimer();
         }
         function renderPlayIcon(playing) {
@@ -7840,8 +7931,9 @@
             const caps = (m && m.caps) || null;
             const keys = npCanSeek(m) && m.kind === 'long' ? '5' : '3';
             if (dom.spotCtrl.dataset.keys !== keys) dom.spotCtrl.dataset.keys = keys;
-            // Previous restarts a seekable source, so it is off only when neither works.
-            const prevOff = !!(caps && !caps.prev && !caps.seek), nextOff = !!(caps && !caps.next);
+            // Previous restarts a seekable source, so it is off only when neither
+            // works; a live stream has no start, so there it needs a previous item.
+            const prevOff = !!(caps && !caps.prev && (!caps.seek || m.live)), nextOff = !!(caps && !caps.next);
             if (dom.npPrev.disabled !== prevOff) dom.npPrev.disabled = prevOff;
             if (dom.npNext.disabled !== nextOff) dom.npNext.disabled = nextOff;
         }
@@ -7864,14 +7956,15 @@
         function npKey(cmd) {
             if (cmd === 'back' || cmd === 'fwd') {
                 const step = cmd === 'back' ? -SEEK_BACK_S : SEEK_FWD_S;
-                if (npClock) seekTo(Math.min(npClock.len - 1, npPosition() + step));
+                if (npClock) seekTo(Math.min(npClock.live ? npEdge() : npClock.len - 1, npPosition() + step));
                 else sendSocket('media_seek', { by: step });   // no position to start from
                 return;
             }
             // As the server decides (media.prev_plan): past 3 s, or where the
-            // player cannot go back, Previous restarts the track.
+            // player cannot go back, Previous restarts the track. A live
+            // stream has no start to go back to.
             const caps = (npMedia && npMedia.caps) || {};
-            const restart = cmd === 'prev' && npClock && npCanSeek(npMedia)
+            const restart = cmd === 'prev' && npClock && !npClock.live && npCanSeek(npMedia)
                 && (npPosition() > RESTART_AFTER_S || caps.prev === false);
             if (restart) {
                 seekPending = { until: holdUntil() };
@@ -7889,11 +7982,20 @@
         (function initScrub() {
             const bar = dom.npProgress;
             function follow(e) {
-                const f = Math.max(0, Math.min(1, (e.clientX - npScrub.left) / npScrub.width));
-                npScrub.to = f * npClock.len;
+                let f = Math.max(0, Math.min(1, (e.clientX - npScrub.left) / npScrub.width));
+                let spot = null;
+                if (npClock.live) {
+                    // The bar's end is the live edge, and near it the finger goes live.
+                    const edge = npEdge();
+                    const span = Math.max(LIVE_SPAN_MIN_S, edge - npClock.live.from);
+                    spot = liveSpot(edge - (1 - f) * span);
+                    f = spot.f;
+                    npScrub.to = edge - spot.behind;
+                } else {
+                    npScrub.to = f * npClock.len;
+                }
                 dom.npFill.style.transform = `scaleX(${f.toFixed(4)})`;
-                setText(dom.npElapsed, fmtDuration(npScrub.to));
-                setText(dom.npRemaining, '−' + fmtDuration(npClock.len - npScrub.to));
+                renderTimes(npScrub.to, spot);
             }
             function end() {
                 npScrub = null;
@@ -7913,7 +8015,7 @@
                 const to = npScrub.to;
                 end();
                 haptic(HAPTIC_KEY);
-                seekTo(Math.min(to, npClock ? npClock.len - 1 : to));
+                seekTo(Math.min(to, npClock ? (npClock.live ? npEdge() : npClock.len - 1) : to));
             });
             bar.addEventListener('pointercancel', () => { if (npScrub) { end(); renderProgress(); } });
         })();
@@ -9346,7 +9448,7 @@
                 && !(globalCfg && globalCfg.spot_enabled === false);
             media.hidden = !playing;
             if (playing) {
-                setText(document.getElementById('cv-np-state'), sp.status === 'Paused' ? 'Paused' : 'Now playing');
+                setText(document.getElementById('cv-np-state'), sp.status === 'Paused' ? 'Paused' : sp.live ? 'Live' : 'Now playing');
                 setText(document.getElementById('cv-np-title'), sp.title || '—');
                 setText(document.getElementById('cv-np-artist'), sp.artist || '');
                 const img = document.getElementById('cv-art');
