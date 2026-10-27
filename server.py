@@ -298,6 +298,8 @@ DEFAULT_CONFIG: dict = {
     "sb_normalization_enabled": False,
     "sb_normalization_db": 89.0,
     "soundboard_volume": 100,
+    "soundboard_feedback": True,  # you hear the soundboard here (off: "deafen")
+    "soundboard_to_mic": True,    # it is sent into the mic's listeners: Discord, OBS (off: "mute")
     "audio_names": {},
     "hidden_audio_devices": [],   # raw sink names the output switch skips
     "audio_order": [],            # raw sink names, first to last; others follow at the bottom
@@ -315,7 +317,7 @@ DEFAULT_CONFIG: dict = {
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
 SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like",
-                   "media_result", "audio_apps"]   # see _make_config_sync
+                   "media_result", "audio_apps", "sb_mic"]   # see _make_config_sync
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
 APP_VERSION_RE = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,4}")   # the Android app's version, from auth
@@ -1344,13 +1346,17 @@ async def _do_pipewire_route() -> None:
     except Exception as e:
         logger.error(f"Failed to parse pw-dump: {e}")
 
+    pw_links = (await asyncio.to_thread(_run, ["pw-link", "-l"])).decode()
+    with CONFIG_LOCK:
+        to_mic = config.get("soundboard_to_mic", True) is not False
+
     # Pass 2: walk pw-link -l forward links (|-> only, ignore |<- lines).
     # Collect destinations of capture-source links whose dest node is NOT
     # itself a capture source — those are the final endpoint apps.
-    pw_links = (await asyncio.to_thread(_run, ["pw-link", "-l"])).decode()
     app_ports: list[str] = []
     is_capture_out = False
-    for line in pw_links.splitlines():
+    # Muted to the mic: no consumers, so the clean-up below unlinks every one.
+    for line in (pw_links.splitlines() if to_mic else ()):
         if not line.startswith((" ", "\t")):
             stripped = line.strip()
             # Only mark as a capture source header if it's in our Pass-1 set.
@@ -1461,7 +1467,8 @@ async def _make_config_sync(sinks: list[dict], initial_disc: dict | None = None)
 DEVICE_CFG_KEYS = (
     "theme", "play_key_cover", "idle_dim_min", "idle_clock_min", "audio_names", "hidden_audio_devices", "disc_vc_enabled", "disc_sort_speakers",
     "show_mouse_batt", "show_hw_stats", "spot_enabled", "weather_enabled", "disc_enabled",
-    "audio_enabled", "sb_enabled", "soundboard_volume", "soundboard_feedback", "device_av_controls",
+    "audio_enabled", "sb_enabled", "soundboard_volume", "soundboard_feedback", "soundboard_to_mic",
+    "device_av_controls",
 )
 DEVICE_SYNC_KEYS = (
     "hw", "os_target", "host_ip", "server_version", "req_apk_version", "update_apk_url",
@@ -2668,16 +2675,42 @@ def _toggle_feedback(enable: bool):
         logger.error(f"Failed to toggle soundboard feedback: {e}")
 
 
+def _asked_on(msg: dict) -> bool | None:
+    """{on: bool} asks for a state; no data toggles (pages before v0.14.2)."""
+    data = msg.get("data")
+    if data is None:
+        return None
+    on = data["on"]
+    if not isinstance(on, bool):
+        raise ValueError("on must be a bool")
+    return on
+
+
 async def _ws_toggle_sb_feedback(client: Client, msg: dict) -> None:
+    on = _asked_on(msg)
     if get_os_target() != "linux":
         return
     with CONFIG_LOCK:
-        new_val = not config.get("soundboard_feedback", True)
+        new_val = on if on is not None else not config.get("soundboard_feedback", True)
         config["soundboard_feedback"] = new_val
     await asyncio.to_thread(save_config)
     await asyncio.to_thread(_toggle_feedback, new_val)
     # Send a targeted update instead of a full config_sync to avoid UI resets
     await ws_manager.broadcast({"type": "sb_feedback_state", "data": new_val})
+
+
+async def _ws_toggle_sb_mic(client: Client, msg: dict) -> None:
+    """Mute the soundboard to the mic: it still plays here, the call stops hearing it."""
+    on = _asked_on(msg)
+    if get_os_target() != "linux":
+        return
+    with CONFIG_LOCK:
+        new_val = on if on is not None else not config.get("soundboard_to_mic", True)
+        config["soundboard_to_mic"] = new_val
+    await asyncio.to_thread(save_config)
+    if sb_route_event is not None:
+        sb_route_event.set()   # the router links or unlinks the mic's listeners now
+    await ws_manager.broadcast({"type": "sb_mic_state", "data": new_val})
 
 
 async def _ws_set_theme(client: Client, msg: dict) -> None:
@@ -2843,6 +2876,7 @@ WS_HANDLERS = {
     "disc_voice":         _ws_disc_voice,
     "set_sb_volume":      _ws_set_sb_volume,
     "toggle_sb_feedback": _ws_toggle_sb_feedback,
+    "toggle_sb_mic":      _ws_toggle_sb_mic,
     "set_theme":          _ws_set_theme,
     "set_play_key":       _ws_set_play_key,
     "media_seek":         _ws_media_seek,

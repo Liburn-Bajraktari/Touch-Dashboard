@@ -23,8 +23,8 @@ Touch Dashboard is a piece of studio hardware that happens to be made of pixels:
 | Output switch | A **rotary encoder** with an LED ring, one LED per output device |
 | Each app's level (the mixer, full screen) | A desk's **channel strips** beside its master section: playback apps left of the output fader, recording apps right of the mic, each with its own icon in a display window, a scribble strip with its name and level, a narrower fader with ticks only, and a mute key on the masters' baseline. A **signal LED** on the icon window is lit while the app plays (or records) |
 | Transport | A **deck's transport keys**: ⏮ ⏯ ⏭ for music; for an episode, a film or a video the same row gains ↺10 and ↻30, the step printed inside the arrow. A key the player cannot use is unlit (`--text-3` ink) rather than dead; with nothing loaded the play key is unlit too, like ⏮/⏭. The progress bar is a scrub strip: drag it to a point |
-| Macros | **Display keys**: an LCD screen set into each keycap (Stream Deck), a deck of 3 × 4 square keys to a page; an unassigned key is an unlit keycap with a dark screen, and the name on a key is its legend, set to be read from arm's length |
-| Soundboard | **Drum pads** that light when struck (MPC) |
+| Macros | **Display keys**: an LCD screen set into each keycap (Stream Deck), a deck of 3 × 4 square keys to a page; an unassigned key is an unlit keycap with a dark screen; the name under the glyph is a quiet legend (small, regular weight, the display's soft ink) |
+| Soundboard | **Drum pads** that light when struck (MPC). Its strip in the top bar is a small channel: two keys for who hears it (headphones: you; mic: the call), lit red with a slash while that side is muted, as Discord's deafen and mute keys are; a horizontal studio fader (0–200 %, a printed scale every 25 %, 100 % printed in full ink and a detent there, the boost past it lit amber); a readout display that a tap puts back at 100 % |
 | Levels, names, figures | **Scribble strips and displays**: recessed dark windows |
 | Mute, live, speaking | **Lit keys and LEDs**: the state is light, and on rich displays it spills |
 | System load | Display tiles with a live trace of the last minute |
@@ -118,7 +118,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Token | Value | Notes |
 |---|---|---|
 | `pad`, `gap`, `gap-sm` | 1.25 / 1.25 / 0.75 rem | |
-| `fs-xs` … `fs-xl`, `fs-clock` | 1 / 1.15 / 1.35 / 1.75 / 2.6 / 6.4 rem | Nothing below `fs-xs` (≈ 11 px on a 1280×800 screen, 9.8 px on the Redmi Pad's 1138×711): what is read at a glance (key legends, track times) is `fs-sm` or larger |
+| `fs-xs` … `fs-xl`, `fs-clock` | 1 / 1.15 / 1.35 / 1.75 / 2.6 / 6.4 rem | Nothing below `fs-xs` (≈ 11 px on a 1280×800 screen, 9.8 px on the Redmi Pad's 1138×711): track times are `fs-sm`; key legends stay `fs-xs` at regular weight by choice (bold legends read too loud) |
 | `radius-panel`, `radius-key`, `radius-media`, `radius-pill` | 1.6, 1.1, 0.9 rem, 999px | Multiplied by `--sq` (§6) |
 | `elev-1`, `elev-2`, `elev-press`, `elev-cap`, `well-inset` | Composite shadows | Built from `rim`, `edge`, `depth`, so presets only set those three |
 | `weight-clock`, `weight-strong` | 300, 600 | Phosphor 400 |

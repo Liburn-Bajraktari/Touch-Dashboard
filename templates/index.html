@@ -108,7 +108,7 @@
                 .spark,
                 .np-ground,
                 .speed-widget,
-                .sb-vol-row,
+                .sb-vol-read,
                 .tp) {
                 corner-shape: squircle;
             }
@@ -389,7 +389,7 @@
         .mx-app,
         .speed-widget,
         .batt-slide,
-        .sb-vol-row,
+        .sb-vol-read,
         .dlg-glyph,
         .menu-version,
         .reconnect-status {
@@ -578,8 +578,24 @@
         }
 
         #btn-disc-mute.muted::after,
-        #btn-disc-deaf.muted::after {
+        #btn-disc-deaf.muted::after,
+        .sb-route.muted::after {
             visibility: visible;
+        }
+
+        .sb-route::after {
+            content: '';
+            visibility: hidden;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2.2rem;
+            height: 0.15rem;
+            background-color: currentColor;
+            border-radius: 2px;
+            box-shadow: 0 0 0 0.13rem var(--negative);
+            transform: translate(-50%, -50%) rotate(-45deg);
+            pointer-events: none;
         }
 
         /* A key the PC, Discord or a player refused (keyRefused()): ⚠ in place of
@@ -1165,89 +1181,70 @@
             color: var(--negative-text);
         }
 
-        /* Soundboard volume row (Linux). */
-        /* [monitor] | [−] [ track ] [+] 80%: every control has 44 CSS px to
-           tap on the tablet (4.5rem; the hit areas draw nothing and never overlap). */
+        /* Soundboard strip (Linux): [deafen|mute] [−] ═══▮═══ [+] [80%]. Keys on
+           the bar like its other keys, a small studio fader (slot, printed scale,
+           cap with an index line) and a readout display. Every control has 44 CSS
+           px to tap on the tablet (the hit areas draw nothing and never overlap). */
         .sb-vol-row {
             display: flex;
             align-items: center;
-            gap: 0.8rem;
-            width: 29rem;
+            gap: 0.7rem;
+            width: 34rem;
             height: 3.8rem;
-            padding: 0 0.9rem 0 0.4rem;
-            background: var(--well);
-            border-radius: var(--radius-pill);
-            box-shadow: var(--well-inset);
-            color: var(--well-ink);
         }
 
-        .sb-fb-btn {
-            width: 3rem;
-            height: 3rem;
-            min-height: 0;
-            padding: 0;
-            border-radius: var(--radius-pill);
-            background: transparent;
-            box-shadow: none;
-            color: var(--well-ink-2);
-        }
-
-        .sb-fb-btn:active,
-        .sb-fb-btn.is-pressed {
-            box-shadow: none;
-        }
-
-        .sb-fb-btn.is-on {
-            color: var(--positive);
-        }
-
-        .sb-fb-btn,
-        .vol-step-btn {
-            position: relative;
+        /* Who hears it: you (headphones) and the call (mic). A key is lit red
+           while that side is muted, as Discord's mute and deafen keys are. */
+        .sb-routes {
+            display: flex;
+            gap: 0.25rem;
             flex: none;
         }
 
-        .sb-fb-btn::before,
+        .sb-route.btn {
+            position: relative;
+            width: 3.9rem;
+            height: 3.8rem;
+            min-height: 0;
+            padding: 0;
+            color: var(--text-2);
+            border-radius: calc(var(--radius-key) * var(--sq)) 0.45rem 0.45rem calc(var(--radius-key) * var(--sq));
+            transition: transform var(--dur-spring) var(--spring-bounce), border-radius var(--dur-spring) var(--spring), box-shadow var(--dur-fast) var(--ease);
+        }
+
+        .sb-route.btn:last-child {
+            border-radius: 0.45rem calc(var(--radius-key) * var(--sq)) calc(var(--radius-key) * var(--sq)) 0.45rem;
+        }
+
+        .sb-route.btn:only-child {
+            border-radius: calc(var(--radius-key) * var(--sq));
+        }
+
+        .sb-route.btn.muted {
+            border-radius: 1.9rem;
+            color: var(--negative-ink);
+        }
+
+        .sb-route svg.lucide {
+            width: 1.7rem;
+            height: 1.7rem;
+        }
+
+        .sb-route::before,
         .vol-step-btn::before {
             content: '';
             position: absolute;
-            inset: -0.75rem;
+            inset: -0.3rem -0.15rem;
+        }
+
+        .vol-step-btn::before {
+            inset: -0.75rem -0.35rem;
             border-radius: 50%;
         }
 
-        /* Off reads without colour too: a slash, shown and hidden, cut out of
-           the glyph by a ring in the well's colour (as on the deafen key). */
-        .sb-fb-btn::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 1.9rem;
-            height: 0.15rem;
-            background-color: currentColor;
-            border-radius: 2px;
-            box-shadow: 0 0 0 0.12rem var(--well);
-            transform: translate(-50%, -50%) rotate(-45deg);
-            pointer-events: none;
-        }
-
-        .sb-fb-btn.is-on::after {
-            visibility: hidden;
-        }
-
-        .sb-fb-btn svg.lucide,
-        .vol-step-btn svg.lucide {
-            width: 1.4rem;
-            height: 1.4rem;
-        }
-
-        .sb-sep {
-            width: 0.1rem;
-            height: 1.6rem;
-            background: var(--surface-3);
-        }
-
         .vol-step-btn {
+            position: relative;
+            flex: none;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1269,54 +1266,192 @@
             transition-duration: var(--dur-fast);
         }
 
-        /* The track is the whole strip, the slot drawn inside it (it could only be
-           grabbed on its 9 px slot). A few px of dead zone keep −/+ from stepping. */
+        .vol-step-btn svg.lucide {
+            width: 1.4rem;
+            height: 1.4rem;
+        }
+
+        /* The fader. The whole strip takes a touch; the slot runs between the
+           cap's centres at either end, so 0 % and 200 % sit under the index line.
+           --v (0–1) moves the cap and both lit segments by transform only. */
         #sb-vol-slider {
+            --cw: 2.3rem;
+            --v: 0.5;
             position: relative;
             flex: 1;
-            display: flex;
-            align-items: center;
-            height: 4.5rem;
-            min-width: 0;
-            margin-inline: 0.25rem;
-            cursor: pointer;
+            height: 3.8rem;
+            min-width: 7rem;
+            cursor: grab;
             touch-action: none;
         }
 
+        #sb-vol-slider.is-dragging {
+            cursor: grabbing;
+        }
+
         #sb-vol-slider:focus-visible {
-            outline-offset: -0.6rem;
+            outline-offset: 0.1rem;
         }
 
         .sb-vol-slot {
-            position: relative;
-            width: 100%;
-            height: 0.9rem;
-            background: var(--surface-3);
-            border-radius: var(--radius-pill);
-            overflow: hidden;
-            pointer-events: none;
-        }
-
-        /* Moved by transform, not width: a drag step was a layout, a full repaint
-           in the Linux window. */
-        #sb-vol-fill {
             position: absolute;
-            inset: 0;
-            background: var(--accent);
-            transform-origin: 0 50%;
-            transform: scaleX(0.5);
+            left: calc(var(--cw) / 2);
+            right: calc(var(--cw) / 2);
+            top: 50%;
+            height: 0.6rem;
+            margin-top: -0.3rem;
+            border-radius: var(--radius-pill);
+            background: var(--well);
+            box-shadow: var(--well-inset);
             pointer-events: none;
         }
 
-        /* A live figure, out of the flow: a new value repaints only itself. */
-        #sb-vol-label {
-            --live-h: 1.6rem;
+        /* Two lit segments: up to 100 % in the accent, the boost past it amber
+           (it can clip). Each is half the slot, scaled from its own left edge. */
+        #sb-vol-fill,
+        #sb-vol-hot {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 50%;
+            transform-origin: 0 50%;
+            transition: transform 280ms var(--spring);
+        }
+
+        #sb-vol-fill {
+            left: 0;
+            border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+            background: var(--accent);
+            transform: scaleX(calc(min(var(--v), 0.5) * 2));
+        }
+
+        #sb-vol-hot {
+            left: 50%;
+            border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+            background: var(--warning);
+            transform: scaleX(calc(max(var(--v) - 0.5, 0) * 2));
+        }
+
+        /* Printed scale above and below the slot: every 25 %, longer at 0, 100
+           and 200; 100 % is printed in full ink. */
+        .sb-vol-scale {
+            position: absolute;
+            left: calc(var(--cw) / 2);
+            right: calc(var(--cw) / 2);
+            top: 0.3rem;
+            bottom: 0.3rem;
+            pointer-events: none;
+        }
+
+        .sb-vol-scale i {
+            position: absolute;
+            left: calc(var(--t) * 100%);
+            width: 0.12rem;
+            height: 0.4rem;
+            margin-left: -0.06rem;
+            border-radius: 1px;
+            background: var(--line-strong);
+        }
+
+        .sb-vol-scale i.b {
+            bottom: 0;
+        }
+
+        .sb-vol-scale i.major {
+            height: 0.7rem;
+            background: var(--text-3);
+        }
+
+        .sb-vol-scale i.unity {
+            background: var(--text);
+        }
+
+        .sb-vol-carrier {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: calc(100% - var(--cw));
+            transform: translateX(calc(var(--v) * 100%));
+            transition: transform 280ms var(--spring);
+            pointer-events: none;
+        }
+
+        #sb-vol-slider.is-dragging :is(.sb-vol-carrier, #sb-vol-fill, #sb-vol-hot) {
+            transition: none;
+        }
+
+        /* The cap, turned on its side: grip ridges either side of a lit index line. */
+        .sb-vol-cap {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: var(--cw);
+            height: 3.2rem;
+            margin-top: -1.6rem;
+            border-radius: 0.55rem;
+            background:
+                repeating-linear-gradient(90deg, var(--cap-lo) 0 0.11rem, transparent 0.11rem 0.36rem) 0.32rem 50% / 28% 62% no-repeat,
+                repeating-linear-gradient(90deg, var(--cap-lo) 0 0.11rem, transparent 0.11rem 0.36rem) calc(100% - 0.2rem) 50% / 28% 62% no-repeat,
+                linear-gradient(180deg, var(--cap-hi) 0%, var(--cap) 38%, var(--cap) 62%, var(--cap-lo) 100%);
+            box-shadow: var(--elev-cap);
+            transition: transform var(--dur-spring) var(--spring-bounce);
+        }
+
+        .sb-vol-cap::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0.4rem;
+            bottom: 0.4rem;
+            width: 0.24rem;
+            margin-left: -0.12rem;
+            border-radius: var(--radius-pill);
+            background: var(--cap-index);
+            transition: background-color var(--dur) var(--ease);
+        }
+
+        #sb-vol-slider.is-dragging .sb-vol-cap {
+            transform: scale(1.06);
+        }
+
+        #sb-vol-slider.is-dragging .sb-vol-cap::after {
+            background: var(--accent);
+        }
+
+        /* The readout is a small display; a tap puts the level back at 100 %. */
+        .sb-vol-read {
+            --live-h: 1.7rem;
+            position: relative;
             flex: none;
-            width: 3.4rem;
-            text-align: right;
-            font-weight: var(--weight-strong);
-            font-size: var(--fs-sm);
+            width: 5.2rem;
+            height: 3.4rem;
+            padding: 0 0.7rem;
+            border: 0;
+            border-radius: calc(var(--radius-key) * var(--sq) * 0.8);
+            background: var(--well);
+            box-shadow: var(--well-inset);
             color: var(--well-accent);
+            font-family: inherit;
+            font-size: var(--fs-sm);
+            font-weight: var(--weight-strong);
+            text-align: right;
+            cursor: pointer;
+        }
+
+        .sb-vol-read::before {
+            content: '';
+            position: absolute;
+            inset: -0.3rem -0.35rem -0.3rem -0.35rem;
+        }
+
+        .sb-vol-read .live {
+            display: block;
+        }
+
+        .sb-vol-read:active,
+        .sb-vol-read.is-pressed {
+            color: var(--well-ink);
         }
 
         #btn-stop-audio {
@@ -2984,25 +3119,21 @@
             object-fit: contain;
         }
 
-        /* The key's legend, read from arm's length: two lines when it needs them.
-           A plugin key (the soundboard) is drawn like the rest: light means on. */
+        /* A quiet legend under the glyph. A plugin key (the soundboard) is drawn
+           like the rest: light means on. */
         .key-label {
             max-width: 100%;
             overflow: hidden;
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
-            text-align: center;
-            text-wrap: balance;
-            font-size: var(--fs-sm);
-            font-weight: var(--weight-strong);
-            color: var(--well-ink);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: var(--fs-xs);
+            font-weight: 500;
+            color: var(--well-ink-2);
             line-height: 1.15;
         }
 
         .btn-add .key-label {
             color: var(--text-3);
-            font-weight: 500;
         }
 
         .btn-add svg.lucide {
@@ -5592,8 +5723,7 @@
 
             /* One height, one shape, the contents centred. */
             .batt-slide,
-            .speed-widget,
-            .sb-vol-row {
+            .speed-widget {
                 flex: 1;
                 height: 4.6rem;
                 border-radius: calc(var(--radius-key) * var(--sq));
@@ -5634,9 +5764,26 @@
                 height: 4.6rem;
             }
 
+            /* The fader takes the −/+ keys' room: a phone's strip is short. */
             .sb-vol-row {
+                flex: 1;
                 width: auto;
                 min-width: 0;
+                height: 4.6rem;
+                gap: 0.5rem;
+            }
+
+            .sb-vol-row .vol-step-btn {
+                display: none;
+            }
+
+            .sb-route.btn {
+                width: 4.4rem;
+                height: 4.6rem;
+            }
+
+            .sb-vol-read {
+                height: 4.6rem;
             }
 
             #top-right-soundboard #btn-stop-audio {
@@ -6658,23 +6805,27 @@
             <div id="top-right-soundboard" class="bar-cluster">
                 <!-- Volume bar — Linux only, hidden on Windows -->
                 <div id="sb-vol-row" class="sb-vol-row" style="display: none;">
-                    <button id="btn-toggle-sb-feedback" onclick="sendSocket('toggle_sb_feedback')"
-                        class="btn sb-fb-btn is-on" title="Local feedback" aria-label="Toggle local feedback">
-                        <i data-lucide="headphones"></i>
-                    </button>
-                    <div class="sb-sep"></div>
-                    <button class="vol-step-btn" onclick="sbVolStep(-5)" aria-label="Soundboard volume down">
+                    <div class="sb-routes" role="group" aria-label="Who hears the soundboard">
+                        <button id="btn-toggle-sb-feedback" class="btn sb-route" type="button" onclick="sbRouteTap('feedback')"
+                            aria-pressed="false"><i data-lucide="headphones"></i></button>
+                        <button id="btn-toggle-sb-mic" class="btn sb-route" type="button" onclick="sbRouteTap('mic')"
+                            aria-pressed="false" hidden><i data-lucide="mic"></i></button>
+                    </div>
+                    <button class="vol-step-btn" type="button" onclick="sbVolStep(-5)" aria-label="Soundboard volume down">
                         <i data-lucide="minus"></i>
                     </button>
                     <div id="sb-vol-slider" role="slider" tabindex="0" aria-label="Soundboard volume"
                         aria-valuemin="0" aria-valuemax="200" aria-valuenow="100" aria-valuetext="100%">
-                        <span class="sb-vol-slot"><span id="sb-vol-fill"></span></span>
+                        <span class="sb-vol-scale" aria-hidden="true"></span>
+                        <span class="sb-vol-slot"><span id="sb-vol-fill"></span><span id="sb-vol-hot"></span></span>
+                        <span class="sb-vol-carrier"><span class="sb-vol-cap"></span></span>
                     </div>
-                    <button class="vol-step-btn" onclick="sbVolStep(5)" aria-label="Soundboard volume up">
+                    <button class="vol-step-btn" type="button" onclick="sbVolStep(5)" aria-label="Soundboard volume up">
                         <i data-lucide="plus"></i>
                     </button>
-                    <span id="sb-vol-label" class="num live" aria-hidden="true"><span class="live-v"
-                            id="sb-vol-value">100%</span></span>
+                    <button class="sb-vol-read num" type="button" onclick="sbVolSet(100)"
+                        aria-label="Soundboard volume back to 100%" title="Back to 100%"><span class="live"><span
+                                class="live-v" id="sb-vol-value">100%</span></span></button>
                 </div>
                 <button class="btn btn-top btn-danger" id="btn-stop-audio" onclick="stopSoundboardAudio()">
                     <i data-lucide="square"></i><span>Stop audio</span>
@@ -7078,7 +7229,7 @@
         // Keys that sink under a finger (.is-pressed, below) and tick: one list, so
         // no key does one without the other (the clock panel, volume steps and
         // menu rows sank without a tick). Dialogs' theme cards and switches tick too.
-        const PRESSABLE = '.btn, .encoder, .speed-widget, .sb-fb-btn, .vol-step-btn, .menu-row, .time-weather-panel, button.chip:not(:disabled)';
+        const PRESSABLE = '.btn, .encoder, .speed-widget, .sb-vol-read, .vol-step-btn, .menu-row, .time-weather-panel, button.chip:not(:disabled)';
         document.addEventListener('pointerdown', (e) => {
             if (e.target.closest(PRESSABLE + ', .theme-card, .switch')) haptic(HAPTIC_KEY);
         }, { passive: true });
@@ -8085,7 +8236,6 @@
             encLeds: document.getElementById('enc-leds'),
             speedPing: document.getElementById('s-ping'),
             sbVolSlider: document.getElementById('sb-vol-slider'),
-            sbVolFill: document.getElementById('sb-vol-fill'),
             sbVolValue: document.getElementById('sb-vol-value'),
             gaugeDir: document.getElementById('speed-gauge-dir'),
             speedUl: document.getElementById('s-ul'),
@@ -8096,7 +8246,8 @@
             iconSpotPause: document.getElementById('icon-spot-pause'),
             wrapTitle: document.getElementById('wrapper-title'),
             wrapArtist: document.getElementById('wrapper-artist'),
-            sbFeedback: document.getElementById('btn-toggle-sb-feedback')
+            sbFeedback: document.getElementById('btn-toggle-sb-feedback'),
+            sbMic: document.getElementById('btn-toggle-sb-mic')
         };
 
         // --- Speed test gauge ---
@@ -8284,11 +8435,36 @@
             renderClockViewWeather(d);
         }
 
-        function setFeedbackButton(on) {
-            if (!dom.sbFeedback) return;
-            dom.sbFeedback.classList.toggle('is-on', on);
-            dom.sbFeedback.setAttribute('aria-pressed', String(on));
-            dom.sbFeedback.title = on ? 'Local feedback: on' : 'Local feedback: off';
+        // Who hears the soundboard: you (feedback) and the call (mic). On is the
+        // usual state; a side that is muted is a lit red key, like Discord's.
+        const SB_ROUTES = {
+            feedback: {
+                msg: 'toggle_sb_feedback', label: 'Deafen: stop hearing the soundboard here',
+                on: 'You hear the soundboard', off: 'Deafened: only the call hears the soundboard',
+            },
+            mic: {
+                msg: 'toggle_sb_mic', label: 'Mute: the call stops hearing the soundboard',
+                on: 'The call hears the soundboard', off: 'Muted: only you hear the soundboard',
+            },
+        };
+        const sbRouteOn = { feedback: true, mic: true };
+
+        function setSbRoute(kind, on) {
+            sbRouteOn[kind] = on;
+            const key = kind === 'mic' ? dom.sbMic : dom.sbFeedback;
+            if (!key) return;
+            key.classList.toggle('muted', !on);
+            key.setAttribute('aria-pressed', String(!on));
+            key.setAttribute('aria-label', SB_ROUTES[kind].label);
+            key.title = on ? SB_ROUTES[kind].on : SB_ROUTES[kind].off;
+        }
+
+        // At once; the server's sb_*_state confirms it. {on} asks for a state, so
+        // quick taps cannot fall out of step (a server before v0.14.2 toggles).
+        function sbRouteTap(kind) {
+            const on = !sbRouteOn[kind];
+            setSbRoute(kind, on);
+            sendSocket(SB_ROUTES[kind].msg, { on });
         }
 
         // --- Now playing: cover colour, backdrop, progress, source ---
@@ -9689,9 +9865,10 @@
                         const volRow = document.getElementById('sb-vol-row');
                         if (volRow) volRow.style.display = 'flex';
                         const sbVol = c.soundboard_volume ?? 100;
-                        updateSbVolVisuals(sbVol);
-                        
-                        setFeedbackButton(c.soundboard_feedback !== false);
+                        if (!sbVolDragging) updateSbVolVisuals(sbVol);
+                        setSbRoute('feedback', c.soundboard_feedback !== false);
+                        dom.sbMic.hidden = !serverFeatures.has('sb_mic');
+                        setSbRoute('mic', c.soundboard_to_mic !== false);
                     } else if (clipSource === 'local') {
                         // Windows local soundboard: show tab when a sounds path is configured
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
@@ -9752,7 +9929,11 @@
                 }
                 else if (msg.type === 'sb_feedback_state') {
                     if (globalCfg) globalCfg.soundboard_feedback = d;
-                    setFeedbackButton(!!d);
+                    setSbRoute('feedback', !!d);
+                }
+                else if (msg.type === 'sb_mic_state') {
+                    if (globalCfg) globalCfg.soundboard_to_mic = d;
+                    setSbRoute('mic', !!d);
                 }
                 else if (msg.type === 'theme_state') {
                     if (globalCfg) globalCfg.theme = d;
@@ -12356,12 +12537,17 @@
         }
 
         let currentSbVol = 100;
+        let sbVolDragging = false;
         let _sbVolTimer = null;
+        const SB_VOL_TICK = 25;         // printed every 25 %; a haptic detent at each
+        const SB_VOL_UNITY_SNAP = 4;    // a drag within 4 % of 100 % rests on it
 
         function updateSbVolVisuals(val) {
+            const prev = currentSbVol;
             currentSbVol = Math.max(0, Math.min(200, Math.round(val)));
+            if (currentSbVol === prev && dom.sbVolSlider.style.getPropertyValue('--v')) return;
             setText(dom.sbVolValue, currentSbVol + '%');
-            dom.sbVolFill.style.transform = `scaleX(${currentSbVol / 200})`;
+            dom.sbVolSlider.style.setProperty('--v', String(currentSbVol / 200));
             dom.sbVolSlider.setAttribute('aria-valuenow', String(currentSbVol));
             dom.sbVolSlider.setAttribute('aria-valuetext', currentSbVol + '%');
         }
@@ -12374,40 +12560,78 @@
             }, 200);
         }
 
+        // A tick at each printed mark crossed, a firmer one at 0, 100 and 200 %.
+        function sbVolDetent(from, to) {
+            if (from === to) return;
+            const lo = Math.min(from, to), hi = Math.max(from, to);
+            const ends = [0, 100, 200].some(e => e === to || (e > lo && e < hi));
+            if (ends) haptic(HAPTIC_END);
+            else if (Math.floor(from / SB_VOL_TICK) !== Math.floor(to / SB_VOL_TICK)) haptic(HAPTIC_DETENT);
+        }
+
         function sbVolStep(delta) {
+            const from = currentSbVol;
             updateSbVolVisuals(currentSbVol + delta);
+            sbVolDetent(from, currentSbVol);
             sbVolCommit(currentSbVol);
         }
 
         function sbVolSet(val) {
+            const from = currentSbVol;
             updateSbVolVisuals(val);
+            sbVolDetent(from, currentSbVol);
             sbVolCommit(currentSbVol);
         }
 
+        // The printed scale: ticks above and below the slot.
+        (() => {
+            const scale = dom.sbVolSlider.querySelector('.sb-vol-scale');
+            let html = '';
+            for (let p = 0; p <= 200; p += SB_VOL_TICK) {
+                const cls = (p % 100 === 0 ? ' major' : '') + (p === 100 ? ' unity' : '');
+                html += `<i class="${cls.trim()}" style="--t:${p / 200}"></i><i class="b${cls}" style="--t:${p / 200}"></i>`;
+            }
+            scale.innerHTML = html;
+        })();
+
         // Drag anywhere on the strip; Pointer Events only (touch + mouse ran twice).
+        // Grabbing the cap keeps the finger's offset from its index line (no jump);
+        // a touch elsewhere on the strip jumps there.
         (() => {
             const track = dom.sbVolSlider;
             const slot = track.querySelector('.sb-vol-slot');
-            let dragging = false;
+            const cap = track.querySelector('.sb-vol-cap');
+            let grab = 0;
             const fromX = (x) => {
                 const r = slot.getBoundingClientRect();
-                return Math.round(Math.max(0, Math.min(1, (x - r.left) / r.width)) * 100) * 2;
+                const v = Math.round(Math.max(0, Math.min(1, (x - grab - r.left) / r.width)) * 100) * 2;
+                return Math.abs(v - 100) <= SB_VOL_UNITY_SNAP ? 100 : v;
             };
             track.addEventListener('pointerdown', (e) => {
                 if (!e.isPrimary) return;
-                dragging = true;
+                const c = cap.getBoundingClientRect();
+                grab = (e.clientX >= c.left && e.clientX <= c.right) ? e.clientX - (c.left + c.width / 2) : 0;
+                sbVolDragging = true;
+                track.classList.add('is-dragging');
                 try { track.setPointerCapture(e.pointerId); } catch (err) { /* the pointer already ended */ }
-                sbVolSet(fromX(e.clientX));
+                if (!grab) sbVolSet(fromX(e.clientX));
             });
-            track.addEventListener('pointermove', (e) => { if (dragging) sbVolSet(fromX(e.clientX)); });
-            const end = () => { dragging = false; };
+            track.addEventListener('pointermove', (e) => { if (sbVolDragging) sbVolSet(fromX(e.clientX)); });
+            const end = () => {
+                sbVolDragging = false;
+                track.classList.remove('is-dragging');
+            };
             track.addEventListener('pointerup', end);
             track.addEventListener('pointercancel', end);
             track.addEventListener('keydown', (e) => {
                 const step = { ArrowRight: 5, ArrowUp: 5, ArrowLeft: -5, ArrowDown: -5 }[e.key];
-                if (!step) return;
-                e.preventDefault();
-                sbVolStep(step);
+                if (step) {
+                    e.preventDefault();
+                    sbVolStep(step);
+                } else if (e.key === 'Home' || e.key === 'End') {
+                    e.preventDefault();
+                    sbVolSet(e.key === 'Home' ? 0 : 200);
+                }
             });
         })();
 

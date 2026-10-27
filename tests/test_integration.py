@@ -189,6 +189,66 @@ def test_set_play_key_broadcasts_and_persists(client):
     server.config.update(original)
 
 
+def test_sb_routes_ask_for_a_state_and_every_screen_follows(client):
+    """Soundboard: deafen (only the call hears it) and mute (only you do), as a state, not a toggle."""
+    import server
+    original = dict(server.config)
+    with patch("server.save_config") as save, patch("server.get_os_target", return_value="linux"), \
+            patch("server._toggle_feedback") as loopback:
+        with _admin_ws(client) as websocket:
+            sync = websocket.receive_json()
+            assert sync["data"]["cfg"]["soundboard_to_mic"] is True
+            assert "sb_mic" in sync["data"]["features"]
+            websocket.send_json({"type": "toggle_sb_mic", "data": {"on": "no"}})
+            assert _receive_until(websocket, "refused")["data"]["reason"] == "invalid"
+            for _ in range(2):   # asked twice: still off
+                websocket.send_json({"type": "toggle_sb_mic", "data": {"on": False}})
+                assert _receive_until(websocket, "sb_mic_state")["data"] is False
+            websocket.send_json({"type": "toggle_sb_feedback", "data": {"on": False}})
+            assert _receive_until(websocket, "sb_feedback_state")["data"] is False
+            websocket.send_json({"type": "toggle_sb_feedback"})   # pages before v0.14.2 toggle
+            assert _receive_until(websocket, "sb_feedback_state")["data"] is True
+        assert server.config["soundboard_to_mic"] is False
+        assert server.config["soundboard_feedback"] is True
+        assert [c.args for c in loopback.call_args_list] == [(False,), (True,)]
+        assert save.called
+    assert {"soundboard_to_mic", "soundboard_feedback"} <= set(server.DEVICE_CFG_KEYS)   # tablets follow
+    server.config.clear()
+    server.config.update(original)
+
+
+def test_router_unlinks_the_call_when_muted_and_keeps_the_loopback():
+    """Muted to the mic, the soundboard's links into the call go; the one to your speakers stays."""
+    import asyncio
+    import json
+    import server
+    outputs = {
+        ("pw-link", "-o"): "Dashboard-Soundboard:monitor_FL\nDashboard-Soundboard:monitor_FR\n"
+                           "alsa_input.usb-mic:capture_FL\n",
+        ("pw-dump",): json.dumps([{"type": "PipeWire:Interface:Node", "info": {"props": {
+            "application.name": "WEBRTC VoiceEngine", "node.name": "WEBRTC VoiceEngine"}}}]),
+        ("pw-link", "-l"): "alsa_input.usb-mic:capture_FL\n  |-> WEBRTC VoiceEngine:input_FL\n"
+                           "Dashboard-Soundboard:monitor_FL\n  |-> WEBRTC VoiceEngine:input_FL\n"
+                           "  |-> input.loopback-1-12:input_FL\n",
+    }
+
+    def route(to_mic: bool) -> list[list[str]]:
+        original = dict(server.config)
+        server.config["soundboard_to_mic"] = to_mic
+        try:
+            with patch("server.subprocess.check_output",
+                       side_effect=lambda cmd, **kw: outputs[tuple(cmd)].encode()), \
+                    patch("server.subprocess.run") as run:
+                asyncio.run(server._do_pipewire_route())
+        finally:
+            server.config.clear()
+            server.config.update(original)
+        return [c.args[0] for c in run.call_args_list]
+
+    assert route(True) == [["pw-link", "Dashboard-Soundboard:monitor_FL", "WEBRTC VoiceEngine:input_FL"]]
+    assert route(False) == [["pw-link", "-d", "Dashboard-Soundboard:monitor_FL", "WEBRTC VoiceEngine:input_FL"]]
+
+
 def test_set_theme_rejects_bad_values(client):
     import server
     original = dict(server.config)
