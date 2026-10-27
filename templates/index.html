@@ -1849,14 +1849,10 @@
         }
 
         /* ── Discord ──────────────────────────────────────────────────────── */
-        /* One height in a call and out of one (4.5 voice rows), so Now playing
-           above it, and its transport keys, never move. When the module grew with
-           the call, ⏯ moved 21–35 px for every person joining or leaving and
-           126 px when a call started or ended. */
         #panel-discord {
-            flex: 0 0 28rem;
-            min-height: 0;
-            justify-content: flex-start;
+            flex: 0 0 auto;
+            min-height: 14rem;
+            justify-content: center;
             align-items: stretch;
             gap: 1rem;
             /* No clip of its own (the voice list scrolls): a rounded clip around
@@ -1866,27 +1862,17 @@
                ~0.8 s late). setDiscordPanelVisible() fades it with a Web Animation. */
         }
 
-        /* Out of a call: the module's head and its well, like in a call. */
         .disc-header-basic {
-            flex: 1;
-            min-height: 0;
             display: flex;
-            flex-direction: column;
-            gap: 0.8rem;
-        }
-
-        /* As tall as the in-call head (its leave key), so both wells start at one y;
-           the title sits where every module's title sits. */
-        .disc-header-basic > .panel-title {
-            min-height: 3.2rem;
-            padding-top: calc((2.2rem - 1.2em) / 2);
-        }
-
-        .vc-well.vc-idle {
             align-items: center;
             justify-content: center;
-            color: var(--well-ink-2);
-            font-size: var(--fs-sm);
+            gap: 0.6rem;
+            color: var(--text-2);
+        }
+
+        .disc-header-basic svg {
+            width: 1.6rem;
+            height: 1.6rem;
         }
 
         #disc-vc-container {
@@ -6431,8 +6417,8 @@
 
                 <section id="panel-discord" class="card panel" style="display: none;" aria-label="Discord">
                     <div id="disc-header-basic" class="disc-header-basic">
+                        <svg aria-hidden="true"><use href="#icon-discord" /></svg>
                         <h2 class="panel-title">Discord</h2>
-                        <div class="vc-well vc-idle">Not in a call</div>
                     </div>
 
                     <div id="disc-vc-container" style="display: none;">
@@ -10730,6 +10716,9 @@
                             if (dom.discVcContainer.style.display !== 'flex') {
                                 dom.discVcContainer.style.display = 'flex';
                                 dom.discHeaderBasic.style.display = 'none';
+                                dom.panelDiscord.style.justifyContent = 'space-between';
+                                dom.panelDiscord.style.flex = '0 1 auto';
+                                dom.panelDiscord.style.maxHeight = '28rem';
                             }
 
                             const vc = d.discord.voice_channel;
@@ -10829,6 +10818,9 @@
                             if (dom.discVcContainer.style.display !== 'none') {
                                 dom.discVcContainer.style.display = 'none';
                                 dom.discHeaderBasic.style.display = 'flex';
+                                dom.panelDiscord.style.justifyContent = 'center';
+                                dom.panelDiscord.style.flex = '0 0 auto';
+                                dom.panelDiscord.style.maxHeight = 'none';
                                 dom.vcUsersList.innerHTML = '';
                                 dom.vcUsersList._rows = 0;
                                 dom.vcUsersList.style.setProperty('--rows', 0);
