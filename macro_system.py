@@ -167,6 +167,19 @@ class MacroSystem:
                 logger.error(f"evdev UInput init failed: {e}")
 
     @classmethod
+    def available(cls) -> bool:
+        """Whether keys can be pressed: on Linux, whether the uinput keyboard exists
+        (send_keys only logs when it cannot be created, e.g. no /dev/uinput access)."""
+        if sys.platform.startswith("win"):
+            return True
+        try:
+            import evdev  # type: ignore[import]  # noqa: F401
+        except ImportError:
+            return False
+        cls._init_linux()
+        return cls._ui is not None
+
+    @classmethod
     def send_keys(cls, *keys) -> None:
         """
         Send a key-down + key-up chord.

@@ -24,6 +24,8 @@ cp "$ROOT_DIR/"*.py "$TMP_DIR/touch-dashboard/"
 cp "$ROOT_DIR/touch-dashboard.desktop" "$TMP_DIR/touch-dashboard/"
 cp -r "$ROOT_DIR/templates" "$TMP_DIR/touch-dashboard/"
 cp -r "$ROOT_DIR/static" "$TMP_DIR/touch-dashboard/"
+cp -r "$ROOT_DIR/wow_addons" "$TMP_DIR/touch-dashboard/"
+find "$TMP_DIR/touch-dashboard/wow_addons" -name __pycache__ -prune -exec rm -rf {} +
 
 echo "==> Creating local source archive..."
 tar -C "$TMP_DIR" -czf "$ARCHIVE" "touch-dashboard"

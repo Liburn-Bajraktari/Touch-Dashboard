@@ -4409,6 +4409,81 @@
             flex-shrink: 0;
         }
 
+        /* Settings → Battle.net: the lookup and the character it found. Lines are
+           borders (a dialog scrolls; see .setting-row). */
+        .bnet-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            min-height: 3.6rem;
+        }
+
+        .bnet-status {
+            color: var(--text-2);
+            font-size: var(--fs-sm);
+        }
+
+        .bnet-status[data-tone="warn"] {
+            color: var(--warning-text);
+        }
+
+        .bnet-card {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 1.1rem;
+            padding: 1rem 1.25rem;
+            border-radius: calc(var(--radius-key) * var(--sq));
+            border-top: var(--line-w) solid var(--rim);
+            background: var(--surface-2);
+        }
+
+        .bnet-card[hidden] {
+            display: none;
+        }
+
+        .bnet-pic {
+            display: grid;
+            place-items: center;
+            width: 4.6rem;
+            height: 4.6rem;
+            border-radius: 0.9rem;
+            background: var(--well);
+            color: var(--well-ink-2);
+            overflow: hidden;
+        }
+
+        .bnet-pic > * {
+            grid-area: 1 / 1;
+        }
+
+        .bnet-pic img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .bnet-pic img:not([hidden]) + svg {
+            visibility: hidden;
+        }
+
+        .bnet-name {
+            font-size: var(--fs-lg);
+            font-weight: var(--weight-strong);
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .bnet-sub {
+            font-size: var(--fs-sm);
+            color: var(--text-2);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .connected-group {
             gap: 1.5rem;
             align-items: center;
@@ -6049,6 +6124,8 @@
             }
         }
     </style>
+    <!-- The WoW plugin page (static/wow/core.js): after the console's styles, which its parts build on. -->
+    <link rel="stylesheet" href="static/wow/wow.css">
 </head>
 
 <body id="body">
@@ -6369,6 +6446,7 @@
                 <button class="tab" id="btn-tab-spotify" data-tab="tab-spotify" onclick="switchTab('tab-spotify')">Spotify</button>
                 <button class="tab" id="btn-tab-weather" data-tab="tab-weather" onclick="switchTab('tab-weather')">Weather</button>
                 <button class="tab" id="btn-tab-discord" data-tab="tab-discord" onclick="switchTab('tab-discord')">Discord</button>
+                <button class="tab" id="btn-tab-bnet" data-tab="tab-bnet" onclick="switchTab('tab-bnet')">Battle.net</button>
                 <button class="tab" id="btn-tab-aud" data-tab="tab-aud" onclick="switchTab('tab-aud')">Audio routing</button>
                 <button class="tab" id="tab-btn-sb" data-tab="tab-sb" onclick="switchTab('tab-sb')"
                     style="display: none;">Soundboard</button>
@@ -6605,6 +6683,63 @@
                                     onclick="act('disc_clear_auth')">Clear authorization</button>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <div id="tab-bnet" class="tab-content">
+                    <h3 class="settings-h">Battle.net</h3>
+                    <p class="settings-sub">Your World of Warcraft character on the WoW page: item level, Mythic+ score,
+                        raid progress and this week's affixes from Raider.IO, and spell names on NSRT reminders from
+                        Battle.net.</p>
+                    <div class="hw-row">
+                        <div class="form-group"><label for="cfg-bnet-id">Client ID</label><input type="text"
+                                id="cfg-bnet-id" autocomplete="off" spellcheck="false"></div>
+                        <div class="form-group"><label for="cfg-bnet-secret">Client secret</label><input
+                                type="password" id="cfg-bnet-secret" autocomplete="off"></div>
+                    </div>
+                    <div class="notice">
+                        <i data-lucide="lightbulb"></i>
+                        <p>Create a free client at <a href="https://develop.battle.net/access/clients" target="_blank"
+                                rel="noopener">develop.battle.net</a> (API Access, Create client) and paste its ID and
+                            secret here. Nobody signs in, so any HTTPS address will do as its redirect URL. Without a
+                            key, Raider.IO still fills in the character; spell names need the key.</p>
+                    </div>
+
+                    <h3 class="settings-h">Your character</h3>
+                    <div class="setting-group">
+                        <div class="setting-row">
+                            <div><label class="title" id="bnet-region-label">Region</label></div>
+                            <div class="picker is-segmented" id="bnet-region" role="radiogroup"
+                                aria-labelledby="bnet-region-label">
+                                <button class="pick" role="radio" data-v="eu">EU</button>
+                                <button class="pick" role="radio" data-v="us">US</button>
+                                <button class="pick" role="radio" data-v="kr">KR</button>
+                                <button class="pick" role="radio" data-v="tw">TW</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="hw-row">
+                        <div class="form-group"><label for="bnet-realm">Realm</label><input type="text" id="bnet-realm"
+                                maxlength="64" autocomplete="off" spellcheck="false" placeholder="Draenor"></div>
+                        <div class="form-group"><label for="bnet-name">Character</label><input type="text"
+                                id="bnet-name" maxlength="48" autocomplete="off" spellcheck="false"
+                                placeholder="Magicbane"></div>
+                    </div>
+                    <div class="bnet-actions">
+                        <button class="btn btn-pill btn-ghost" id="bnet-lookup-btn" type="button"
+                            onclick="bnetLookup()"><i data-lucide="search"></i>Look up</button>
+                        <span class="bnet-status" id="bnet-status" role="status"></span>
+                    </div>
+                    <div class="bnet-card" id="bnet-card" hidden>
+                        <span class="bnet-pic"><img id="bnet-avatar" alt="" referrerpolicy="no-referrer" hidden><i
+                                data-lucide="user"></i></span>
+                        <div class="bnet-who">
+                            <div class="bnet-name" id="bnet-card-name"></div>
+                            <div class="bnet-sub" id="bnet-card-sub"></div>
+                            <div class="bnet-sub" id="bnet-card-stats"></div>
+                        </div>
+                        <button class="btn btn-pill btn-primary" id="bnet-use-btn" type="button"
+                            onclick="bnetUse()"><i data-lucide="check"></i>Use this character</button>
                     </div>
                 </div>
 
@@ -9543,6 +9678,7 @@
             ['cfg-weather', 'weather_api'], ['cfg-city', 'weather_city'],
             ['cfg-spot-id', 'spot_id'], ['cfg-spot-secret', 'spot_secret'],
             ['cfg-disc-id', 'disc_id'], ['cfg-disc-secret', 'disc_secret'],
+            ['cfg-bnet-id', 'bnet_id'], ['cfg-bnet-secret', 'bnet_secret'],
             ['cfg-sounds-path', 'sounds_path'],
             ['cfg-sb-norm-db', 'sb_normalization_db']
         ];
@@ -9953,6 +10089,7 @@
                 else if (msg.type === 'refused') {
                     console.warn('Server refused', d.action, d.reason);
                     onRefused(d);
+                    if (window.TDWow && /^wow_/.test(d.action || '')) TDWow.onRefused(d);
                     if (d.action === 'revoke_device') {
                         // Already gone on the server (removed from another window): drop it here too.
                         const gone = new Set([...document.querySelectorAll('.device-row.is-removing')].map(r => r.dataset.id));
@@ -10051,6 +10188,13 @@
                             dismissBtn.innerText = "Close";
                         }
                     }
+                }
+                else if (msg.type === 'bnet_lookup_result') {
+                    onBnetLookup(d);
+                }
+                else if (msg.type.startsWith('wow_')) {
+                    // The WoW plugin page: wow_state, wow_cmd_ack, wow_<addon>_update.
+                    if (window.TDWow) TDWow.onMessage(msg);
                 }
                 else if (msg.type === 'sys_data') {
                     if (isAnimating) {
@@ -11475,12 +11619,19 @@
         // timer and the title marquee pause, CSS animations stop (html[data-held]).
         // It catches up as soon as the last dialog closes.
         let dashboardHeld = false;
+        // Plugin pages covering the whole dashboard (the WoW page): setCovering().
+        const coveringViews = new Set();
+        function setCovering(name, on) {
+            if (on) coveringViews.add(name); else coveringViews.delete(name);
+            holdDashboard();
+        }
         function holdDashboard() {
             // Covered whole (any tier): what animates on the dashboard stops; the
             // speaking pulse kept the compositor drawing every frame under the mixer.
-            document.documentElement.toggleAttribute('data-covered', clockViewOpen || mixerOpen);
+            const covered = clockViewOpen || mixerOpen || coveringViews.size > 0;
+            document.documentElement.toggleAttribute('data-covered', covered);
             const held = document.documentElement.dataset.fx === 'lite'
-                && (clockViewOpen || mixerOpen || !!document.querySelector('.modal-overlay.active'));
+                && (covered || !!document.querySelector('.modal-overlay.active'));
             if (held === dashboardHeld) return;
             dashboardHeld = held;
             document.documentElement.toggleAttribute('data-held', held);
@@ -11882,6 +12033,8 @@
             lastRunKey = btnElement;   // a `refused` answer lands on it
             if (m.type === 'plugin' && m.action_data === 'app_soundpad') {
                 toggleSoundpad(true, btnElement);
+            } else if (m.type === 'plugin' && m.action_data === 'app_wow') {
+                if (window.TDWow) TDWow.open(btnElement);   // static/wow/core.js
             } else if (serverFeatures.has('pairing')) {
                 // By id only: the server looks up what the macro does in its own config.
                 sendMessage({ type: 'run_macro', id: m.id });
@@ -11905,6 +12058,7 @@
             ],
             plugin: [
                 { val: 'app_soundpad', lbl: 'Soundboard', icon: 'music' },
+                { val: 'app_wow', lbl: 'World of Warcraft', icon: 'swords' },
             ],
         };
         // An app's own icon is a name in the desktop's icon theme, which the page
@@ -12370,6 +12524,105 @@
             // Themes apply on tap, so that view has no Save button (see #modal-card[data-tab]).
             document.getElementById('modal-card').dataset.tab = tabId;
             if (tabId === 'tab-themes') renderThemeGrid();
+            if (tabId === 'tab-bnet') fillBnetTab();
+        }
+
+        // --- Settings → Battle.net: the WoW character (Raider.IO, Battle.net) ---
+        // A lookup previews the character; "Use this character" puts its name,
+        // realm, region and role tag into the WoW page's settings (NSRT's filter,
+        // the Character plate). The key typed here is used before it is saved.
+        const BNET_REASONS = {
+            not_found: 'No character by that name on that realm.',
+            refused: 'Battle.net refused this client ID or secret.',
+            busy: 'Too many lookups for now. Try again in a minute.',
+            offline: 'Raider.IO and Battle.net could not be reached.',
+            no_key: 'No Battle.net key.',
+            failed: 'The lookup failed.',
+        };
+        let bnetFound = null;
+        const bnetStatus = document.getElementById('bnet-status');
+
+        function setBnetRegion(v) {
+            document.querySelectorAll('#bnet-region .pick').forEach(p => p.setAttribute('aria-checked', String(p.dataset.v === v)));
+        }
+        function bnetRegion() {
+            const on = document.querySelector('#bnet-region .pick[aria-checked="true"]');
+            return on ? on.dataset.v : 'eu';
+        }
+        document.getElementById('bnet-region').addEventListener('click', (e) => {
+            const p = e.target.closest('.pick');
+            if (p) setBnetRegion(p.dataset.v);
+        });
+
+        // The character the WoW page has now, from its settings.
+        function fillBnetTab() {
+            const s = window.TDWow && TDWow.settings();
+            setBnetRegion((s && s.region) || bnetRegion());
+            if (s && s.realm && !document.getElementById('bnet-realm').value) document.getElementById('bnet-realm').value = s.realm;
+            if (s && s.character && !document.getElementById('bnet-name').value) document.getElementById('bnet-name').value = s.character;
+        }
+
+        function setBnetStatus(text, warn) {
+            bnetStatus.textContent = text;
+            bnetStatus.dataset.tone = warn ? 'warn' : '';
+        }
+
+        function bnetLookup() {
+            const realm = document.getElementById('bnet-realm').value.trim();
+            const name = document.getElementById('bnet-name').value.trim();
+            if (!realm || !name) {
+                setBnetStatus('Enter the realm and the character’s name.', true);
+                return;
+            }
+            bnetFound = null;
+            document.getElementById('bnet-card').hidden = true;
+            document.getElementById('bnet-lookup-btn').disabled = true;
+            setBnetStatus('Looking up…');
+            sendSocket('bnet_lookup', {
+                region: bnetRegion(), realm, name,
+                client_id: document.getElementById('cfg-bnet-id').value,
+                client_secret: document.getElementById('cfg-bnet-secret').value,
+            });
+        }
+
+        function onBnetLookup(d) {
+            document.getElementById('bnet-lookup-btn').disabled = false;
+            if (!d || !d.ok) {
+                setBnetStatus(BNET_REASONS[d && d.reason] || BNET_REASONS.failed, true);
+                return;
+            }
+            const c = bnetFound = d.character;
+            const src = d.sources || {};
+            const bnet = src.bnet === 'ok' ? 'Battle.net' : null;
+            const rio = src.raiderio === 'ok' ? 'Raider.IO' : null;
+            const missing = src.bnet === 'no_key' ? ' Add a Battle.net key for spell names.'
+                : src.bnet && src.bnet !== 'ok' ? ` Battle.net: ${BNET_REASONS[src.bnet] || src.bnet}`
+                : src.raiderio && src.raiderio !== 'ok' ? ' Raider.IO does not know it yet: no score or raid progress.' : '';
+            setBnetStatus(`Found on ${[rio, bnet].filter(Boolean).join(' and ')}.${missing}`, !!missing && src.bnet !== 'no_key');
+            setText(document.getElementById('bnet-card-name'), c.name || '');
+            setText(document.getElementById('bnet-card-sub'), [[c.spec, c.class].filter(Boolean).join(' '),
+                c.level ? `Level ${c.level}` : '', [c.realm, (c.region || '').toUpperCase()].filter(Boolean).join(' · ')].filter(Boolean).join(' · '));
+            setText(document.getElementById('bnet-card-stats'), [c.ilvl ? `Item level ${Math.round(c.ilvl)}` : '',
+                c.score != null ? `M+ score ${c.score}` : '', c.role_tag ? `Role tag: ${c.role_tag}` : ''].filter(Boolean).join(' · '));
+            const img = document.getElementById('bnet-avatar');
+            img.hidden = !c.avatar;
+            if (c.avatar) {
+                img.onerror = () => { img.hidden = true; };
+                img.src = c.avatar;
+            } else {
+                img.removeAttribute('src');
+            }
+            document.getElementById('bnet-card').hidden = false;
+        }
+
+        function bnetUse() {
+            const c = bnetFound;
+            if (!c) return;
+            const s = (window.TDWow && TDWow.settings()) || {};
+            sendMessage({ type: 'wow_settings_save', wow_addons: {
+                character: c.name, realm: c.realm, region: c.region, role: c.role_tag || s.role || '',
+            } });
+            setBnetStatus(`The WoW page now shows ${c.name}${c.role_tag ? `, with the role tag “${c.role_tag}”` : ''}.`);
         }
 
         let spBtns = [];
@@ -13319,6 +13572,8 @@
         if (!playEntrance) entranceDone = true;
 
     </script>
+    <!-- The WoW plugin page: its core, then each addon's file as the PC lists it. -->
+    <script src="static/wow/core.js"></script>
 </body>
 
 </html>

@@ -34,6 +34,7 @@ SECRETS = {
     "spot_secret": "spot-secret-value", "disc_secret": "disc-secret-value",
     "disc_token": "disc-token-value", "spot_token": "spot-token-value",
     "weather_api": "weather-key-value", "sounds_path": "/home/someone/private-sounds",
+    "bnet_secret": "bnet-secret-value", "bnet_id": "bnet-client-id-value",
 }
 
 
@@ -316,6 +317,8 @@ ADMIN_ONLY_MESSAGES = [
     {"type": "action", "data": "disc_clear_auth"},
     {"type": "action", "data": "spot_clear_auth"},
     {"type": "action", "data": "disc_auth"},
+    {"type": "wow_settings_save", "wow_addons": {"wow_path": "/home", "modules": {"nsrt": False}}},
+    {"type": "bnet_lookup", "data": {"region": "eu", "realm": "Draenor", "name": "X", "client_secret": "s"}},
 ]
 
 

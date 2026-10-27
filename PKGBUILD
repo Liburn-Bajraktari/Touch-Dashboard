@@ -39,7 +39,7 @@ package() {
 
   install -dm755 "$pkgdir/opt/touch-dashboard"
   install -Dm755 *.py "$pkgdir/opt/touch-dashboard/"
-  cp -r templates static docs "$pkgdir/opt/touch-dashboard/"
+  cp -r templates static docs wow_addons "$pkgdir/opt/touch-dashboard/"
 
   install -dm755 "$pkgdir/usr/bin"
   cat > "$pkgdir/usr/bin/touch-dashboard" <<'EOF'

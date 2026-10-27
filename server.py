@@ -235,6 +235,8 @@ from discord_ipc import DiscordIPC
 from macro_system import MacroSystem, AppEnumerator
 import media as media_module
 import security
+import wow_addons
+from wow_addons.armory import Armory, ArmoryError
 
 import lock_monitor as _lock_monitor_mod
 
@@ -313,11 +315,13 @@ DEFAULT_CONFIG: dict = {
     "idle_dim_min": 5,        # burn-in care on tablets: dim the home screen after this many idle minutes (0: never)
     "idle_clock_min": 15,     # ... and show the full-screen clock after this many (0: never)
     "device_av_controls": True,  # paired tablets may toggle Discord camera / screen share
+    "wow_addons": {},         # the WoW plugin page (wow_addons.WowAddons.clean_settings)
+    "bnet_id": "", "bnet_secret": "",   # a Battle.net API client (client credentials: nobody signs in)
 }
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
 SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like",
-                   "media_result", "audio_apps", "sb_mic"]   # see _make_config_sync
+                   "media_result", "audio_apps", "sb_mic", "wow_addons", "bnet"]   # see _make_config_sync
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
 APP_VERSION_RE = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,4}")   # the Android app's version, from auth
@@ -491,6 +495,19 @@ last_host_url        = "127.0.0.1:8888"
 speedtest_lock: asyncio.Lock | None = None
 # Signalled by a local play_clip to make pipewire_auto_router run immediately.
 sb_route_event: asyncio.Event | None = None
+
+# Raider.IO and Battle.net for the WoW page: the character, affixes, spell names.
+armory = Armory(cache_file=os.path.join(DATA_DIR, "wow_spells.json"), user_agent=f"TouchDashboard/{VERSION}")
+armory.configure(config.get("bnet_id", ""), config.get("bnet_secret", ""))
+armory_event: asyncio.Event | None = None   # wakes armory_loop (created in lifespan)
+ARMORY_IDLE_S = 60
+
+# The WoW plugin page: its addon modules, their settings, commands and watched files.
+wow = wow_addons.WowAddons(
+    wow_addons.discover(), send_keys=MacroSystem.send_keys, keys_ready=MacroSystem.available,
+    open_url=webbrowser.open, launch=AppEnumerator.launch_app, armory=armory)
+wow.configure(config.get("wow_addons"))
+WOW_WATCH_INTERVAL = 5   # s between checks of the watched SavedVariables files
 
 # Template cache (mtime-based)
 _tmpl_cache = {"mtime": 0.0, "html": "", "etag": ""}
@@ -1475,7 +1492,7 @@ DEVICE_SYNC_KEYS = (
     "features", "clip_source", "disc_init",
 )
 # Built-in modules a premade / plugin macro may name.
-MACRO_MODULES = frozenset({"app_term", "app_web", "app_files", "app_task", "app_soundpad"})
+MACRO_MODULES = frozenset({"app_term", "app_web", "app_files", "app_task", "app_soundpad", "app_wow"})
 
 
 def _clip_source(cfg: dict) -> str:
@@ -1485,7 +1502,8 @@ def _clip_source(cfg: dict) -> str:
 
 def _device_macro(m: dict) -> dict:
     out = {k: m.get(k, "") for k in ("id", "type", "display_name", "icon_url")}
-    # A device runs macros by id; it only needs to know which key opens the soundboard.
+    # A device runs macros by id; it only needs to know which key opens the soundboard
+    # (or the WoW page).
     if m.get("type") == "plugin" and m.get("action_data") in MACRO_MODULES:
         out["action_data"] = m["action_data"]
     return out
@@ -1606,6 +1624,20 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(update_monitor_loop())
 
+    async def wow_watch_loop():
+        # The WoW plugin's SavedVariables files: read again when WoW writes
+        # them (/reload, logout, exit), then every screen gets the new view.
+        while True:
+            try:
+                changed = await asyncio.to_thread(wow.poll)
+                if changed:
+                    await _broadcast_wow(changed)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"WoW addon watch: {e}")
+            await asyncio.sleep(WOW_WATCH_INTERVAL)
+
     # Linux: create Dashboard-Soundboard virtual sink
     if get_os_target() == "linux":
         async def _run(cmd: list[str], timeout: int = 3) -> subprocess.CompletedProcess:
@@ -1659,8 +1691,9 @@ async def lifespan(app: FastAPI):
     # exist at this point. Creating them at module scope binds them to a
     # different (or non-existent) loop and causes:
     #   RuntimeError: Task got Future <Event> attached to a different loop
-    global weather_update_event, speedtest_lock, upower_monitor, lock_monitor_instance, sb_route_event
+    global weather_update_event, speedtest_lock, upower_monitor, lock_monitor_instance, sb_route_event, armory_event
     weather_update_event = asyncio.Event()
+    armory_event         = asyncio.Event()
     speedtest_lock       = asyncio.Lock()
     sb_route_event       = asyncio.Event()
 
@@ -1723,6 +1756,8 @@ async def lifespan(app: FastAPI):
     tasks = [
         asyncio.create_task(hardware_loop(),  name="hardware_loop"),
         asyncio.create_task(fetch_weather(),  name="fetch_weather"),
+        asyncio.create_task(wow_watch_loop(), name="wow_watch"),
+        asyncio.create_task(armory_loop(),    name="armory"),
     ]
     if get_os_target() == "linux":
         tasks.append(asyncio.create_task(pipewire_auto_router(), name="pw_router"))
@@ -2421,6 +2456,7 @@ async def _send_initial_state(client: Client) -> None:
     hw = AudioSystem.ordered(hw, config.get("audio_order"))
     syncs = await _config_sync_by_role(_initial_disc(), sinks=hw)
     await client.ws.send_text(_dumps(syncs[client.role]))
+    await _send_wow(client)
 
     if last_weather_data.get("temp") != "--":
         await client.ws.send_text(_dumps({"type": "weather_data", "data": last_weather_data}))
@@ -2559,9 +2595,20 @@ async def _ws_save_config(client: Client, msg: dict) -> None:
     for key, choices in IDLE_CHOICES.items():
         if key in data:
             data[key] = _idle_minutes(key, data[key], choices)
+    for key in ("bnet_id", "bnet_secret"):
+        if key in data:
+            value = data[key]
+            data[key] = value.strip()[:128] if isinstance(value, str) else ""
+    wow_raw = data.pop("wow_addons", None)
     with CONFIG_LOCK:
         config.update(data)
     await asyncio.to_thread(save_config)
+    key_changed = armory.configure(config.get("bnet_id", ""), config.get("bnet_secret", ""))
+    if isinstance(wow_raw, dict):
+        await _apply_wow_settings(wow_raw)
+    elif key_changed:
+        await _broadcast_wow()   # views built again: their spells are asked for with the new key
+    _armory_kick()
 
     if old_spot_id != config.get("spot_id"):
         global_sp_oauth = None
@@ -2862,6 +2909,120 @@ async def _revoke_device(device_id: str, code: int, reason: str) -> None:
     await _broadcast_devices()
 
 
+# ── WoW plugin page ───────────────────────────────────────────────────────────
+
+def _wow_state_by_role() -> dict[str, dict]:
+    return {"admin": wow.state_msg(True), "device": wow.state_msg(False)}
+
+
+async def _broadcast_wow(module_ids: set[str] | None = None) -> None:
+    """wow_state (paired devices get theirs without paths or private settings)
+    and the modules' views (wow_<id>_update) to every screen."""
+    await ws_manager.broadcast_by_role(_wow_state_by_role())
+    for msg in wow.update_msgs(module_ids):
+        await ws_manager.broadcast(msg)
+    _armory_kick()
+
+
+async def _send_wow(client: Client) -> None:
+    await client.ws.send_text(_dumps(_wow_state_by_role()[client.role]))
+    for msg in wow.update_msgs():
+        await client.ws.send_text(_dumps(msg))
+    _armory_kick()
+
+
+def _armory_kick() -> None:
+    """Wake armory_loop when it has work: spells a view named, a Refresh key,
+    another character, or one due."""
+    if armory_event is None:
+        return
+    if armory.wanted() or (wow.enabled("char") and armory.refresh_due(wow.who())):
+        armory_event.set()
+
+
+async def armory_loop() -> None:
+    # Spell names first (a reminder card waits for them), then the character:
+    # every 30 minutes while the Character module is on. Network calls run on
+    # worker threads and never hold up a WoW command.
+    while True:
+        try:
+            changed = False
+            if armory.wanted():
+                changed = await asyncio.to_thread(armory.fetch_spells, wow.settings()["region"])
+            who = wow.who()
+            if wow.enabled("char") and armory.refresh_due(who):
+                await asyncio.to_thread(armory.refresh, who)
+                changed = True
+            if changed:
+                await _broadcast_wow()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"Armory: {e}")
+        try:
+            await asyncio.wait_for(armory_event.wait(), timeout=ARMORY_IDLE_S)
+        except asyncio.TimeoutError:
+            pass
+        armory_event.clear()
+
+
+CHARACTER_KEYS = ("name", "realm", "region", "class", "spec", "level", "ilvl", "score", "guild",
+                  "avatar", "role_tag", "profile_url")
+
+
+async def _ws_bnet_lookup(client: Client, msg: dict) -> None:
+    """Settings → Battle.net: find a character on Raider.IO and Battle.net. The
+    key typed in Settings is used before it is saved."""
+    data = msg["data"]
+    region, realm, name = data["region"], data["realm"], data["name"]
+    if not all(isinstance(v, str) for v in (region, realm, name)):
+        raise TypeError("region, realm and name must be strings")
+    key = tuple(data.get(k) if isinstance(data.get(k), str) and data.get(k).strip() else config.get(c, "")
+                for k, c in (("client_id", "bnet_id"), ("client_secret", "bnet_secret")))
+    try:
+        char = await asyncio.to_thread(armory.lookup, region, realm[:64], name[:48], (key[0].strip(), key[1].strip()))
+        result = {"ok": True, "character": {k: char.get(k) for k in CHARACTER_KEYS}, "sources": char["sources"]}
+    except ArmoryError as e:
+        result = {"ok": False, "reason": e.reason, "sources": e.sources}
+    await _send(client.ws, {"type": "bnet_lookup_result", "data": result})
+
+
+async def _ws_wow_addon_action(client: Client, msg: dict) -> None:
+    """{command, args?}: a command of an enabled addon module, its arguments
+    checked by the module. Answered with wow_cmd_ack; typed into WoW's chat
+    (or its key slot pressed) one command at a time."""
+    command = msg.get("command")
+    name = command[:48] if isinstance(command, str) else ""
+    try:
+        module_id = await asyncio.to_thread(wow.run, command, msg.get("args"))
+    except wow_addons.CommandError as e:
+        logger.info("WoW command %r from %s (%s): %s", name, client.ip, client.role, e.reason)
+        await _send(client.ws, {"type": "wow_cmd_ack", "data": {"command": name, "status": "error",
+                                                                "reason": e.reason}})
+        return
+    await _send(client.ws, {"type": "wow_cmd_ack", "data": {"command": name, "status": "sent"}})
+    await _broadcast_wow({module_id})
+
+
+async def _apply_wow_settings(raw: dict) -> dict:
+    """Merge into the saved wow_addons (a module's own settings are replaced
+    whole), save, read any watched file from its new place, tell every screen."""
+    settings = wow.configure({**wow.settings(), **raw})
+    with CONFIG_LOCK:
+        config["wow_addons"] = settings
+    await asyncio.to_thread(save_config)
+    await asyncio.to_thread(wow.poll)
+    await _broadcast_wow()
+    return settings
+
+
+async def _ws_wow_settings_save(client: Client, msg: dict) -> None:
+    raw = msg.get("wow_addons")
+    if not isinstance(raw, dict):
+        raise TypeError("wow_addons must be an object")
+    await _apply_wow_settings(raw)
+
+
 WS_HANDLERS = {
     "req_local_sounds":   _ws_req_local_sounds,
     "req_apps_list":      _ws_req_apps_list,
@@ -2890,6 +3051,9 @@ WS_HANDLERS = {
     "rename_device":      _ws_rename_device,
     "revoke_device":      _ws_revoke_device,
     "unpair_self":        _ws_unpair_self,
+    "wow_addon_action":   _ws_wow_addon_action,
+    "wow_settings_save":  _ws_wow_settings_save,
+    "bnet_lookup":        _ws_bnet_lookup,
 }
 
 # Names a client may send as {"type": "action", "data": <name>}. Launchers
@@ -2906,7 +3070,8 @@ KNOWN_ACTIONS = frozenset(WS_HANDLERS.keys() - {"action"}) | {f"action:{a}" for 
 ADMIN_ACTIONS = frozenset({
     "save_config", "save_macros", "set_theme", "set_play_key", "req_local_sounds", "req_apps_list",
     "check_update", "run_update", "pair_decision", "rename_device", "revoke_device",
-    "action:spot_clear_auth", "action:disc_auth", "action:disc_clear_auth",
+    "action:spot_clear_auth", "action:disc_auth", "action:disc_clear_auth", "wow_settings_save",
+    "bnet_lookup",
 })
 # Paired devices may use these only while device_av_controls is on.
 DEVICE_AV_ACTIONS = frozenset({"action:disc_cam", "action:disc_screen"})
