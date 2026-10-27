@@ -5,6 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <script>
+        // Phones get their own layout ("Phones" in the styles, the same query:
+        // test-enforced) and may zoom, as any page on a phone. The tablet and the
+        // desktop window keep one scale, as a console's screen does.
+        const PHONE_LAYOUT = matchMedia('(max-width: 699.98px), (max-height: 519.98px) and (max-width: 999.98px)');
+        if (PHONE_LAYOUT.matches) {
+            document.querySelector('meta[name="viewport"]').content = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
+        }
+    </script>
     <title>Touch Dashboard</title>
     <meta name="description" content="Touch Dashboard — system monitor and macro pad for your tablet or phone">
     <link rel="icon" type="image/x-icon" href="static/favicon.ico">
@@ -5520,6 +5529,315 @@
             transition: none;
         }
 
+        /* ── Phones ───────────────────────────────────────────────────────── */
+        /* A phone is a second client (a browser, or the app, on another device),
+           so it gets its own composition instead of the tablet's three columns
+           at a 6 px rem: the modules in one column in reading order (Now
+           playing, Discord, the mixer, macros, system monitor; two side by side
+           in landscape), a page that scrolls, and a rem from the column's width
+           (initViewportScale, 10-12 px), so every key keeps 44 CSS px. The clock
+           panel stays off: a phone shows the time itself. The query is
+           PHONE_LAYOUT's in the head (test-enforced). It never matches the tablet
+           (1138 × 711, keyboard up or not: Android shrinks the page's height for
+           the keyboard, so the height branch stops at 1000 px wide) or the
+           desktop window (1280 × 800), and nothing outside it changes there. */
+        @media (max-width: 699.98px), (max-height: 519.98px) and (max-width: 999.98px) {
+            /* The column's width / 39, until initViewportScale sets the same. */
+            html {
+                font-size: clamp(10px, 2.564vw, 12px);
+            }
+
+            /* The page scrolls; the tablet's is the screen's height. */
+            body {
+                --edge-t: max(var(--pad), env(safe-area-inset-top));
+                --edge-r: max(var(--pad), env(safe-area-inset-right));
+                --edge-b: max(var(--pad), env(safe-area-inset-bottom));
+                --edge-l: max(var(--pad), env(safe-area-inset-left));
+                --bar-h: 10.1rem;
+                height: auto;
+                min-height: 100svh;
+                overflow: visible;
+                padding: var(--edge-t) var(--edge-r) var(--edge-b) var(--edge-l);
+            }
+
+            /* While the soundboard, the mixer or the clock covers it, it stays put. */
+            html:has(#main-view.is-covered),
+            html[data-covered] {
+                overflow: hidden;
+            }
+
+            /* Two rows: the title and the mouse's battery, then the speed test
+               and power. The soundboard's back key, volume and Stop audio take
+               the same places (positioned in the bar, .top-bar). */
+            .top-bar {
+                position: relative;
+                flex: none;
+                height: var(--bar-h);
+                grid-template-columns: minmax(0, 1fr) auto;
+                grid-template-rows: 3.8rem 4.6rem;
+                grid-template-areas: "title left" "right right";
+                gap: 0.5rem 0.6rem;
+                padding: 0.6rem 0.6rem 0.6rem 1rem;
+            }
+
+            .bar-title {
+                grid-area: title;
+                justify-content: flex-start;
+            }
+
+            .bar-left {
+                grid-area: left;
+                position: static;
+            }
+
+            .bar-right {
+                grid-area: right;
+                position: static;
+            }
+
+            #top-right-normal {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .speed-widget,
+            .top-bar .btn-top {
+                height: 4.6rem;
+            }
+
+            #btn-back {
+                left: 0.4rem;
+                bottom: 0.6rem;
+            }
+
+            #top-right-soundboard {
+                left: 5.6rem;
+                right: 0.6rem;
+                bottom: 0.6rem;
+                width: auto;
+                height: 4.6rem;
+            }
+
+            .sb-vol-row {
+                flex: 1;
+                width: auto;
+                min-width: 0;
+            }
+
+            #top-right-soundboard #btn-stop-audio {
+                position: absolute;
+                right: 0;
+                bottom: calc(100% + 0.5rem);
+                height: 3.8rem;
+            }
+
+            /* 44 CSS px to tap; the hit area draws nothing. */
+            #btn-stop-audio::before {
+                content: '';
+                position: absolute;
+                inset: -0.4rem 0;
+            }
+
+            /* A long "No reading" gives way before the bar overflows. */
+            .batt-slide,
+            .batt-pct {
+                min-width: 0;
+            }
+
+            .batt-pct {
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #view-wrapper {
+                flex: none;
+            }
+
+            .grid-container {
+                position: relative;
+                height: auto;
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* The modules become the column's own items, in the page's order. */
+            .col {
+                display: contents;
+            }
+
+            /* config_sync shows the panel with an inline display. */
+            .time-weather-panel {
+                display: none !important;
+            }
+
+            .spotify,
+            #mixer-card,
+            .macros-panel {
+                flex: none;
+            }
+
+            .spot-empty {
+                min-height: 12rem;
+            }
+
+            #spot-info {
+                flex: none;
+            }
+
+            .spot-art-box {
+                flex: none;
+                height: 22rem;
+                max-height: none;
+            }
+
+            /* Full size for a thumb; the shares still add up to the card. */
+            .spot-ctrl { gap: min(2rem, 8cqi); }
+            .spot-ctrl .np-key { --k: min(5rem, 24cqi); }
+            .spot-ctrl .btn-play { --k: min(6.6rem, 32cqi); }
+            .spot-ctrl[data-keys="5"] { gap: min(1rem, 3cqi); }
+            .spot-ctrl[data-keys="5"] .np-key { --k: min(4.6rem, 15cqi); }
+            .spot-ctrl[data-keys="5"] .np-seek { --k: min(4.8rem, 16cqi); }
+            .spot-ctrl[data-keys="5"] .btn-play { --k: min(6.4rem, 22cqi); }
+
+            /* A vertical swipe on the scrub strip scrolls the page; 44 px to grab. */
+            .np-progress[data-seek] {
+                touch-action: pan-y;
+            }
+
+            .np-progress[data-seek]::before {
+                inset: -1.6rem 0 -0.5rem;
+            }
+
+            .vc-leave {
+                width: 4.8rem;
+                padding: 0;
+            }
+
+            /* As tall as the mixer's master; openMixer scrolls it to the foot of
+               the screen, where the master stands. */
+            #mixer-card {
+                height: 36rem;
+                scroll-margin-bottom: var(--edge-b);
+            }
+
+            /* Off its cap a fader lets the page scroll (initFader); in the mixer,
+               the bays scroll sideways too. */
+            .slider-track-area {
+                touch-action: pan-y;
+            }
+
+            #mixer-view .slider-track-area {
+                touch-action: pan-x pan-y;
+            }
+
+            /* Square keys, 3 × 4 to a page; a vertical swipe scrolls, a sideways
+               one still turns the page. */
+            .btn-grid {
+                flex: none;
+                grid-template-rows: none;
+                grid-auto-rows: auto;
+                touch-action: pan-y;
+            }
+
+            .macro-slot {
+                height: auto;
+                aspect-ratio: 1;
+            }
+
+            /* The soundboard opens at the top of the page (toggleSoundpad scrolls
+               there) and fills the screen under the top bar; its pads scroll.
+               Closed it is hidden, not parked below its place: here that place
+               is mid-page, over the modules. */
+            #soundpad-view,
+            #view-scrim {
+                bottom: auto;
+                height: calc(100svh - var(--edge-t) - var(--bar-h) - var(--gap) - var(--edge-b));
+            }
+
+            #soundpad-view {
+                visibility: hidden;
+                transform: none;
+            }
+
+            #sp-inner {
+                overscroll-behavior: contain;
+            }
+
+            /* The full-screen mixer: playback above the output fader, recording
+               above the mic, and the master below, as tall as the card it left. */
+            .mx-stage {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                grid-template-rows: minmax(0, 1fr) 36rem;
+                grid-template-areas: "out in" "master master";
+            }
+
+            #mx-out { grid-area: out; }
+            #mx-master { grid-area: master; }
+            #mx-in { grid-area: in; }
+
+            /* Landscape: two columns, the modules in pairs in reading order. */
+            @media (min-aspect-ratio: 4/3) {
+                html {
+                    font-size: clamp(10px, 1.282vw, 12px);
+                }
+
+                .grid-container {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    align-items: start;
+                }
+
+                .spot-art-box {
+                    height: 13rem;
+                }
+
+                #mixer-card {
+                    height: 33rem;
+                }
+
+                .macros-panel {
+                    min-height: 33rem;
+                }
+
+                .btn-grid {
+                    flex: 1;
+                    grid-template-rows: repeat(4, minmax(0, 1fr));
+                }
+
+                .macro-slot {
+                    height: 100%;
+                    aspect-ratio: auto;
+                }
+
+                /* Keys as wide as the portrait ones and two thirds as tall: a
+                   smaller glyph and a one-line legend. */
+                .key-screen {
+                    gap: 0.35rem;
+                }
+
+                .key-screen svg.lucide,
+                .key-screen img {
+                    width: 2.4rem;
+                    height: 2.4rem;
+                }
+
+                .key-label {
+                    -webkit-line-clamp: 1;
+                }
+
+                /* The mixer keeps the tablet's three columns. */
+                .mx-stage {
+                    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr);
+                    grid-template-rows: minmax(0, 1fr);
+                    grid-template-areas: none;
+                }
+
+                :is(#mx-out, #mx-master, #mx-in) {
+                    grid-area: auto;
+                }
+            }
+        }
+
         @media (prefers-reduced-motion: reduce) {
             *,
             *::before,
@@ -6821,6 +7139,10 @@
         ; (function initViewportScale() {
             const REF_W = 2560, REF_H = 1600, REF_PX = 22;
             const MIN_PX = 6, MAX_PX = 32;
+            // Phones: the rem from the column's width (two columns once the screen
+            // is 4:3 or wider, as the styles' landscape rule), never under 10 px,
+            // so every key keeps 44 CSS px. The page scrolls: no frozen height.
+            const PHONE_COL_REM = 39, PHONE_MIN_PX = 10, PHONE_MAX_PX = 12;
             let lastVw = window.innerWidth;
             let maxVhForVw = window.innerHeight;
 
@@ -6835,6 +7157,14 @@
                 } else {
                     lastVw = vw;
                     maxVhForVw = vh;
+                }
+
+                if (PHONE_LAYOUT.matches) {
+                    const cols = vw * 3 >= maxVhForVw * 4 ? 2 : 1;
+                    const px = Math.min(PHONE_MAX_PX, Math.max(PHONE_MIN_PX, Math.round(vw / cols / PHONE_COL_REM * 10) / 10));
+                    document.documentElement.style.fontSize = px + 'px';
+                    if (document.body) document.body.style.height = '';
+                    return;
                 }
 
                 // Scale by whichever axis is "tighter" using the true max height
@@ -9885,8 +10215,10 @@
             return `translate(${b.left + b.width / 2 - (a.left + a.width / 2)}px, ${b.top + b.height / 2 - (a.top + a.height / 2)}px) scale(${s})`;
         }
 
+        // Not on a phone: it has no clock panel (it shows the time itself), and
+        // its own screen timeout looks after it.
         function openClockView() {
-            if (clockViewOpen || clockPanel.style.display === 'none') return;
+            if (clockViewOpen || clockPanel.style.display === 'none' || PHONE_LAYOUT.matches) return;
             clockViewOpen = true;
             clockViewAt = performance.now();
             renderClockViewTime();
@@ -10286,6 +10618,10 @@
             const rich = mixerRich();
             const fresh = !mixerMaster.contains(mixerParts[0]);   // false: it is still closing
             if (fresh) {
+                // A phone's page scrolls: the card first goes to the foot of the
+                // screen, where the master stands in the mixer, so the two share
+                // their baseline as on the tablet and only the bays grow in.
+                if (PHONE_LAYOUT.matches) mixerCard.scrollIntoView({ block: 'end' });
                 // Reads first: where everything is in the card, before it moves.
                 const { items, tracks } = mixerPieces();
                 mixerGeo = rich ? {
@@ -11101,6 +11437,8 @@
             if (show === sbOpen) return;
             sbOpen = show;
             if (show && triggerBtn) sbKey = triggerBtn;
+            // A phone opens it at the top of the page, under the top bar's controls.
+            if (show && PHONE_LAYOUT.matches) window.scrollTo(0, 0);
             const run = ++sbRun;
             const fresh = sbAnims.length === 0;   // false: turning a transition around
             sbFreeze();
@@ -12245,6 +12583,8 @@
         const FADER_TICK_STEP = 5, FADER_MAJOR_STEP = 25;
         const FADER_DETENT_STEP = 10;   // haptic tick every 10 %
         const FADER_MUTE_PULL = -8;     // dragging this far below 0 % mutes the channel
+        const FADER_GRAB_PX = 48;       // a phone's finger takes the cap within this band
+        const TOUCH_MOUSE_MS = 800;     // a tap's emulated mousedown arrives within this
 
         // labels: the figures beside the ticks (the masters); an app's strip has ticks only.
         function renderFaderScale(scale, labels = true) {
@@ -12368,15 +12708,25 @@
                     lastEmit = now;
                 }
             }
+            let touchAt = -Infinity;   // when the last touch began (its tap is followed by a mousedown)
             function startDrag(e) {
-                if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
-                dCheck(true);
-                dragRect = s.getBoundingClientRect();
-                capHalf = cap ? cap.offsetHeight / 2 : 0;
-                // On the cap: keep the finger's offset from its centre. Elsewhere: jump there.
-                const travel = Math.max(1, dragRect.height - capHalf * 2);
-                const capCentre = dragRect.top + capHalf + (1 - currentPct / 100) * travel;
+                const touch = e.type.startsWith('touch');
+                if (touch) touchAt = performance.now();
+                else if (performance.now() - touchAt < TOUCH_MOUSE_MS) return;
+                const rect = s.getBoundingClientRect();
+                const half = cap ? cap.offsetHeight / 2 : 0;
+                const travel = Math.max(1, rect.height - half * 2);
+                const capCentre = rect.top + half + (1 - currentPct / 100) * travel;
                 const y = pointerY(e);
+                // A phone's page scrolls: a finger takes the fader at its cap, and
+                // anywhere else on the track scrolls instead of jumping the level.
+                if (touch && PHONE_LAYOUT.matches
+                    && !(y !== undefined && Math.abs(y - capCentre) <= Math.max(half, FADER_GRAB_PX / 2))) return;
+                if (e.cancelable !== false && touch) e.preventDefault();
+                dCheck(true);
+                dragRect = rect;
+                capHalf = half;
+                // On the cap: keep the finger's offset from its centre. Elsewhere: jump there.
                 grabOffset = (y !== undefined && Math.abs(y - capCentre) <= capHalf) ? y - capCentre : 0;
                 lastDetent = Math.round(currentPct / FADER_DETENT_STEP);
                 s.classList.add('is-dragging');

@@ -111,3 +111,41 @@ def test_android_draws_round_corners():
         assert '[data-corners="squircle"]' in selector, selector.strip()
     themes = (TEMPLATE.parent.parent / "static" / "themes.js").read_text(encoding="utf-8")
     assert re.search(r"dataset\.corners\s*=\s*/Android/\.test\(navigator\.userAgent\)\s*\?\s*'round'", themes)
+
+
+def _phone_queries() -> tuple[str, str]:
+    """The phone layout's media query as the styles and the head script write it."""
+    html = TEMPLATE.read_text(encoding="utf-8")
+    css = re.search(r"── Phones ─[\s\S]*?@media ([^{]+?)\s*\{", html).group(1)
+    js = re.search(r"const PHONE_LAYOUT = matchMedia\('([^']+)'\)", html).group(1)
+    return css, js
+
+
+def _matches(query: str, width: int, height: int) -> bool:
+    """A media query of max-width / max-height features joined by `and` and `,`."""
+    def feature(f: str) -> bool:
+        name, value = re.fullmatch(r"\((max-width|max-height):\s*([\d.]+)px\)", f.strip()).groups()
+        return (width if name == "max-width" else height) <= float(value)
+    return any(all(feature(f) for f in part.split(" and ")) for part in query.split(","))
+
+
+def test_phone_layout_query_is_one_query():
+    """The styles switch the layout and the script switches the rem, the frozen
+    height and the zoom: the two must agree on what a phone is."""
+    css, js = _phone_queries()
+    assert css == js
+
+
+@pytest.mark.parametrize("width,height,phone", [
+    (1138, 711, False),   # the Redmi Pad 2
+    (1138, 300, False),   # the same with the keyboard up (adjustResize shrinks the page)
+    (1280, 800, False),   # the desktop window
+    (390, 844, True),
+    (360, 780, True),
+    (844, 390, True),
+    (932, 430, True),
+])
+def test_phone_layout_never_reaches_the_tablet_or_the_desktop_window(width, height, phone):
+    """UI changes reach the tablet only through a new APK, so the phone layout
+    must never apply to it, nor to the 1280 × 800 desktop window."""
+    assert _matches(_phone_queries()[0], width, height) is phone

@@ -61,7 +61,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 6. **Honest data. Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
 7. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted" (the fader stays at its level, as on a desk: only its slot goes dark); Discord mute/deafen draw a slash through the glyph, and so do a deafened person's badge in the call list and the soundboard's monitor key when off; the active encoder LED also has the knob pointing at it; a load tile that runs high or critical swaps its glyph for ⚠ or ⯃.
 8. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
-9. **Touch first.** Targets of at least 44 CSS px on a tablet (the Redmi Pad's rem is 9.8 px, so a key drawn smaller gets an unpainted `::before` hit area that never overlaps its neighbour's); hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps; a key never moves under the finger; a key runs on release however long it was held, except on the PC, where a hold opens its editor.
+9. **Touch first.** Targets of at least 44 CSS px on a tablet and a phone (the Redmi Pad's rem is 9.8 px, so a key drawn smaller gets an unpainted `::before` hit area that never overlaps its neighbour's; a phone's rem never drops under 10 px, §11); hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps; a key never moves under the finger; a key runs on release however long it was held, except on the PC, where a hold opens its editor.
 10. **A refused tap says so.** Keys show a tap at once. If the PC, Discord or a player refuses it, the key shows ⚠ for 0.9 s and then its true state, and a display prints its status ("Not switched"), as a Stream Deck does. Amber, the attention hue, never red (red is "muted" on these same keys); no shake (hardware does not shake).
 
 ## 4. What machine-made looks like, and what replaces it
@@ -167,7 +167,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 - While a fader is held its transitions switch off, so the cap is glued to the finger.
 - **Reduced motion**: CSS durations collapse to 1 ms and GSAP runs 40× faster through `gsap.matchMedia()`. The first-load entrance is skipped. The marquee runs one lap per track, then rests.
 - **Haptics** (Android, coarse pointers): 8 ms on any key, 5 ms per 10 % fader detent, 14 ms at 0 %, 100 % and the mute pull.
-- **Transport sizing.** The row is sized from the Now playing card, not the screen (`.spotify` is a size container): each key is its full size (play 6, ↺/↻ 4.2, ⏮/⏭ 3.6 rem with five keys; 6 and 4.6 with three) or its share of the card's width, whichever is smaller. The shares add up to the whole width and play's is the largest, so the row can never leave the card and play shrinks last. The rem-scaled layout keeps full sizes everywhere except at the 6 px root floor (a phone in portrait). Glyphs and the printed step scale with the key.
+- **Transport sizing.** The row is sized from the Now playing card, not the screen (`.spotify` is a size container): each key is its full size (play 6, ↺/↻ 4.2, ⏮/⏭ 3.6 rem with five keys; 6 and 4.6 with three) or its share of the card's width, whichever is smaller. The shares add up to the whole width and play's is the largest, so the row can never leave the card and play shrinks last. The tablet and the desktop window keep full sizes; a phone has its own layout with larger ones (play 6.6, ⏮/⏭ 5 rem with three keys; 6.4, 4.8 and 4.6 with five), and the same shares keep them in the card. Glyphs and the printed step scale with the key.
 - **Seeking.** ↺/↻ and the scrub strip move the progress at once and hold it until the player reports the same place; quick taps add up and go out as one seek. While dragging, only the fill's transform and the times' text change (on rich the strip also thickens by `scaleY`), so it stays cheap in the Linux window.
 
 ## 8. Performance and effects tiers
@@ -285,11 +285,31 @@ Retired ids still resolve: `aliases` in the registry maps `classic` to `midnight
 - The clock is the one display figure (light weight, tight tracking); everything else is app-sized. Phosphor swaps figures to monospace.
 - To ship a bundled face later: add the `.woff2` and its licence under `static/fonts/`, declare an `@font-face`, and point `font-sans` (or one preset's) at it. The APK bundles `static/`, so it travels with the app.
 
-## 11. Before you ship a UI change
+## 11. Phones
+
+A phone is a second client: a browser, or the app, on a device beside the console rather than the console itself. It gets its own composition instead of the tablet's three columns at a 6 px root. The switch is one media query, written once in the styles' "Phones" block and once as `PHONE_LAYOUT` in the head script (test-enforced): below 700 CSS px wide, or under 520 px tall and under 1000 px wide (a phone in landscape). It never matches the tablet (1138 × 711, with the keyboard up or not: Android shrinks the page for the keyboard, hence the 1000 px cap on the height branch) or the 1280 × 800 desktop window, and nothing outside that block changes there (checked pixel for pixel and by every element's computed style).
+
+| | Tablet, desktop window | Phone |
+|---|---|---|
+| Composition | Three columns on one screen | One column in reading order: Now playing, Discord, the mixer, macros, system monitor. In landscape (4:3 or wider) they go in pairs, side by side |
+| Root size | From the screen (2560 × 1600 → 22 px; the Redmi Pad 9.8 px) | The column's width / 39, 10–12 px, so every key keeps 44 CSS px |
+| The page | Frozen to the screen's height | Scrolls; held still while the soundboard, the mixer or the clock covers it |
+| Zoom | Off (`user-scalable=no`) | On, as on any page on a phone |
+| Clock panel, full-screen clock | Yes | No: the phone shows the time itself and its own screen timeout looks after it (the idle dim still applies) |
+| Top bar | One row | Two: the title and the mouse's battery, then the speed test and power. The soundboard's back key, volume and Stop audio take the same places |
+| Faders | A touch anywhere on the track takes it (a tap jumps there) | Only a touch on the cap (a 48 px band) takes it; anywhere else the page scrolls. The scrub strip and the macro matrix let a vertical swipe scroll as well; a sideways one still scrubs or turns the page |
+| Soundboard | Zooms out of its key over the dashboard; parked below the screen while closed | The page goes to its top first and the plate fills the screen under the top bar, its pads scrolling. Closed it is hidden: parked below its place it would sit mid-page, over the modules (so its first frame rasters it; not measured on a phone) |
+| Full-screen mixer | The bays either side of the master | Portrait: playback above the output fader, recording above the mic, and the master below, as tall as the card. The card is first scrolled to the foot of the screen, where the master stands, so the two share their baseline and only the bays grow in. Landscape keeps the tablet's three columns |
+| Macro keys | 3 × 4 | 3 × 4 squares in portrait; in landscape as wide, two thirds as tall, with a smaller glyph and a one-line legend |
+
+Settings open only on the PC and keep the tablet's layout.
+
+## 12. Before you ship a UI change
 
 - [ ] No colour literal in `templates/index.html` (`pytest tests/test_themes.py` passes).
 - [ ] It obeys the light model (§2): lit top, shadow below, wells shaded from the top.
 - [ ] Looked at it in Graphite, Daylight and a tinted dark preset (Ember or Amethyst), with something muted, and with `data-fx="lite"`.
+- [ ] Looked at it on a phone (390 × 844 and 844 × 390); a rule meant for phones sits in the "Phones" block, so the tablet's render does not change (§11).
 - [ ] Every new icon-only control has an `aria-label`; every new state reads without colour.
 - [ ] Anything that moves uses transform/opacity and a token curve; nothing new animates forever.
 - [ ] Nothing that changes every second sits in the text flow (use `.live`), and no state toggle changes a `box-shadow` or crosses `opacity: 1` on the lite tier (§8).
