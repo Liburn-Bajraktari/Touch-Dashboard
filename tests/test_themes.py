@@ -38,6 +38,8 @@ CONTRAST_PAIRS = [
     ("positive-ink", "positive", 4.5),
     ("warning", "surface", 3.0),
     ("warning", "surface-2", 3.0),
+    ("warning-text", "surface", 4.5),
+    ("warning-text", "surface-2", 4.5),
     ("negative-ink", "negative", 4.5),
     ("negative-text", "surface", 4.5),
     ("negative-text", "surface-2", 4.5),
@@ -57,12 +59,14 @@ CONTRAST_PAIRS = [
     ("negative-text", "well", 4.5),
     ("positive", "well", 3.0),
     ("warning", "well", 3.0),
+    ("warning-text", "well", 4.5),
     # Displays: small readouts (fader values, device name, speed test, battery).
     ("display-ink", "display", 7.0),
     ("display-ink-2", "display", 4.5),
     ("display-accent", "display", 4.5),
     ("positive", "display", 3.0),
     ("warning", "display", 3.0),
+    ("warning-text", "display", 4.5),
     ("negative", "display", 3.0),
     # The fader cap's index line must read against the cap.
     ("cap-index", "cap", 3.0),

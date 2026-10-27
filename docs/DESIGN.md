@@ -22,8 +22,8 @@ Touch Dashboard is a piece of studio hardware that happens to be made of pixels:
 | Volume | **Studio faders**: a recessed slot lit from inside, a printed scale, a grip cap with an index line |
 | Output switch | A **rotary encoder** with an LED ring, one LED per output device |
 | Each app's level (the mixer, full screen) | A desk's **channel strips** beside its master section: playback apps left of the output fader, recording apps right of the mic, each with its own icon in a display window, a scribble strip with its name and level, a narrower fader with ticks only, and a mute key on the masters' baseline. A **signal LED** on the icon window is lit while the app plays (or records) |
-| Transport | A **deck's transport keys**: ⏮ ⏯ ⏭ for music; for an episode, a film or a video the same row gains ↺10 and ↻30, the step printed inside the arrow. A key the player cannot use is unlit (`--text-3` ink) rather than dead. The progress bar is a scrub strip: drag it to a point |
-| Macros | **Display keys**: an LCD screen set into each keycap (Stream Deck) |
+| Transport | A **deck's transport keys**: ⏮ ⏯ ⏭ for music; for an episode, a film or a video the same row gains ↺10 and ↻30, the step printed inside the arrow. A key the player cannot use is unlit (`--text-3` ink) rather than dead; with nothing loaded the play key is unlit too, like ⏮/⏭. The progress bar is a scrub strip: drag it to a point |
+| Macros | **Display keys**: an LCD screen set into each keycap (Stream Deck), a deck of 3 × 4 square keys to a page; an unassigned key is an unlit keycap with a dark screen, and the name on a key is its legend, set to be read from arm's length |
 | Soundboard | **Drum pads** that light when struck (MPC) |
 | Levels, names, figures | **Scribble strips and displays**: recessed dark windows |
 | Mute, live, speaking | **Lit keys and LEDs**: the state is light, and on rich displays it spills |
@@ -59,9 +59,10 @@ One light, above the console. Every rule below follows from it, and nothing may 
 4. **Value balance.** Large neighbouring surfaces (ground, plates, keys, wells, displays) stay within 1.5:1 of each other (tested); the extreme values belong to text and small details. On a light theme, near-black is for text and icons only, never containers or readouts (Daylight: under 1 % of the screen).
 5. **Lit keys share one recipe.** A key that is on (live, muted, camera on) is a bright status fill with dark ink, like a backlit cap. Mute is no exception: it is a lit red key, not a dark red one with white ink.
 6. **Honest data. Missing is an em dash; a real zero prints. The load traces are the actual last minute of samples. The progress bar appears only when the player reports a length.
-7. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted" (the fader stays at its level, as on a desk: only its slot goes dark); Discord mute/deafen draw a slash through the glyph; the active encoder LED also has the knob pointing at it.
+7. **State never relies on colour alone.** Mute swaps the icon and the fader display prints "Muted" (the fader stays at its level, as on a desk: only its slot goes dark); Discord mute/deafen draw a slash through the glyph, and so do a deafened person's badge in the call list and the soundboard's monitor key when off; the active encoder LED also has the knob pointing at it; a load tile that runs high or critical swaps its glyph for ⚠ or ⯃.
 8. **Motion is physics, used for feedback.** Springs, not linear slides (§7). Nothing moves unless something changed, apart from one settle-in when the page first loads.
-9. **Touch first.** Targets of at least 44 CSS px on a tablet; hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps.
+9. **Touch first.** Targets of at least 44 CSS px on a tablet (the Redmi Pad's rem is 9.8 px, so a key drawn smaller gets an unpainted `::before` hit area that never overlaps its neighbour's); hover styles only for fine pointers; passive touch listeners unless they cancel; `touch-action: none` on faders; a grabbed fader cap never jumps; a key never moves under the finger (Now playing's keys stay put whatever the call does); a key runs on release however long it was held, except on the PC, where a hold opens its editor.
+10. **A refused tap says so.** Keys show a tap at once. If the PC, Discord or a player refuses it, the key shows ⚠ for 0.9 s and then its true state, and a display prints its status ("Not switched"), as a Stream Deck does. Amber, the attention hue, never red (red is "muted" on these same keys); no shake (hardware does not shake).
 
 ## 4. What machine-made looks like, and what replaces it
 
@@ -104,7 +105,8 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | `accent-text`, `accent-ink` | Accent as text; ink on an accent fill | 4.5:1 |
 | `inverse`, `inverse-ink` | Primary pill actions, weekday pill | 4.5:1 |
 | `positive`, `positive-ink` | Live keys, speaking ring, link light, battery high | 3:1 graphic, 4.5:1 ink |
-| `warning` | Battery mid, load ≥ 85 %, ping | 3:1 graphic |
+| `warning` | Battery ≤ 20 %, load ≥ 85 %, a refused key's ⚠ | 3:1 graphic |
+| `warning-text` | Amber words: a display's "Not switched" | 4.5:1 on surfaces, wells and displays |
 | `negative`, `negative-ink`, `negative-text`, `negative-soft` | Mute, critical load, errors, destructive actions, a live stream's on-air light | 4.5:1 ink; 3:1 on wells |
 | `cap-hi`, `cap`, `cap-lo`, `cap-index` | Fader caps, the encoder knob, switch knobs | index 3:1 on cap |
 | `rim`, `edge`, `depth` | The light model: top highlight, bottom lip and inner shade, cast shadow | — |
@@ -116,7 +118,7 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Token | Value | Notes |
 |---|---|---|
 | `pad`, `gap`, `gap-sm` | 1.25 / 1.25 / 0.75 rem | |
-| `fs-xs` … `fs-xl`, `fs-clock` | 1 / 1.15 / 1.35 / 1.75 / 2.6 / 6.4 rem | Nothing below `fs-xs` (≈ 11 px on a 1280×800 tablet) |
+| `fs-xs` … `fs-xl`, `fs-clock` | 1 / 1.15 / 1.35 / 1.75 / 2.6 / 6.4 rem | Nothing below `fs-xs` (≈ 11 px on a 1280×800 screen, 9.8 px on the Redmi Pad's 1138×711): what is read at a glance (key legends, track times) is `fs-sm` or larger |
 | `radius-panel`, `radius-key`, `radius-media`, `radius-pill` | 1.6, 1.1, 0.9 rem, 999px | Multiplied by `--sq` (§6) |
 | `elev-1`, `elev-2`, `elev-press`, `elev-cap`, `well-inset` | Composite shadows | Built from `rim`, `edge`, `depth`, so presets only set those three |
 | `weight-clock`, `weight-strong` | 300, 600 | Phosphor 400 |
@@ -155,7 +157,8 @@ One light, above the console. Every rule below follows from it, and nothing may 
 | Progress bar | steps once a second with the times, on every tier (§8.1) | — |
 | Ambient light (rich) | two layers cross-fade by opacity, `ease` | 1.4 s |
 | Now playing marquee | rests 2.5 s, then 32 px/s: linear on rich, whole-pixel steps on lite (§8); the line keeps a transform at rest, so a lap's end never repaints the window | one lap per copy width |
-| First load | modules rise and fade in once (GSAP stagger 60 ms) | 700 ms |
+| First load | modules wait hidden for the first readings (at most 0.8 s), then rise and fade in once at their real size (GSAP stagger 60 ms) | 700 ms |
+| Discord card shown or hidden (Discord starts or quits) | a Web Animation fade with a 10 px rise; never a CSS transition (the first-load entrance tweens its opacity too) | 180 ms |
 | Clock panel press (rich) | the plate scales to 0.985 (`ease`) and springs back (`spring-bounce`); the glyph's corners open 1.5 units outward the same way. Lite steps both | 110 ms in, 460 ms back |
 | Full-screen mixer (rich) | grows out of the mixer card (a clip-path, like the full-screen clock); the channel displays ride the top edge up, the encoder follows the new centre, the master caps glide to their places on the longer travel (`spring`), the side bays slide out of the master and fade in. The bottom keys never move: the card and the mixer share their baseline | 550 ms open (`power3.out`), 420 ms close (`power3.inOut`) |
 | Soundboard (rich) | zooms evenly out of its key, fading in over it, and back into it, fading onto it; the dashboard dims under a `--ground` layer; the top bar rolls over like the clock digits (`spring`) | 520 ms open (ease-out, no overshoot: a full-size plate would bulge past its edges), 420 ms close (ease-in-out) |

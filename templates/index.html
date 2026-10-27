@@ -219,13 +219,23 @@
 
         .unit {
             color: var(--well-ink-2);
-            font-size: 0.78em;
+            font-size: max(0.78em, var(--fs-xs));   /* never under the type floor */
             font-weight: 500;
             margin-left: 0.15em;
         }
 
         ::-webkit-scrollbar {
             width: 0.5rem;
+        }
+
+        /* The same in Firefox, which ignores the ::-webkit-scrollbar rules (it
+           drew a bright native bar down Settings and the voice list). Only there:
+           in Chromium these properties switch the rules above off. */
+        @supports not selector(::-webkit-scrollbar) {
+            * {
+                scrollbar-width: thin;
+                scrollbar-color: var(--surface-3) transparent;
+            }
         }
 
         ::-webkit-scrollbar-track {
@@ -291,6 +301,69 @@
             width: 1.15rem;
             height: 1.15rem;
             flex-shrink: 0;
+        }
+
+        /* The source chip is a key when several players are open: its name
+           carries the ellipsis, so the chip need not clip its hit area. */
+        button.chip {
+            position: relative;
+            overflow: visible;
+        }
+
+        button.chip:not(:disabled) {
+            transition: scale var(--dur-spring) var(--spring-bounce);
+        }
+
+        button.chip:not(:disabled):is(:active, .is-pressed) {
+            scale: 0.96;
+            transition-duration: var(--dur-fast);
+        }
+
+        .chip-name {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Hit areas: small keys keep their drawn size and get 44 CSS px to tap on
+           the tablet (4.5rem at its 9.8 px rem) from an unpainted ::before (no
+           paint, layer or layout). Neighbours' areas meet or keep a gap, never
+           overlap: like | chip share their 0.6rem gap; power keeps 0.4rem from
+           the speed test; ⏮ and ↺ keep 0.4rem; leave stays above the voice list. */
+        .np-like::before,
+        button.chip::before,
+        .spot-ctrl[data-keys="5"] .np-key:not(.btn-play)::before,
+        .vc-leave::before,
+        #btn-shutdown::before {
+            content: '';
+            position: absolute;
+        }
+
+        .np-like::before {
+            inset: -1.15rem -0.3rem -0.75rem -1.6rem;
+        }
+
+        button.chip::before {
+            inset: -1.3rem -0.3rem -0.95rem;
+        }
+
+        /* In proportion to each key, so the areas shrink with the cqi-sized keys. */
+        .spot-ctrl[data-keys="5"] .np-key:not(.btn-play):not(.np-seek)::before {
+            inset: calc(var(--k) / -8);
+            border-radius: 50%;
+        }
+
+        .spot-ctrl[data-keys="5"] .np-seek::before {
+            inset: calc(var(--k) / -28);
+            border-radius: 50%;
+        }
+
+        .vc-leave::before {
+            inset: -0.9rem -0.3rem -0.4rem;
+        }
+
+        #btn-shutdown::before {
+            inset: -0.35rem -0.2rem;
         }
 
         .brand-mark {
@@ -500,10 +573,59 @@
             visibility: visible;
         }
 
+        /* A key the PC, Discord or a player refused (keyRefused()): ⚠ in place of
+           its glyph for KEY_REFUSED_MS, then its true state, as a Stream Deck
+           answers a failed action. The ⚠ is drawn into the key with it and only
+           shown: no layout, shadow or layer when it appears (§8). Amber means
+           attention; red would read as "muted" on these same keys. On a lit key
+           it takes the key's own ink, and the shape carries the meaning. */
+        .key-warn {
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        html .btn svg.lucide.key-warn {
+            color: var(--warning);
+            fill: none;
+        }
+
+        html :is(.btn.muted, .btn.vid-active, .btn-play) > svg.lucide.key-warn {
+            color: currentColor;
+        }
+
+        .btn > .key-warn {
+            position: absolute;
+            inset: 0;
+            margin: auto;
+        }
+
+        /* Display keys and pads: the glyph and the ⚠ share one cell. */
+        .key-glyph {
+            display: grid;
+            place-items: center;
+        }
+
+        .key-glyph > * {
+            grid-area: 1 / 1;
+        }
+
+        .btn.is-refused .key-warn {
+            visibility: visible;
+        }
+
+        .btn.is-refused > svg.lucide:not(.key-warn),
+        .btn.is-refused > .np-n,
+        .btn.is-refused .key-glyph > :not(.key-warn),
+        #btn-disc-mute.is-refused::after,
+        #btn-disc-deaf.is-refused::after {
+            visibility: hidden;
+        }
+
+        /* A free slot for the PC's user: quieter than the keys used all day. */
         .btn-add {
             background: transparent;
             box-shadow: none;
-            color: var(--accent-text);
+            color: var(--text-3);
             border: 0.14rem dashed var(--line-strong);
         }
 
@@ -826,7 +948,7 @@
             height: 2.6rem;
         }
 
-        .gauge svg {
+        .gauge > svg {
             position: absolute;
             inset: 0;
             width: 100%;
@@ -917,6 +1039,18 @@
 
         .speed-widget[data-phase="error"] .gauge-read {
             color: var(--negative-text);
+        }
+
+        /* The dial is the download meter: its centre prints the figure the arc
+           shows, with its direction; upload and ping take the lines beside it.
+           Up to v0.13.8 the centre printed the ping, which read as the dial's value. */
+        .gauge-dir svg.lucide {
+            width: 0.8em;
+            height: 0.8em;
+            margin-right: 0.08em;
+            vertical-align: -0.08em;
+            stroke-width: 3;
+            color: var(--well-ink-2);
         }
 
         .speed-lines {
@@ -1023,13 +1157,15 @@
         }
 
         /* Soundboard volume row (Linux). */
+        /* [monitor] | [−] [ track ] [+] 80% [100%]: every control has 44 CSS px to
+           tap on the tablet (4.5rem; the hit areas draw nothing and never overlap). */
         .sb-vol-row {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            width: 29rem;
+            gap: 0.8rem;
+            width: 33rem;
             height: 3.8rem;
-            padding: 0 0.9rem 0 0.4rem;
+            padding: 0 0.5rem 0 0.4rem;
             background: var(--well);
             border-radius: var(--radius-pill);
             box-shadow: var(--well-inset);
@@ -1056,6 +1192,41 @@
             color: var(--positive);
         }
 
+        .sb-fb-btn,
+        .vol-step-btn,
+        .sb-vol-preset {
+            position: relative;
+            flex: none;
+        }
+
+        .sb-fb-btn::before,
+        .vol-step-btn::before {
+            content: '';
+            position: absolute;
+            inset: -0.75rem;
+            border-radius: 50%;
+        }
+
+        /* Off reads without colour too: a slash, shown and hidden, cut out of
+           the glyph by a ring in the well's colour (as on the deafen key). */
+        .sb-fb-btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 1.9rem;
+            height: 0.15rem;
+            background-color: currentColor;
+            border-radius: 2px;
+            box-shadow: 0 0 0 0.12rem var(--well);
+            transform: translate(-50%, -50%) rotate(-45deg);
+            pointer-events: none;
+        }
+
+        .sb-fb-btn.is-on::after {
+            visibility: hidden;
+        }
+
         .sb-fb-btn svg.lucide,
         .vol-step-btn svg.lucide {
             width: 1.4rem;
@@ -1070,7 +1241,11 @@
 
         .vol-step-btn {
             display: flex;
-            padding: 0.55rem;
+            align-items: center;
+            justify-content: center;
+            width: 3rem;
+            height: 3rem;
+            padding: 0;
             border: 0;
             border-radius: var(--radius-pill);
             background: linear-gradient(180deg, var(--key-top), var(--surface-2));
@@ -1086,35 +1261,72 @@
             transition-duration: var(--dur-fast);
         }
 
+        /* The track is the whole strip, the slot drawn inside it (it could only be
+           grabbed on its 9 px slot). A few px of dead zone keep −/+ from stepping. */
         #sb-vol-slider {
             position: relative;
             flex: 1;
-            height: 0.9rem;
-            background: var(--surface-3);
-            border-radius: var(--radius-pill);
-            overflow: hidden;
+            display: flex;
+            align-items: center;
+            height: 4.5rem;
+            min-width: 0;
+            margin-inline: 0.25rem;
             cursor: pointer;
             touch-action: none;
         }
 
-        #sb-vol-fill {
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 50%;
-            border-radius: inherit;
-            background: var(--accent);
+        #sb-vol-slider:focus-visible {
+            outline-offset: -0.6rem;
+        }
+
+        .sb-vol-slot {
+            position: relative;
+            width: 100%;
+            height: 0.9rem;
+            background: var(--surface-3);
+            border-radius: var(--radius-pill);
+            overflow: hidden;
             pointer-events: none;
         }
 
+        /* Moved by transform, not width: a drag step was a layout, a full repaint
+           in the Linux window. */
+        #sb-vol-fill {
+            position: absolute;
+            inset: 0;
+            background: var(--accent);
+            transform-origin: 0 50%;
+            transform: scaleX(0.5);
+            pointer-events: none;
+        }
+
+        /* A live figure, out of the flow: a new value repaints only itself. */
         #sb-vol-label {
-            min-width: 3.6rem;
+            --live-h: 1.6rem;
+            flex: none;
+            width: 3.4rem;
+            margin-inline-end: -0.3rem;
             text-align: right;
             font-weight: var(--weight-strong);
             font-size: var(--fs-sm);
             color: var(--well-accent);
-            cursor: pointer;
+        }
+
+        .sb-vol-preset.btn {
+            width: auto;
+            height: 3rem;
+            min-height: 0;
+            padding: 0 0.9rem;
+            border-radius: var(--radius-pill);
+            font-size: var(--fs-xs);
+            font-weight: var(--weight-strong);
+            color: var(--text-2);
+        }
+
+        .sb-vol-preset::before {
+            content: '';
+            position: absolute;
+            inset: -0.75rem -0.15rem;
         }
 
         #btn-stop-audio {
@@ -1383,12 +1595,12 @@
             display: flex;
             justify-content: space-between;
             margin-top: 0.45rem;
-            font-size: var(--fs-xs);
+            font-size: var(--fs-sm);
             color: var(--text-3);
         }
 
         .np-t {
-            --live-h: 1.25rem;
+            --live-h: 1.45rem;
             width: 5rem;
         }
 
@@ -1546,6 +1758,20 @@
             box-shadow: inset 0 1px 0 var(--rim), 0 0.9rem 1.8rem -0.7rem var(--depth);
         }
 
+        /* With nothing loaded the play key is an unlit key, like ⏮/⏭ (it still
+           resumes the last player): lit, it was the brightest thing on the screen
+           with nothing behind it. Its shadow changes with the card's own
+           empty/filled swap, which repaints the card anyway (§8). */
+        .spotify[data-src="none"] .spot-ctrl .btn-play {
+            background: linear-gradient(180deg, var(--key-top), var(--surface-2));
+            color: var(--text);
+            box-shadow: var(--elev-2);
+        }
+
+        :where([data-fx="rich"]) .spotify[data-src="none"] .spot-ctrl .btn-play:is(:active, .active-btn, .is-pressed) {
+            box-shadow: var(--elev-press);
+        }
+
         .spot-ctrl .btn-play svg.lucide {
             width: calc(var(--k) * 0.4);
             height: calc(var(--k) * 0.4);
@@ -1623,28 +1849,44 @@
         }
 
         /* ── Discord ──────────────────────────────────────────────────────── */
+        /* One height in a call and out of one (4.5 voice rows), so Now playing
+           above it, and its transport keys, never move. When the module grew with
+           the call, ⏯ moved 21–35 px for every person joining or leaving and
+           126 px when a call started or ended. */
         #panel-discord {
-            flex: 0 0 auto;
-            min-height: 14rem;
-            justify-content: center;
+            flex: 0 0 28rem;
+            min-height: 0;
+            justify-content: flex-start;
             align-items: stretch;
             gap: 1rem;
             /* No clip of its own (the voice list scrolls): a rounded clip around
-               the list's layers made the compositor draw the panel offscreen. */
-            transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+               the list's layers made the compositor draw the panel offscreen.
+               No CSS transition either: the first-load entrance tweens this card's
+               opacity, and a transition restarted on every write (it appeared
+               ~0.8 s late). setDiscordPanelVisible() fades it with a Web Animation. */
         }
 
+        /* Out of a call: the module's head and its well, like in a call. */
         .disc-header-basic {
+            flex: 1;
+            min-height: 0;
             display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        /* As tall as the in-call head (its leave key), so both wells start at one y;
+           the title sits where every module's title sits. */
+        .disc-header-basic > .panel-title {
+            min-height: 3.2rem;
+            padding-top: calc((2.2rem - 1.2em) / 2);
+        }
+
+        .vc-well.vc-idle {
             align-items: center;
             justify-content: center;
-            gap: 0.6rem;
-            color: var(--text-2);
-        }
-
-        .disc-header-basic svg {
-            width: 1.6rem;
-            height: 1.6rem;
+            color: var(--well-ink-2);
+            font-size: var(--fs-sm);
         }
 
         #disc-vc-container {
@@ -1669,20 +1911,24 @@
             min-width: 0;
         }
 
+        /* "Connected · <server>": the small line gives way first, so a long
+           server name never hides the channel on the line below. */
         #vc-guild-name {
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
             color: var(--positive);
             font-size: var(--fs-xs);
             font-weight: var(--weight-strong);
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         #vc-guild-name::before {
             content: '';
+            display: inline-block;
             width: 0.5rem;
             height: 0.5rem;
+            margin-right: 0.4rem;
+            vertical-align: 0.05em;
             border-radius: 50%;
             background: currentColor;
         }
@@ -1823,10 +2069,10 @@
 
         .vc-status-icon {
             position: absolute;
-            bottom: -0.3rem;
-            right: -0.3rem;
-            width: 1.3rem;
-            height: 1.3rem;
+            bottom: -0.4rem;
+            right: -0.4rem;
+            width: 1.6rem;
+            height: 1.6rem;
             border-radius: 50%;
             background: var(--well);
             display: flex;
@@ -1838,9 +2084,30 @@
         }
 
         .vc-status-icon svg.lucide {
-            width: 0.85rem;
-            height: 0.85rem;
+            width: 1.05rem;
+            height: 1.05rem;
             stroke-width: 2.5;
+        }
+
+        /* Deafened: the deafen key's slash across the headphones, so it does not
+           read as "listening". Always there; `inherit` keeps it hidden with the badge. */
+        .vc-status-icon::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 1.3rem;
+            height: 0.14rem;
+            border-radius: 2px;
+            background: currentColor;
+            box-shadow: 0 0 0 0.1rem var(--well);
+            transform: translate(-50%, -50%) rotate(-45deg);
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .vc-status-icon[data-s="deaf"]::after {
+            visibility: inherit;
         }
 
         .vc-name {
@@ -1863,7 +2130,7 @@
 
         .disc-keys .btn {
             flex: 1;
-            height: 4.8rem;
+            height: 4.6rem;   /* the mixer card's bottom keys beside it */
             min-height: 0;
             padding: 0;
             border-radius: 0.55rem;
@@ -2306,6 +2573,12 @@
             transition: transform 620ms var(--spring-bounce), scale var(--dur-spring) var(--spring-bounce);
         }
 
+        /* The device list changed (renderEncoder): the knob takes its new angle
+           without turning, since nothing was switched. */
+        .encoder-knob.no-turn {
+            transition: scale var(--dur-spring) var(--spring-bounce);
+        }
+
         .encoder-knob::before {
             content: '';
             position: absolute;
@@ -2339,6 +2612,37 @@
             width: 100%;
             max-width: 13rem;
             padding: 0.55rem 0.7rem 0.5rem;
+        }
+
+        /* The display's label line shares a cell with a short status: "Not
+           switched" for KEY_REFUSED_MS when the PC kept the old output. */
+        .enc-label {
+            display: grid;
+            justify-items: center;
+            max-width: 100%;
+            min-width: 0;
+        }
+
+        .enc-label > * {
+            grid-area: 1 / 1;
+        }
+
+        .enc-label > .enc-status {
+            visibility: hidden;
+            color: var(--warning-text);
+        }
+
+        .encoder-display.is-refused .enc-label > .ch-name:not(.enc-status) {
+            visibility: hidden;
+        }
+
+        .encoder-display.is-refused .enc-label > .enc-status {
+            visibility: visible;
+        }
+
+        /* Switching: the output the knob points at, dimmed until the PC reports it. */
+        .encoder-display.is-pending #btn-audio-cycle {
+            color: var(--well-ink-2);
         }
 
         #btn-audio-cycle {
@@ -2641,13 +2945,16 @@
             gap: 1rem;
         }
 
+        /* 3 × 4 square keys (105 px on the tablet, a Stream Deck's proportion),
+           12 to a page; a horizontal swipe turns the page (renderMacros). */
         .btn-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            grid-template-rows: repeat(3, minmax(0, 1fr));
+            grid-template-rows: repeat(4, minmax(0, 1fr));
             gap: var(--gap-sm);
             flex: 1;
             min-height: 0;
+            touch-action: none;
         }
 
         .macro-slot {
@@ -2671,7 +2978,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 0.45rem;
+            gap: 0.6rem;
             padding: 0.4rem;
             border-radius: calc((var(--radius-key) - 0.3rem) * var(--sq));
             /* A faint backlight from the top edge, like an LCD key. */
@@ -2683,8 +2990,8 @@
         }
 
         .key-screen svg.lucide {
-            width: 2.6rem;
-            height: 2.6rem;
+            width: 3.4rem;
+            height: 3.4rem;
             stroke-width: 1.6;
             transition: transform var(--dur-spring) var(--spring-bounce);
         }
@@ -2701,24 +3008,25 @@
             object-fit: contain;
         }
 
+        /* The key's legend, read from arm's length: two lines when it needs them.
+           A plugin key (the soundboard) is drawn like the rest: light means on. */
         .key-label {
             max-width: 100%;
             overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-size: var(--fs-xs);
-            font-weight: 500;
-            color: var(--well-ink-2);
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            text-align: center;
+            text-wrap: balance;
+            font-size: var(--fs-sm);
+            font-weight: var(--weight-strong);
+            color: var(--well-ink);
             line-height: 1.15;
         }
 
-        .btn-plugin .key-screen svg.lucide,
-        .btn-plugin .key-label {
-            color: var(--well-accent);
-        }
-
         .btn-add .key-label {
-            color: var(--accent-text);
+            color: var(--text-3);
+            font-weight: 500;
         }
 
         .btn-add svg.lucide {
@@ -2731,10 +3039,67 @@
             gap: 0.4rem;
         }
 
+        /* A key with nothing on it: unlit (the keycap without its lit top edge,
+           an empty screen with no backlight). Inert: it never sinks. */
         .macro-slot.empty .btn {
-            background: transparent;
-            box-shadow: inset 0 0 0 var(--line-w) var(--line);
+            background: var(--surface-2);
+            box-shadow: inset 0 -0.2rem 0 var(--edge), inset 0 0 0 var(--key-line-w) var(--key-line), 0 0.45rem 0.9rem -0.45rem var(--depth);
             cursor: default;
+        }
+
+        .macro-slot.empty .btn::after {
+            content: '';
+            position: absolute;
+            inset: 0.4rem;
+            border-radius: calc((var(--radius-key) - 0.3rem) * var(--sq));
+            background: var(--well);
+            box-shadow: var(--well-inset);
+        }
+
+        /* Pages: shown in the module's head only with more than one. */
+        .macro-pages {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .macro-pages[hidden] {
+            display: none;
+        }
+
+        .macro-pages .btn {
+            width: 2.6rem;
+            height: 2.6rem;
+            min-height: 0;
+            padding: 0;
+            margin-block: -0.2rem;      /* the head keeps its height */
+            color: var(--text-2);
+        }
+
+        .macro-pages .btn svg.lucide {
+            width: 1.4rem;
+            height: 1.4rem;
+        }
+
+        .macro-pages .btn:disabled {
+            color: var(--text-3);
+            cursor: default;
+        }
+
+        /* 44 CSS px to tap on the tablet (4.5rem); the hit area draws nothing. */
+        .macro-pages .btn::before {
+            content: '';
+            position: absolute;
+            inset: -0.95rem;
+        }
+
+        .macro-pages .mp-n {
+            min-width: 3.2rem;
+            text-align: center;
+            font-size: var(--fs-sm);
+            font-weight: var(--weight-strong);
+            font-variant-numeric: tabular-nums;
+            color: var(--text-2);
         }
 
         .macro-slot.empty .btn:active,
@@ -2755,12 +3120,17 @@
             gap: var(--gap-sm);
         }
 
+        /* The label and the figure share the top row and the trace fills the lower
+           56 %: its 100 % line stays 7 px under the figure at any load. Stacked,
+           the trace ran through the figure from ~78 %, the warning range. */
         .stat {
             --spark: var(--well-accent);
             position: relative;
-            display: flex;
-            flex-direction: column;
-            gap: 0.1rem;
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            align-items: center;
+            align-content: start;
+            column-gap: 0.4rem;
             height: 6.4rem;
             padding: 0.7rem 0.85rem 0;
             border-radius: calc(0.9rem * var(--sq));
@@ -2793,8 +3163,36 @@
             stroke-width: 2;
         }
 
+        /* High and critical show as a sign, not only a colour: the tile's glyph
+           swaps for ⚠ or ⯃ (all three drawn, one cell, swapped by visibility). */
+        .stat-glyph {
+            display: inline-grid;
+            flex: none;
+        }
+
+        .stat-glyph > svg.lucide {
+            grid-area: 1 / 1;
+        }
+
+        .stat-glyph > :is(.g-high, .g-crit) {
+            visibility: hidden;
+            color: var(--spark);
+        }
+
+        .stat:is(.is-high, .is-critical) .stat-glyph > .g-base,
+        .stat.is-high .stat-glyph > .g-crit,
+        .stat.is-critical .stat-glyph > .g-high {
+            visibility: hidden;
+        }
+
+        .stat.is-high .stat-glyph > .g-high,
+        .stat.is-critical .stat-glyph > .g-crit {
+            visibility: visible;
+        }
+
         .stat-val {
             --live-h: 1.95rem;
+            text-align: right;
             z-index: 1;
             font-size: var(--fs-lg);
             font-weight: var(--weight-strong);
@@ -2811,7 +3209,7 @@
             right: 0;
             bottom: 0;
             width: 100%;
-            height: 52%;
+            height: 56%;
             overflow: hidden;
             border-radius: 0 0 calc(0.9rem * var(--sq)) calc(0.9rem * var(--sq));
         }
@@ -2933,7 +3331,7 @@
             fill: currentColor;
         }
 
-        .sp-btn span {
+        .sp-btn > span:not(.key-glyph) {
             font-weight: var(--weight-strong);
             font-size: var(--fs-lg);
             pointer-events: none;
@@ -4199,13 +4597,18 @@
             min-width: 0;
         }
 
-        /* The preview: the real key markup, inert, at the size of a grid key. */
+        /* The preview: the real key markup, inert, shaped like the key or pad it
+           edits (macro keys are square). */
         .key-preview {
             position: relative;
             display: flex;
             width: 100%;
             aspect-ratio: 1 / 0.86;
             pointer-events: none;
+        }
+
+        #macro-modal .key-preview {
+            aspect-ratio: 1;
         }
 
         .key-preview > .btn {
@@ -5468,7 +5871,7 @@
             </nav>
 
             <div class="settings-content-wrapper">
-                <div id="browser-warning" class="notice is-danger" style="display: none; margin-bottom: 1.25rem;">
+                <div id="browser-warning" class="notice is-danger" style="display: none; margin-bottom: 1.25rem; margin-right: 3rem;">
                     <i data-lucide="alert-triangle"></i>
                     <div>
                         <p class="notice-title">Browser mode</p>
@@ -5916,21 +6319,22 @@
                                 stroke-dashoffset="125.66" />
                             <g class="gauge-tip" id="speed-tip"><circle cx="50" cy="10" r="4.2" /></g>
                         </svg>
-                        <span class="live gauge-read"><span class="live-v" id="speed-gauge-val">Test</span></span>
+                        <span class="live gauge-read"><span class="live-v"><span class="gauge-dir" id="speed-gauge-dir"
+                                    aria-hidden="true"></span><span id="speed-gauge-val">Test</span></span></span>
                     </span>
                     <span class="speed-lines num">
-                        <span class="speed-line" id="speed-line-dl" data-state="idle"><i data-lucide="arrow-down"></i><span
-                                class="live speed-v"><span class="live-v" id="s-dl">&mdash;</span><span class="speed-wait"
-                                    aria-hidden="true"><span></span><span></span><span></span></span></span><span
-                                class="unit">Mbps</span></span>
                         <span class="speed-line" id="speed-line-ul" data-state="idle"><i data-lucide="arrow-up"></i><span
                                 class="live speed-v"><span class="live-v" id="s-ul">&mdash;</span><span class="speed-wait"
                                     aria-hidden="true"><span></span><span></span><span></span></span></span><span
                                 class="unit">Mbps</span></span>
+                        <span class="speed-line" id="speed-line-ping" data-state="idle"><i data-lucide="timer"></i><span
+                                class="live speed-v"><span class="live-v" id="s-ping">&mdash;</span><span class="speed-wait"
+                                    aria-hidden="true"><span></span><span></span><span></span></span></span><span
+                                class="unit">ms</span></span>
                     </span>
                 </button>
                 <button class="btn btn-top" id="btn-shutdown" title="Turn off PC" aria-label="Turn off PC"
-                    onclick="act('sys_power_off')"><i data-lucide="power"></i></button>
+                    onclick="powerOff()"><i data-lucide="power"></i></button>
             </div>
             <div id="top-right-soundboard" class="bar-cluster">
                 <!-- Volume bar — Linux only, hidden on Windows -->
@@ -5943,13 +6347,17 @@
                     <button class="vol-step-btn" onclick="sbVolStep(-5)" aria-label="Soundboard volume down">
                         <i data-lucide="minus"></i>
                     </button>
-                    <div id="sb-vol-slider">
-                        <div id="sb-vol-fill"></div>
+                    <div id="sb-vol-slider" role="slider" tabindex="0" aria-label="Soundboard volume"
+                        aria-valuemin="0" aria-valuemax="200" aria-valuenow="100" aria-valuetext="100%">
+                        <span class="sb-vol-slot"><span id="sb-vol-fill"></span></span>
                     </div>
                     <button class="vol-step-btn" onclick="sbVolStep(5)" aria-label="Soundboard volume up">
                         <i data-lucide="plus"></i>
                     </button>
-                    <span id="sb-vol-label" class="num" onclick="sbVolSet(100)" title="Reset to 100%">100%</span>
+                    <span id="sb-vol-label" class="num live" aria-hidden="true"><span class="live-v"
+                            id="sb-vol-value">100%</span></span>
+                    <button class="btn sb-vol-preset num" type="button" onclick="sbVolSet(100)"
+                        aria-label="Set soundboard volume to 100%">100%</button>
                 </div>
                 <button class="btn btn-top btn-danger" id="btn-stop-audio" onclick="stopSoundboardAudio()">
                     <i data-lucide="square"></i><span>Stop audio</span>
@@ -5962,7 +6370,7 @@
     <main id="view-wrapper">
         <div class="grid-container view-layer active" id="main-view">
             <div class="col">
-                <section class="card panel spotify" aria-label="Now playing">
+                <section class="card panel spotify" data-src="none" aria-label="Now playing">
                     <div class="np-ground" aria-hidden="true">
                         <canvas class="np-backdrop" id="np-backdrop" width="8" height="8"></canvas>
                     </div>
@@ -5970,7 +6378,8 @@
                         <h2 class="panel-title">Now playing</h2>
                         <div class="np-head-keys">
                             <button class="btn round np-like" id="np-like" type="button" hidden aria-pressed="false"
-                                aria-label="Save to your library" onclick="npLike()"><i data-lucide="heart"></i></button>
+                                aria-label="Save to your library" onclick="npLike()"><i data-lucide="heart"></i><i
+                                    data-lucide="alert-triangle" class="key-warn"></i></button>
                             <button class="chip" id="np-source" type="button" hidden disabled
                                 onclick="npNextSource()"></button>
                         </div>
@@ -6002,27 +6411,28 @@
 
                     <div class="spot-ctrl" id="spot-ctrl" data-keys="3">
                         <button class="btn round np-key" id="np-prev" onclick="npKey('prev')"
-                            aria-label="Previous"><i data-lucide="skip-back"></i></button>
+                            aria-label="Previous"><i data-lucide="skip-back"></i><i data-lucide="alert-triangle" class="key-warn"></i></button>
                         <button class="btn round np-key np-seek" onclick="npKey('back')"
                             aria-label="Back 10 seconds"><i data-lucide="rotate-ccw"></i><span class="np-n num"
-                                aria-hidden="true">10</span></button>
+                                aria-hidden="true">10</span><i data-lucide="alert-triangle" class="key-warn"></i></button>
                         <button class="btn round np-key btn-play" id="btn-spot-play" onclick="act('spot_play')"
                             aria-label="Play or pause">
                             <i data-lucide="play" id="icon-spot-play"></i>
                             <i data-lucide="pause" id="icon-spot-pause" style="visibility: hidden;"></i>
+                            <i data-lucide="alert-triangle" class="key-warn"></i>
                         </button>
                         <button class="btn round np-key np-seek" onclick="npKey('fwd')"
                             aria-label="Forward 30 seconds"><i data-lucide="rotate-cw"></i><span class="np-n num"
-                                aria-hidden="true">30</span></button>
+                                aria-hidden="true">30</span><i data-lucide="alert-triangle" class="key-warn"></i></button>
                         <button class="btn round np-key" id="np-next" onclick="npKey('next')"
-                            aria-label="Next"><i data-lucide="skip-forward"></i></button>
+                            aria-label="Next"><i data-lucide="skip-forward"></i><i data-lucide="alert-triangle" class="key-warn"></i></button>
                     </div>
                 </section>
 
                 <section id="panel-discord" class="card panel" style="display: none;" aria-label="Discord">
                     <div id="disc-header-basic" class="disc-header-basic">
-                        <svg aria-hidden="true"><use href="#icon-discord" /></svg>
                         <h2 class="panel-title">Discord</h2>
+                        <div class="vc-well vc-idle">Not in a call</div>
                     </div>
 
                     <div id="disc-vc-container" style="display: none;">
@@ -6042,14 +6452,14 @@
 
                     <div class="disc-keys" role="group" aria-label="Voice controls">
                         <button class="btn" id="btn-disc-mute" onclick="act('disc_mute')" aria-label="Mute"><i
-                                data-lucide="mic"></i></button>
+                                data-lucide="mic"></i><i data-lucide="alert-triangle" class="key-warn"></i></button>
                         <button class="btn" id="btn-disc-deaf" onclick="act('disc_deaf')" aria-label="Deafen"><i
-                                data-lucide="headphones"></i></button>
+                                data-lucide="headphones"></i><i data-lucide="alert-triangle" class="key-warn"></i></button>
                         <button class="btn" id="btn-disc-cam" onclick="act('disc_cam')" aria-label="Camera"><i
-                                data-lucide="video"></i></button>
+                                data-lucide="video"></i><i data-lucide="alert-triangle" class="key-warn"></i></button>
                         <button class="btn" id="btn-disc-screen" onclick="act('disc_screen')"
                             aria-label="Start or stop screen sharing. To start, Discord opens its picker on the PC."
-                            title="Screen share: Discord opens its picker on the PC"><i data-lucide="monitor-up"></i></button>
+                            title="Screen share: Discord opens its picker on the PC"><i data-lucide="monitor-up"></i><i data-lucide="alert-triangle" class="key-warn"></i></button>
                     </div>
                 </section>
             </div>
@@ -6102,7 +6512,8 @@
                                 <span class="encoder-knob" id="encoder-knob"><span class="knob-indicator"></span></span>
                             </button>
                             <div class="scribble encoder-display">
-                                <span class="ch-name">Output device</span>
+                                <span class="enc-label"><span class="ch-name">Output device</span><span
+                                        class="ch-name enc-status" aria-hidden="true">Not switched</span></span>
                                 <span id="btn-audio-cycle">Device</span>
                             </div>
                         </div>
@@ -6132,6 +6543,13 @@
                 <section class="card panel macros-panel" aria-label="Macros and apps">
                     <div class="panel-head">
                         <h2 class="panel-title">Macros &amp; apps</h2>
+                        <div class="macro-pages" role="group" aria-label="Pages" hidden>
+                            <button class="btn round" id="macro-prev" type="button" aria-label="Previous page"><i
+                                    data-lucide="chevron-left"></i></button>
+                            <span class="mp-n" id="macro-page-n">1 / 1</span>
+                            <button class="btn round" id="macro-next" type="button" aria-label="Next page"><i
+                                    data-lucide="chevron-right"></i></button>
+                        </div>
                     </div>
                     <div id="macro-grid" class="btn-grid"></div>
                 </section>
@@ -6141,7 +6559,9 @@
                     </div>
                     <div class="stats">
                         <div class="stat" id="sys-cpu-tile">
-                            <div class="stat-head"><i data-lucide="cpu"></i>CPU</div>
+                            <div class="stat-head"><span class="stat-glyph"><i data-lucide="cpu" class="g-base"></i><i
+                                        data-lucide="alert-triangle" class="g-high"></i><i data-lucide="alert-octagon"
+                                        class="g-crit"></i></span>CPU</div>
                             <div class="stat-val num live"><span class="live-v" id="sys-cpu">0%</span></div>
                             <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
                                 <defs><linearGradient id="spark-g-cpu" x1="0" y1="0" x2="0" y2="1"><stop
@@ -6151,7 +6571,9 @@
                             </svg>
                         </div>
                         <div class="stat" id="sys-ram-tile">
-                            <div class="stat-head"><i data-lucide="memory-stick"></i>RAM</div>
+                            <div class="stat-head"><span class="stat-glyph"><i data-lucide="memory-stick" class="g-base"></i><i
+                                        data-lucide="alert-triangle" class="g-high"></i><i data-lucide="alert-octagon"
+                                        class="g-crit"></i></span>RAM</div>
                             <div class="stat-val num live"><span class="live-v" id="sys-ram">0%</span></div>
                             <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
                                 <defs><linearGradient id="spark-g-ram" x1="0" y1="0" x2="0" y2="1"><stop
@@ -6161,7 +6583,9 @@
                             </svg>
                         </div>
                         <div class="stat" id="sys-gpu-row" style="display: none;">
-                            <div class="stat-head"><i data-lucide="monitor"></i>GPU</div>
+                            <div class="stat-head"><span class="stat-glyph"><i data-lucide="monitor" class="g-base"></i><i
+                                        data-lucide="alert-triangle" class="g-high"></i><i data-lucide="alert-octagon"
+                                        class="g-crit"></i></span>GPU</div>
                             <div class="stat-val num live"><span class="live-v" id="sys-gpu">0%</span></div>
                             <svg class="spark" viewBox="0 0 60 30" preserveAspectRatio="none" aria-hidden="true">
                                 <defs><linearGradient id="spark-g-gpu" x1="0" y1="0" x2="0" y2="1"><stop
@@ -6313,6 +6737,10 @@
         });
 
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        // Transitions that move things: the rich tier, not under reduced motion.
+        function richMotion() {
+            return document.documentElement.dataset.fx === 'rich' && !reducedMotion.matches;
+        }
         if (gsap.matchMedia) {
             // GSAP drives the larger transitions; under reduced motion they finish
             // almost at once instead of every call site branching.
@@ -6330,8 +6758,12 @@
             if (!canVibrate) return;
             try { navigator.vibrate(ms); } catch (err) { /* blocked by the WebView: silent */ }
         }
+        // Keys that sink under a finger (.is-pressed, below) and tick: one list, so
+        // no key does one without the other (the clock panel, volume steps and
+        // menu rows sank without a tick). Dialogs' theme cards and switches tick too.
+        const PRESSABLE = '.btn, .encoder, .speed-widget, .sb-fb-btn, .vol-step-btn, .menu-row, .time-weather-panel, button.chip:not(:disabled)';
         document.addEventListener('pointerdown', (e) => {
-            if (e.target.closest('.btn, .encoder, .speed-widget, .theme-card, .switch')) haptic(HAPTIC_KEY);
+            if (e.target.closest(PRESSABLE + ', .theme-card, .switch')) haptic(HAPTIC_KEY);
         }, { passive: true });
 
         // --- Touch press (Android) ---
@@ -6343,7 +6775,6 @@
         // pointerdown instead (.is-pressed: the :active look) and hold it at least
         // PRESS_MIN_MS, so a quick tap still sinks. Not inside dialogs: their
         // lists scroll, which is what the browser's delay is for.
-        const PRESSABLE = '.btn, .encoder, .speed-widget, .sb-fb-btn, .vol-step-btn, .menu-row, .time-weather-panel';
         const PRESS_MIN_MS = 100;
         let pressed = null;               // {key, id, at}
         document.addEventListener('pointerdown', (e) => {
@@ -7183,6 +7614,7 @@
         let isAnimating = false;
         let pendingSysData = null;
         let discordVidLock = 0;
+        let camAsked = null;              // the camera state a tap asked for, until Discord's answer
         let serverFeatures = new Set();   // from config_sync; older servers send none
         let requiredAppVersion = '';      // the Android app this desktop needs (config_sync.req_apk_version)
 
@@ -7244,14 +7676,13 @@
         let isDiscordConnected = false;
         let currentDiscordAuthUrl = "";
         let discordPanelVisible = false;
-        let discordPanelAnimating = false;
         let discordDisconnectCount = 0;
         let discordActiveSpeakers = [];
         const vcUserEls = new Map();  // uid → row element, so ticks never query the DOM
         let macros = [];
         let osApps = [];
         let editingMacroIndex = -1;
-        let macroPressTimer = null;
+        let macroPress = null;   // {idx, timer}: a key held that may still run on release
         let macroRecording = false;
         let macroRecordedKeys = [];
 
@@ -7294,6 +7725,10 @@
             btnSpotAuthLabel: document.getElementById('btn-spot-auth-label'),
             spotGroup: document.getElementById('spot-connected-group'),
             macroGrid: document.getElementById('macro-grid'),
+            macroPages: document.querySelector('.macro-pages'),
+            macroPageN: document.getElementById('macro-page-n'),
+            macroPrev: document.getElementById('macro-prev'),
+            macroNext: document.getElementById('macro-next'),
             macroModal: document.getElementById('macro-modal'),
             macroModalCard: document.getElementById('macro-modal-card'),
             macroTitle: document.getElementById('macro-modal-title'),
@@ -7310,6 +7745,8 @@
             npBar: document.querySelector('#np-progress .np-bar'),
             spotCtrl: document.getElementById('spot-ctrl'),
             npPrev: document.getElementById('np-prev'),
+            btnSpotPlay: document.getElementById('btn-spot-play'),
+            encoderDisplay: document.querySelector('.encoder-display'),
             npNext: document.getElementById('np-next'),
             npLike: document.getElementById('np-like'),
             npFill: document.getElementById('np-fill'),
@@ -7317,7 +7754,11 @@
             npRemaining: document.getElementById('np-remaining'),
             encoderKnob: document.getElementById('encoder-knob'),
             encLeds: document.getElementById('enc-leds'),
-            speedDl: document.getElementById('s-dl'),
+            speedPing: document.getElementById('s-ping'),
+            sbVolSlider: document.getElementById('sb-vol-slider'),
+            sbVolFill: document.getElementById('sb-vol-fill'),
+            sbVolValue: document.getElementById('sb-vol-value'),
+            gaugeDir: document.getElementById('speed-gauge-dir'),
             speedUl: document.getElementById('s-ul'),
             gaugeArc: document.getElementById('speed-gauge-arc'),
             gaugeVal: document.getElementById('speed-gauge-val'),
@@ -7337,7 +7778,7 @@
         const SPEED_SCALE_MAX = 1000;            // Mbps at the top of the log scale
         const SPEED_TICKS = [1, 10, 100];       // the arc's own ends are 0 and 1000
         const speedTest = { phase: 'idle', live: false, ping: null, server: '', down: null, up: null, busyTimer: null };
-        const speedLines = { down: document.getElementById('speed-line-dl'), up: document.getElementById('speed-line-ul') };
+        const speedLines = { up: document.getElementById('speed-line-ul'), ping: document.getElementById('speed-line-ping') };
         const speedTip = document.getElementById('speed-tip');
 
         function speedFraction(mbps) {
@@ -7369,16 +7810,29 @@
                 speedTest.watchdog = setTimeout(() => onSpeedResult({ down: 'ERR', up: 'ERR' }), SPEED_SILENCE_MS);
             }
         }
-        function setSpeedPhase(phase, label) {
+        function setSpeedPhase(phase, label, dir = '') {
             speedTest.phase = phase;
             if (dom.speedOut && dom.speedOut.dataset.phase !== phase) dom.speedOut.dataset.phase = phase;
-            setText(dom.gaugeVal, label);
+            setGauge(label, dir);
             speedHeard();
         }
+        // The dial's centre: a figure the arc shows ('down' / 'up' adds its arrow), or a word.
+        function setGauge(label, dir = '') {
+            setText(dom.gaugeVal, label);
+            if ((dom.gaugeDir.dataset.dir || '') === dir) return;
+            dom.gaugeDir.dataset.dir = dir;
+            if (dir) {
+                setIcon(dom.gaugeDir, dir === 'down' ? 'arrow-down' : 'arrow-up');
+            } else {
+                dom.gaugeDir.textContent = '';
+                delete dom.gaugeDir.dataset.icon;
+            }
+        }
+        // The lines beside the dial: 'up' and 'ping'.
         function setSpeedLine(step, state, value) {
             const line = speedLines[step];
             if (line && line.dataset.state !== state) line.dataset.state = state;
-            if (value !== undefined) setText(step === 'down' ? dom.speedDl : dom.speedUl, value);
+            if (value !== undefined) setText(step === 'up' ? dom.speedUl : dom.speedPing, value);
         }
         // Live figures: whole numbers from 100 Mbps, one decimal below.
         function fmtMbps(v) {
@@ -7401,11 +7855,12 @@
             } else if (d.step === 'ping') {
                 if (typeof d.ping === 'number') speedTest.ping = Math.round(d.ping);
                 if (d.server) speedTest.server = d.server;
-                setSpeedPhase('ping', speedTest.ping !== null ? speedTest.ping + ' ms' : 'Ping');
+                setSpeedPhase('ping', 'Ping');
+                if (speedTest.ping !== null) setSpeedLine('ping', 'done', String(speedTest.ping));
             } else if (d.step === 'down' || d.step === 'up') {
                 if (speedTest.phase !== d.step) {
-                    setSpeedPhase(d.step, d.step === 'down' ? 'Down' : 'Up');
-                    setSpeedLine(d.step, 'live');
+                    setSpeedPhase(d.step, d.step === 'down' ? 'Down' : 'Up', d.step);
+                    if (d.step === 'up') setSpeedLine('up', 'live');
                     speedTest.live = false;
                     setMeter(0);
                 }
@@ -7417,17 +7872,15 @@
         function onSpeedLive(d) {
             if (d.step !== 'down' && d.step !== 'up') return;
             speedHeard();
-            if (speedTest.phase !== d.step) {
-                setSpeedPhase(d.step, d.step === 'down' ? 'Down' : 'Up');
-            }
+            if (speedTest.phase !== d.step) setSpeedPhase(d.step, '', d.step);
             speedTest.live = true;
-            setSpeedLine(d.step, 'live', fmtMbps(d.mbps));
+            setGauge(fmtMbps(d.mbps), d.step);   // the centre prints what the arc shows
+            if (d.step === 'up') setSpeedLine('up', 'live', fmtMbps(d.mbps));
             setMeter(speedFraction(d.mbps));
         }
         function onSpeedIntermediate(d) {
             if (d.down === undefined || d.down === null) return;
             speedTest.down = d.down;
-            setSpeedLine('down', 'done', String(d.down));
         }
         function onSpeedResult(d) {
             clearTimeout(speedTest.busyTimer);
@@ -7440,8 +7893,8 @@
             }
             if (d.down === 'ERR') {
                 setSpeedPhase('error', 'Error');
-                setSpeedLine('down', 'idle', '\u2014');
                 setSpeedLine('up', 'idle', '\u2014');
+                setSpeedLine('ping', 'idle', '\u2014');
                 setMeter(1);
                 return;
             }
@@ -7449,9 +7902,9 @@
             speedTest.up = d.up;
             if (typeof d.ping === 'number') speedTest.ping = Math.round(d.ping);
             if (d.server) speedTest.server = d.server;
-            setSpeedLine('down', 'done', String(d.down));
             setSpeedLine('up', 'done', String(d.up));
-            setSpeedPhase('done', speedTest.ping !== null ? speedTest.ping + ' ms' : 'Done');
+            setSpeedLine('ping', speedTest.ping !== null ? 'done' : 'idle', speedTest.ping !== null ? String(speedTest.ping) : '\u2014');
+            setSpeedPhase('done', fmtMbps(d.down), 'down');
             setMeter(speedFraction(d.down));
             speedSummary();
         }
@@ -7680,8 +8133,8 @@
             chip.disabled = !switchable;
             chip.setAttribute('aria-label', switchable ? `${name}. Show the next player` : name);
             chip.innerHTML = (name === 'Spotify'
-                ? '<svg aria-hidden="true"><use href="#icon-spotify"/></svg>Spotify'
-                : `<i data-lucide="${SERVICE_GLYPHS[name] || 'radio'}"></i>${escapeHtml(name)}`)
+                ? '<svg aria-hidden="true"><use href="#icon-spotify"/></svg><span class="chip-name">Spotify</span>'
+                : `<i data-lucide="${SERVICE_GLYPHS[name] || 'radio'}"></i><span class="chip-name">${escapeHtml(name)}</span>`)
                 + (switchable ? '<i data-lucide="chevrons-up-down" class="np-switch"></i>' : '');
             renderIcons(chip);
         }
@@ -7740,8 +8193,10 @@
                 if (dom.npProgress.dataset.live !== state) dom.npProgress.dataset.live = state;
                 return;
             }
+            // Both whole seconds of the same position, so they add up to the length
+            // (each floored, they came to a second short).
             setText(dom.npElapsed, fmtDuration(pos));
-            setText(dom.npRemaining, '−' + fmtDuration(npClock.len - pos));
+            setText(dom.npRemaining, '−' + fmtDuration(Math.max(0, Math.round(npClock.len) - Math.floor(pos))));
             if (dom.npProgress.dataset.live) delete dom.npProgress.dataset.live;
         }
         function renderProgress() {
@@ -7828,7 +8283,7 @@
         let npScrub = null;                // {left, width, to} while a finger drags the bar
         let likePending = null;            // {liked, title, until}
         let playPending = null;            // {playing, until}
-        let skipPending = null;            // {title, from, until}: ⏮/⏭ sent, the old track still reported
+        let skipPending = null;            // {title, from, until, key}: ⏮/⏭ sent, the old track still reported
 
         function holdUntil() {
             return Date.now() + (serverFeatures.has('media_result') ? MEDIA_HOLD_MS : LEGACY_HOLD_MS);
@@ -7850,10 +8305,23 @@
         // reading agrees (or the hold ends).
         function reconcileMedia(sp) {
             const now = Date.now();
-            if (skipPending && (!sp || sp.title !== skipPending.title || now > skipPending.until
-                    || (sp.position != null && sp.position < skipPending.from - 2))) skipPending = null;
+            // A hold that runs out on the old state: the key did nothing, and says so.
+            if (skipPending) {
+                const moved = !sp || sp.title !== skipPending.title
+                    || (sp.position != null && sp.position < skipPending.from - 2);
+                if (moved || now > skipPending.until) {
+                    if (!moved) keyRefused(skipPending.key);
+                    skipPending = null;
+                }
+            }
             // Play holds even with nothing shown yet (a press on the empty card).
-            if (playPending && ((sp && (sp.status === 'Playing') === playPending.playing) || now > playPending.until)) playPending = null;
+            if (playPending) {
+                const agrees = !!sp && (sp.status === 'Playing') === playPending.playing;
+                if (agrees || now > playPending.until) {
+                    if (!agrees) keyRefused(dom.btnSpotPlay);
+                    playPending = null;
+                }
+            }
             dom.spotifyPanel.classList.toggle('is-skipping', !!skipPending);
             if (!sp) return sp;
             let m = sp;
@@ -7865,10 +8333,12 @@
         // without Premium, a device that went away): take it back at once.
         function onMediaResult(r) {
             if (!r || r.ok !== false) return;
+            const key = { play: dom.btnSpotPlay, next: dom.npNext, prev: dom.npPrev, like: dom.npLike,
+                seek: lastSeekKey }[r.cmd];
             if (r.cmd === 'like') likePending = null;
             else if (r.cmd === 'play') playPending = null;
             else { seekPending = null; skipPending = null; }
-            haptic(HAPTIC_END);
+            keyRefused(key);   // with its haptic
             if (!dashboardHeld) renderNowPlaying(npMedia);
         }
         // The Now playing card from a reading (sys_data's `spotify`).
@@ -7876,6 +8346,8 @@
             const live = !!(sp && (sp.status === 'Playing' || sp.status === 'Paused'));
             npMedia = live ? sp : null;
             const m = reconcileMedia(npMedia);
+            const src = live ? 'on' : 'none';   // the play key is lit only with a source
+            if (dom.spotifyPanel.dataset.src !== src) dom.spotifyPanel.dataset.src = src;
             if (live) {
                 setDisplay(dom.spotEmpty, 'none');
                 setDisplay(dom.spotInfo, 'flex');
@@ -7955,6 +8427,7 @@
         }
         function npKey(cmd) {
             if (cmd === 'back' || cmd === 'fwd') {
+                lastSeekKey = dom.spotCtrl.querySelectorAll('.np-seek')[cmd === 'back' ? 0 : 1];
                 const step = cmd === 'back' ? -SEEK_BACK_S : SEEK_FWD_S;
                 if (npClock) seekTo(Math.min(npClock.live ? npEdge() : npClock.len - 1, npPosition() + step));
                 else sendSocket('media_seek', { by: step });   // no position to start from
@@ -7971,7 +8444,8 @@
                 moveClock({ pos: 0 });
             } else if (npMedia) {
                 // Another track is on its way: the bar starts over, the old title dims.
-                skipPending = { title: npMedia.title, from: npClock ? npPosition() : 0, until: holdUntil() };
+                skipPending = { title: npMedia.title, from: npClock ? npPosition() : 0, until: holdUntil(),
+                    key: cmd === 'prev' ? dom.npPrev : dom.npNext };
                 dom.spotifyPanel.classList.add('is-skipping');
                 moveClock({ pos: 0 });
             }
@@ -8293,12 +8767,23 @@
             return Array.from({ length: n }, (_, i) => -span / 2 + (i * span) / (n - 1));
         }
 
-        function setEncoderIndex(i) {
+        // The knob's angle as drawn. Whole turns are kept, so the next output is
+        // always a clockwise turn (from the last LED it swung back across the arc)
+        // and any other change takes the shortest way.
+        let encoderAngle = 0;
+        function setEncoderIndex(i, { forward = false } = {}) {
             if (i === encoderIndex) return;
             encoderIndex = i;
             const angles = encoderAngles(encoderSinks.length);
             dom.encLeds.querySelectorAll('.enc-led').forEach((led, k) => led.classList.toggle('is-on', k === i));
-            if (i >= 0) dom.encoderKnob.style.setProperty('--angle', angles[i] + 'deg');
+            if (i < 0) return;
+            let a = angles[i] + 360 * Math.round((encoderAngle - angles[i]) / 360);
+            if (forward) {
+                while (a <= encoderAngle) a += 360;
+                while (a - 360 > encoderAngle) a -= 360;
+            }
+            encoderAngle = a;
+            dom.encoderKnob.style.setProperty('--angle', a + 'deg');
         }
 
         // Outputs hidden in Audio routing (by raw name) get no LED and are skipped
@@ -8315,7 +8800,12 @@
             dom.encLeds.innerHTML = encoderSinks.map((_, i) =>
                 `<span class="enc-led-wrap" style="transform: rotate(${angles[i]}deg)"><span class="enc-led"></span></span>`).join('');
             encoderIndex = null;
+            // The LEDs moved, nothing was switched: no turn (it turned on every
+            // device-list change). Two frames, so the jump lands before the
+            // transition is back.
+            dom.encoderKnob.classList.add('no-turn');
             setEncoderIndex(encoderSinks.findIndex(sk => sk.is_active));
+            requestAnimationFrame(() => requestAnimationFrame(() => dom.encoderKnob.classList.remove('no-turn')));
         }
 
         // Same short name the server shows (custom alias, else the raw name's first 8 letters).
@@ -8331,10 +8821,34 @@
             setEncoderIndex(i);
         }
 
+        // A turn names the output the knob now points at at once, dimmed until the
+        // PC reports it (the display kept the old name for the whole hold). If the
+        // hold ends on the old output, the display says "Not switched".
+        let encoderTarget = null;   // {name, label}
         function encoderAdvance() {
             if (!encoderSinks.length) return;
             encoderLock = Date.now() + ENC_LOCK_MS;
-            setEncoderIndex(((encoderIndex ?? -1) + 1) % encoderSinks.length);
+            setEncoderIndex(((encoderIndex ?? -1) + 1) % encoderSinks.length, { forward: true });
+            const sink = encoderSinks[encoderIndex];
+            if (!sink) return;
+            encoderTarget = { name: sink.name, label: sinkLabel(sink) };
+            dom.encoderDisplay.classList.add('is-pending');
+            setText(dom.btnAudioCycle, sink.name || encoderTarget.label);
+        }
+
+        function encoderSettled() {
+            encoderTarget = null;
+            dom.encoderDisplay.classList.remove('is-pending');
+        }
+
+        // The display's name from a reading: the PC's output, unless a turn is on its way.
+        function renderEncoderName(active) {
+            if (encoderTarget) {
+                if (active === encoderTarget.name || active === encoderTarget.label) encoderSettled();
+                else if (Date.now() < encoderLock) return;
+                else { encoderSettled(); keyRefused(dom.encoderDisplay); }
+            }
+            setText(dom.btnAudioCycle, active);
         }
 
         // A cover that fails stays hidden until the URL changes (the next
@@ -8364,27 +8878,68 @@
             };
         }
 
-        function setLoad(tile, key, pct) {
+        // A tile's state follows the mean of its last LOAD_MEAN_N samples, with
+        // hysteresis, so a load hovering near 85 % no longer flickers the trace.
+        // A GPU-bound game holds 95–99 % by design: the GPU tile never goes critical
+        // (it showed the mute red for whole sessions).
+        const LOAD_LEAVE_HIGH = 82, LOAD_LEAVE_CRITICAL = 92, LOAD_MEAN_N = 5;
+        const LOAD_NEVER_CRITICAL = new Set(['gpu']);
+        const loadState = {};   // per key: {win, state: 0 | 1 | 2, seq}
+
+        // `seq` is the server's load_seq (null from servers before it). Samples this
+        // screen missed (asleep, in the background, reconnecting) are a gap in the
+        // trace, not a join; a sequence that goes back (the server restarted) or a
+        // gap of a minute starts the trace over.
+        function setLoad(tile, key, pct, seq = null) {
             const v = Math.max(0, Math.min(100, Number(pct) || 0));
-            if (tile) {
-                tile.classList.toggle('is-high', v >= LOAD_HIGH && v < LOAD_CRITICAL);
-                tile.classList.toggle('is-critical', v >= LOAD_CRITICAL);
-            }
+            const s = loadState[key] || (loadState[key] = { win: [], state: 0, seq: null });
             const hist = sparkHistory[key];
+            if (seq !== null && s.seq !== null) {
+                const missed = seq - s.seq - 1;
+                if (missed < 0 || missed >= SPARK_POINTS) {
+                    hist.length = 0;
+                    s.win.length = 0;
+                } else if (missed > 0) {
+                    for (let i = 0; i < missed; i++) hist.push(null);
+                    s.win.length = 0;
+                }
+            }
+            s.seq = seq;
             hist.push(v);
-            if (hist.length > SPARK_POINTS) hist.shift();
+            while (hist.length > SPARK_POINTS) hist.shift();
+
+            s.win.push(v);
+            if (s.win.length > LOAD_MEAN_N) s.win.shift();
+            const mean = s.win.reduce((a, b) => a + b, 0) / s.win.length;
+            const canCrit = !LOAD_NEVER_CRITICAL.has(key);
+            s.state = canCrit && (mean >= LOAD_CRITICAL || (s.state === 2 && mean >= LOAD_LEAVE_CRITICAL)) ? 2
+                : mean >= LOAD_HIGH || (s.state >= 1 && mean >= LOAD_LEAVE_HIGH) ? 1 : 0;
+            if (tile) {
+                tile.classList.toggle('is-high', s.state === 1);
+                tile.classList.toggle('is-critical', s.state === 2);
+            }
+
             const els = sparkEls[key];
-            if (!els || !els.line || hist.length < 2) return;
+            if (!els || !els.line) return;
+            // Each run of samples is its own line and area; a missed sample breaks them.
             const step = SPARK_W / (SPARK_POINTS - 1);
             const x0 = SPARK_W - (hist.length - 1) * step;  // newest sample on the right edge
-            let d = '';
+            let line = '', area = '', runX = null, lastX = 0;
+            const close = () => {
+                area += `L${lastX.toFixed(2)},${SPARK_H}L${runX.toFixed(2)},${SPARK_H}Z`;
+                runX = null;
+            };
             hist.forEach((val, i) => {
-                const x = (x0 + i * step).toFixed(2);
-                const y = (SPARK_H - SPARK_PAD - (val / 100) * (SPARK_H - SPARK_PAD * 2)).toFixed(2);
-                d += (i ? 'L' : 'M') + x + ',' + y;
+                const x = x0 + i * step;
+                if (val === null) { if (runX !== null) close(); return; }
+                const pt = x.toFixed(2) + ',' + (SPARK_H - SPARK_PAD - (val / 100) * (SPARK_H - SPARK_PAD * 2)).toFixed(2);
+                if (runX === null) { line += 'M' + pt; area += 'M' + pt; runX = x; }
+                else { line += 'L' + pt; area += 'L' + pt; }
+                lastX = x;
             });
-            els.line.setAttribute('d', d);
-            els.area.setAttribute('d', d + `L${SPARK_W},${SPARK_H}L${x0.toFixed(2)},${SPARK_H}Z`);
+            if (runX !== null) close();
+            els.line.setAttribute('d', line);
+            els.area.setAttribute('d', area);
         }
 
         function setDisplay(el, value) {
@@ -8397,27 +8952,45 @@
             if (el && el.style.visibility !== value) el.style.visibility = value;
         }
 
+        // Shown and hidden when Discord starts or quits (and by config_sync), not
+        // per call. The fade is a Web Animation: the first-load entrance tweens
+        // this card's opacity too, and the CSS transition it used to have
+        // restarted on every write. Until the entrance has run, it reveals the card.
+        const DISC_FADE_MS = 180;
+        let discFade = null;
+
+        // The first-load entrance (set up at the end of this script).
+        const ENTRANCE_WAIT_MS = 800;
+        let entranceDone = false, entranceTimer = 0, playEntrance = null;
+        function startEntrance() {
+            if (entranceDone) return;
+            entranceDone = true;
+            clearTimeout(entranceTimer);
+            playEntrance?.();
+        }
         function setDiscordPanelVisible(show) {
-            if (!dom.panelDiscord || discordPanelVisible === show) return;
+            const panel = dom.panelDiscord;
+            if (!panel || discordPanelVisible === show) return;
             discordPanelVisible = show;
-            discordPanelAnimating = true;
+            discFade?.cancel();
+            discFade = null;
+            const fade = entranceDone && richMotion();
+            const away = { opacity: 0, transform: 'translateY(10px)' }, here = { opacity: 1, transform: 'none' };
             if (show) {
-                dom.panelDiscord.style.display = 'flex';
+                panel.style.display = 'flex';
                 dom.spotifyPanel?.classList.remove('expanded');
-                // CSS transition handles the reveal (opacity+transform via .discord-panel-enter)
-                requestAnimationFrame(() => {
-                    dom.panelDiscord.style.opacity = '1';
-                    dom.panelDiscord.style.transform = 'translateY(0)';
-                    discordPanelAnimating = false;
-                });
+                if (fade) discFade = panel.animate([away, here], { duration: DISC_FADE_MS, easing: 'ease-out' });
             } else {
                 dom.spotifyPanel?.classList.add('expanded');
-                dom.panelDiscord.style.opacity = '0';
-                dom.panelDiscord.style.transform = 'translateY(10px)';
+                if (!fade) { panel.style.display = 'none'; return; }
+                discFade = panel.animate([here, away], { duration: DISC_FADE_MS, easing: 'ease-in', fill: 'forwards' });
+                // A timer, not discFade.finished (§8.1: Chrome may not settle it).
                 setTimeout(() => {
-                    if (!discordPanelVisible) dom.panelDiscord.style.display = 'none';
-                    discordPanelAnimating = false;
-                }, 180);
+                    if (discordPanelVisible) return;
+                    panel.style.display = 'none';
+                    discFade?.cancel();
+                    discFade = null;
+                }, DISC_FADE_MS);
             }
         }
 
@@ -8710,7 +9283,7 @@
                             { type: 'plugin', action_data: 'app_soundpad', display_name: 'Soundboard', icon_url: 'lucide-music' },
                             { type: 'premade', action_data: 'app_term', display_name: 'Terminal', icon_url: 'lucide-terminal' },
                             { type: 'premade', action_data: 'app_web', display_name: 'Browser', icon_url: 'lucide-globe' },
-                            { type: 'premade', action_data: 'app_files', display_name: 'File Browser', icon_url: 'lucide-folder' },
+                            { type: 'premade', action_data: 'app_files', display_name: 'File browser', icon_url: 'lucide-folder' },
                             { type: 'premade', action_data: 'app_task', display_name: 'Task manager', icon_url: 'lucide-activity' }
                         ];
                         if (isAdmin()) setTimeout(() => sendSocket('save_macros', macros), 1000);
@@ -8834,6 +9407,7 @@
                 }
                 else if (msg.type === 'refused') {
                     console.warn('Server refused', d.action, d.reason);
+                    onRefused(d);
                     if (d.action === 'revoke_device') {
                         // Already gone on the server (removed from another window): drop it here too.
                         const gone = new Set([...document.querySelectorAll('.device-row.is-removing')].map(r => r.dataset.id));
@@ -9021,9 +9595,11 @@
             setText(dom.mouseBatt, label);
 
             if (view !== 'level' && view !== 'charging') return;
-            // Level thresholds: under 20% is bad, up to 60% is a warning.
+            // Colour only where it asks for attention: amber at 20 % and below, red at
+            // 10 % and below. Amber from 60 % (until v0.13.8) wore the alarm colour
+            // for most of the range.
             const color = level === null ? 'var(--surface-3)'
-                : level < 20 ? 'var(--negative)' : level <= 60 ? 'var(--warning)' : 'var(--positive)';
+                : level <= 10 ? 'var(--negative)' : level <= 20 ? 'var(--warning)' : 'var(--positive)';
             dom.battFill.style.setProperty('--batt-color', color);
             // Charging steps its own fill (CSS); otherwise the fill is the level.
             if (!charging) dom.battFill.style.width = (level ?? 0) + '%';
@@ -9341,7 +9917,8 @@
             clockView.hidden = false;
             holdDashboard();
             clockView.focus({ preventScroll: true });
-            if (document.documentElement.dataset.fx === 'rich') {
+            // Under reduced motion it opens in one frame, as the mixer and soundboard do.
+            if (richMotion()) {
                 const run = ++cvRun;
                 const turning = cvAnims.length > 0;   // it was closing
                 gsap.killTweensOf(cvClip);
@@ -9382,7 +9959,7 @@
                 clockView.style.removeProperty('clip-path');
                 holdDashboard();
             };
-            if (document.documentElement.dataset.fx === 'rich') {
+            if (richMotion()) {
                 const run = ++cvRun;
                 gsap.killTweensOf(cvClip);
                 if (!clockView.style.clipPath) Object.assign(cvClip, CV_CLIP_OPEN);   // settled open
@@ -9516,7 +10093,7 @@
         let mixerAppsRead = false;   // a reading arrived since it opened: "no app" can be said
 
         function mixerRich() {
-            return document.documentElement.dataset.fx === 'rich' && !reducedMotion.matches;
+            return richMotion();
         }
 
         function setMixerKey(open) {
@@ -10054,7 +10631,7 @@
                 setIcon(dom.iconMic, mic.muted ? 'mic-off' : 'mic');
             }
 
-            setText(dom.btnAudioCycle, audio.active_dev);
+            renderEncoderName(audio.active_dev);
             syncEncoder(audio.active_dev);
         }
 
@@ -10090,8 +10667,9 @@
                     // Whole percentages: steadier to read at a glance than 12.3 / 5 / 12.4.
                     setText(dom.sysCpu, Math.round(d.cpu) + '%');
                     setText(dom.sysRam, Math.round(d.ram) + '%');
-                    setLoad(dom.sysCpuTile, 'cpu', d.cpu);
-                    setLoad(dom.sysRamTile, 'ram', d.ram);
+                    const seq = d.load_seq ?? null;
+                    setLoad(dom.sysCpuTile, 'cpu', d.cpu, seq);
+                    setLoad(dom.sysRamTile, 'ram', d.ram, seq);
                 }
 
                 // Battery widget (handles both new dict and legacy string)
@@ -10101,10 +10679,10 @@
 
                 const gpuRow = dom.gpuRow;
                 if (d.gpu !== null && d.gpu !== "") {
-                    setDisplay(gpuRow, 'flex');
+                    setDisplay(gpuRow, 'grid');
                     if (freshLoad) {
                         setText(dom.sysGpu, Math.round(d.gpu) + '%');
-                        setLoad(gpuRow, 'gpu', d.gpu);
+                        setLoad(gpuRow, 'gpu', d.gpu, d.load_seq ?? null);
                     }
                 } else {
                     setDisplay(gpuRow, 'none');
@@ -10122,10 +10700,14 @@
 
                             const visuallyMuted = !!(d.discord.mute || d.discord.deaf);
                             const deaf = !!d.discord.deaf;
-                            if (discPending && ((visuallyMuted === discPending.mute && deaf === discPending.deaf)
-                                    || Date.now() > discPending.until)) {
-                                discPending = null;   // confirmed, or Discord never applied it
-                                discLastSent = null;
+                            if (discPending) {
+                                const agrees = visuallyMuted === discPending.mute && deaf === discPending.deaf;
+                                if (agrees || Date.now() > discPending.until) {
+                                    // Discord never applied it: the key says so, then shows the truth.
+                                    if (!agrees) keyRefused(discPending.deaf !== deaf ? dom.btnDiscDeaf : dom.btnDiscMute);
+                                    discPending = null;
+                                    discLastSent = null;
+                                }
                             }
                             if (!discPending) {
                                 if (!deaf) preDeafenMute = visuallyMuted;
@@ -10135,6 +10717,8 @@
                             // The camera key shows Discord's state. Screen share has
                             // none to show (see act): it is a push key, never lit.
                             if (Date.now() > discordVidLock && dom.btnDiscCam) {
+                                if (camAsked !== null && !!d.discord.video !== camAsked) keyRefused(dom.btnDiscCam);
+                                camAsked = null;
                                 dom.btnDiscCam.classList.toggle('vid-active', !!d.discord.video);
                             }
                         } else {
@@ -10146,17 +10730,13 @@
                             if (dom.discVcContainer.style.display !== 'flex') {
                                 dom.discVcContainer.style.display = 'flex';
                                 dom.discHeaderBasic.style.display = 'none';
-                                dom.panelDiscord.style.justifyContent = 'space-between';
-                                dom.panelDiscord.style.flex = '0 1 auto';
-                                dom.panelDiscord.style.maxHeight = '28rem';
                             }
 
                             const vc = d.discord.voice_channel;
-                            setText(dom.vcGuildName, vc.guild_id ? "Connected" : "Call");
-
-                            let channelText = vc.name || "Voice channel";
-                            if (vc.guild_name) channelText = vc.guild_name + " · " + channelText;
-                            setText(dom.vcChannelName, channelText);
+                            // The channel you are in on the large line; the server on the small one.
+                            const where = vc.guild_id ? "Connected" : "Call";
+                            setText(dom.vcGuildName, vc.guild_name ? where + " · " + vc.guild_name : where);
+                            setText(dom.vcChannelName, vc.name || "Voice channel");
 
                             // Render Users
                             const userIds = Object.keys(vc.users || {});
@@ -10222,6 +10802,8 @@
                                 const statusName = u.deaf ? 'headphones' : (u.mute ? 'mic-off' : '');
                                 // visibility, not display: showing it must not re-lay out the list.
                                 if (statusName) setIcon(statusIcon, statusName);
+                                const statusKind = u.deaf ? 'deaf' : '';   // deafened: the deafen key's slash
+                                if ((statusIcon.dataset.s || '') !== statusKind) statusIcon.dataset.s = statusKind;
                                 const statusVis = statusName ? 'visible' : 'hidden';
                                 if (statusIcon.style.visibility !== statusVis) statusIcon.style.visibility = statusVis;
 
@@ -10247,9 +10829,6 @@
                             if (dom.discVcContainer.style.display !== 'none') {
                                 dom.discVcContainer.style.display = 'none';
                                 dom.discHeaderBasic.style.display = 'flex';
-                                dom.panelDiscord.style.justifyContent = 'center';
-                                dom.panelDiscord.style.flex = '0 0 auto';
-                                dom.panelDiscord.style.maxHeight = 'none';
                                 dom.vcUsersList.innerHTML = '';
                                 dom.vcUsersList._rows = 0;
                                 dom.vcUsersList.style.setProperty('--rows', 0);
@@ -10264,6 +10843,7 @@
 
                 updateServiceStatus(d);
                 renderClockViewLive(d);
+                startEntrance();   // the first readings are laid out: the modules rise at their size
             });
         }
 
@@ -10589,95 +11169,154 @@
             });
         }
 
+        // The key matrix: 12 fixed slots a page (3 × 4), so a key keeps its place
+        // and adding one never moves the others; with more keys (or the Add slot)
+        // than fit, pages turn by the head's keys or a horizontal swipe. Up to
+        // v0.13.8 the matrix had nine slots and silently dropped keys 10 and up,
+        // the Add key with them.
+        const MACRO_PAGE = 12;
+        const MACRO_SWIPE_PX = 16, MACRO_PAGE_PX = 48;
+        let macroPage = 0;
+
+        function macroPageCount() {
+            return Math.max(1, Math.ceil((macros.length + (isAdmin() ? 1 : 0)) / MACRO_PAGE));
+        }
+
+        function goMacroPage(n) {
+            const page = Math.min(Math.max(0, n), macroPageCount() - 1);
+            if (page === macroPage) return;
+            macroPage = page;
+            renderMacros();   // one frame on every tier: keys keep their slots
+        }
+
+        function macroKey(m, idx) {
+            const slot = document.createElement('div');
+            slot.className = 'macro-slot';
+
+            const btn = document.createElement('button');
+            btn.className = 'btn';
+            btn.setAttribute('aria-label', m.display_name || 'Macro');
+
+            if (m.type === 'plugin') {
+                btn.classList.add('btn-plugin');
+                btn.dataset.plugin = m.action_data || '';   // the soundboard finds its key again
+            }
+            const label = escapeHtml(m.display_name || '');
+            btn.innerHTML = `<span class="key-screen"><span class="key-glyph">${keyGlyphHtml(m)}${KEY_WARN}</span>`
+                + `<span class="key-label">${label}</span></span>`;
+
+            // Pointer events only: a tap also fires emulated mouse events after
+            // touchend, so touch + mouse listeners ran every macro twice.
+            btn.addEventListener('pointerdown', (e) => {
+                if (m.type === 'plugin' && m.action_data === 'app_soundpad') sbWarm();
+                handleMacroDown(e, idx);
+            });
+            btn.addEventListener('pointerup', (e) => handleMacroUp(e, idx, m));
+            btn.addEventListener('pointerleave', () => clearMacroTimer());
+            btn.addEventListener('pointercancel', () => clearMacroTimer());
+
+            slot.appendChild(btn);
+            return slot;
+        }
+
         function renderMacros() {
             if (!dom.macroGrid) return;
-
-            const maxSlots = 9;
-            let renderCount = 0;
+            const admin = isAdmin();
+            const pages = macroPageCount();
+            if (macroPage > pages - 1) macroPage = pages - 1;
             const frag = document.createDocumentFragment();
 
-            macros.forEach((m, idx) => {
-                if (renderCount >= maxSlots) return;
-                const slot = document.createElement('div');
-                slot.className = 'macro-slot';
-
-                const btn = document.createElement('button');
-                btn.className = 'btn';
-                btn.setAttribute('aria-label', m.display_name || 'Macro');
-
-                if (m.type === 'plugin') {
-                    btn.classList.add('btn-plugin');
-                    btn.dataset.plugin = m.action_data || '';   // the soundboard finds its key again
+            for (let s = 0; s < MACRO_PAGE; s++) {
+                const idx = macroPage * MACRO_PAGE + s;
+                if (idx < macros.length) {
+                    frag.appendChild(macroKey(macros[idx], idx));
+                } else if (admin && idx === macros.length) {
+                    const slot = document.createElement('div');
+                    slot.className = 'macro-slot';
+                    const btn = document.createElement('button');
+                    btn.className = 'btn btn-add';
+                    btn.setAttribute('aria-label', 'Add macro');
+                    btn.innerHTML = `<i data-lucide="plus"></i><span class="key-label">Add</span>`;
+                    btn.onclick = () => openMacroModal(-1);
+                    slot.appendChild(btn);
+                    frag.appendChild(slot);
+                } else {
+                    const slot = document.createElement('div');
+                    slot.className = 'macro-slot empty';
+                    // Still a <button> so the double-tap gesture ignores empty slots.
+                    slot.innerHTML = `<button class="btn" tabindex="-1" aria-hidden="true"></button>`;
+                    frag.appendChild(slot);
                 }
-                const label = escapeHtml(m.display_name || '');
-                btn.innerHTML = `<span class="key-screen">${keyGlyphHtml(m)}<span class="key-label">${label}</span></span>`;
-
-                // Pointer events only: a tap also fires emulated mouse events after
-                // touchend, so touch + mouse listeners ran every macro twice.
-                btn.addEventListener('pointerdown', (e) => {
-                    if (m.type === 'plugin' && m.action_data === 'app_soundpad') sbWarm();
-                    handleMacroDown(e, idx);
-                });
-                btn.addEventListener('pointerup', (e) => handleMacroUp(e, idx, m));
-                btn.addEventListener('pointerleave', () => clearMacroTimer());
-                btn.addEventListener('pointercancel', () => clearMacroTimer());
-
-                slot.appendChild(btn);
-                frag.appendChild(slot);
-                renderCount++;
-            });
-
-            if (renderCount < maxSlots && isAdmin()) {
-                const slot = document.createElement('div');
-                slot.className = 'macro-slot';
-                const btn = document.createElement('button');
-                btn.className = 'btn btn-add';
-                btn.setAttribute('aria-label', 'Add macro');
-                btn.innerHTML = `<i data-lucide="plus"></i><span class="key-label">Add</span>`;
-                btn.onclick = () => openMacroModal(-1);
-                slot.appendChild(btn);
-                frag.appendChild(slot);
-                renderCount++;
-            }
-
-            while (renderCount < maxSlots) {
-                const slot = document.createElement('div');
-                slot.className = 'macro-slot empty';
-                // Still a <button> so the double-tap gesture ignores empty slots.
-                slot.innerHTML = `<button class="btn" tabindex="-1" aria-hidden="true"></button>`;
-                frag.appendChild(slot);
-                renderCount++;
             }
 
             renderIcons(frag);
             dom.macroGrid.replaceChildren(frag);
+
+            dom.macroPages.hidden = pages < 2;
+            setText(dom.macroPageN, `${macroPage + 1} / ${pages}`);
+            dom.macroPrev.disabled = macroPage === 0;
+            dom.macroNext.disabled = macroPage === pages - 1;
         }
 
+        dom.macroPrev.addEventListener('click', () => goMacroPage(macroPage - 1));
+        dom.macroNext.addEventListener('click', () => goMacroPage(macroPage + 1));
+
+        // A horizontal swipe across the matrix turns the page. Past MACRO_SWIPE_PX
+        // it is a swipe, so the key under the finger does not run on release.
+        (() => {
+            let id = null, x0 = 0, y0 = 0, swiping = false;
+            const grid = dom.macroGrid;
+            grid.addEventListener('pointerdown', (e) => {
+                if (!e.isPrimary) return;
+                id = e.pointerId; x0 = e.clientX; y0 = e.clientY; swiping = false;
+            }, true);
+            grid.addEventListener('pointermove', (e) => {
+                if (e.pointerId !== id || swiping) return;
+                const dx = e.clientX - x0, dy = e.clientY - y0;
+                if (Math.abs(dx) > MACRO_SWIPE_PX && Math.abs(dx) > Math.abs(dy)) {
+                    swiping = true;
+                    clearMacroTimer();
+                }
+            }, true);
+            grid.addEventListener('pointerup', (e) => {
+                if (e.pointerId !== id) return;
+                id = null;
+                if (!swiping) return;
+                const dx = e.clientX - x0;
+                if (Math.abs(dx) <= MACRO_PAGE_PX) return;
+                haptic(HAPTIC_KEY);
+                goMacroPage(macroPage + (dx < 0 ? 1 : -1));
+            }, true);
+            grid.addEventListener('pointercancel', () => { id = null; swiping = false; }, true);
+        })();
+
         function clearMacroTimer() {
-            if (macroPressTimer) {
-                clearTimeout(macroPressTimer);
-                macroPressTimer = null;
+            if (macroPress) {
+                clearTimeout(macroPress.timer);
+                macroPress = null;
             }
         }
 
+        // On the PC a hold opens the key's editor. A tablet cannot edit, so there
+        // the key runs on release however long it was held: a firm press is how
+        // hardware keys are used, and up to v0.13.8 a hold past 0.6 s did nothing.
         function handleMacroDown(e, idx) {
             clearMacroTimer();
-            macroPressTimer = setTimeout(() => {
-                macroPressTimer = null;
-                // A long press never runs the macro; only the PC can edit it.
-                if (isAdmin()) openMacroModal(idx);
-            }, 600);
+            const timer = isAdmin() ? setTimeout(() => {
+                macroPress = null;
+                openMacroModal(idx);
+            }, 600) : 0;
+            macroPress = { idx, timer };
         }
 
         function handleMacroUp(e, idx, macroData) {
-            if (macroPressTimer) {
-                clearTimeout(macroPressTimer);
-                macroPressTimer = null;
-                executeMacro(macroData, e.currentTarget);
-            }
+            if (!macroPress || macroPress.idx !== idx) return;
+            clearMacroTimer();
+            executeMacro(macroData, e.currentTarget);
         }
 
         function executeMacro(m, btnElement) {
+            lastRunKey = btnElement;   // a `refused` answer lands on it
             if (m.type === 'plugin' && m.action_data === 'app_soundpad') {
                 toggleSoundpad(true, btnElement);
             } else if (serverFeatures.has('pairing')) {
@@ -10698,7 +11337,7 @@
             premade: [
                 { val: 'app_term', lbl: 'Terminal', icon: 'terminal' },
                 { val: 'app_web', lbl: 'Browser', icon: 'globe' },
-                { val: 'app_files', lbl: 'File Browser', icon: 'folder' },
+                { val: 'app_files', lbl: 'File browser', icon: 'folder' },
                 { val: 'app_task', lbl: 'Task manager', icon: 'activity' },
             ],
             plugin: [
@@ -11302,19 +11941,14 @@
 
         // --- Soundboard Buttons ---
         let editingSpIdx = -1;
-        let spTimer = null;
-        let spCancel = false;
 
         function renderSpGrid() {
             const grid = document.getElementById('sp-grid');
             let htmlStr = '';
             spBtns.forEach((btn, idx) => {
                 htmlStr += `
-                    <button class="btn sp-btn"
-                        onmousedown="spDown(this, ${idx})" onmouseup="spUp(this, ${idx})" onmouseleave="spLeave(this, ${idx})"
-                        ontouchstart="spDown(this, ${idx})" ontouchend="spUp(this, ${idx})" ontouchcancel="spLeave(this, ${idx})"
-                        onclick="spClick(this, ${idx})">
-                        <i data-lucide="play"></i><span>${escapeHtml(btn.name)}</span>
+                    <button class="btn sp-btn" data-idx="${idx}">
+                        <span class="key-glyph"><i data-lucide="play"></i>${KEY_WARN}</span><span>${escapeHtml(btn.name)}</span>
                     </button>
                 `;
             });
@@ -11325,21 +11959,52 @@
             `;
             grid.innerHTML = htmlStr;
             renderIcons(grid);
+            // Pointer events only, like the macro keys: these pads listened to touch
+            // and mouse events both, so every tap ran their handlers twice.
+            grid.querySelectorAll('.sp-btn[data-idx]').forEach((pad) => {
+                const idx = +pad.dataset.idx;
+                pad.addEventListener('pointerdown', () => spDown(pad, idx));
+                pad.addEventListener('pointerup', () => spUp(pad, idx));
+                pad.addEventListener('pointerleave', () => spLeave(pad));
+                pad.addEventListener('pointercancel', () => spLeave(pad));
+                pad.addEventListener('click', (e) => { if (e.detail === 0) spPlay(pad, idx); });   // keyboard
+            });
         }
 
-        function spLeave(btn, idx) { btn.classList.remove('active-btn'); if (spTimer) { clearTimeout(spTimer); spTimer = null; } spCancel = true; }
-        function spDown(btn, idx) { btn.classList.add('active-btn'); spCancel = false; spTimer = setTimeout(() => { spTimer = null; spCancel = true; btn.classList.remove('active-btn'); if (isAdmin()) openSpModal(idx); }, 600); }
-        function spUp(btn, idx) { setTimeout(() => btn.classList.remove('active-btn'), 100); if (spTimer) { clearTimeout(spTimer); spTimer = null; } }
-        function spClick(btn, idx) {
-            if (spCancel) return;
-            const pad = spBtns[idx];
+        // As the macro keys: on the PC a hold opens the pad's editor; a tablet
+        // cannot edit, so there a pad plays on release however long it was held.
+        let spPress = null;   // {idx, timer}
+        function spLeave(pad) {
+            pad.classList.remove('active-btn');
+            if (spPress) { clearTimeout(spPress.timer); spPress = null; }
+        }
+        function spDown(pad, idx) {
+            pad.classList.add('active-btn');
+            if (spPress) clearTimeout(spPress.timer);
+            const timer = isAdmin() ? setTimeout(() => {
+                spPress = null;
+                pad.classList.remove('active-btn');
+                openSpModal(idx);
+            }, 600) : 0;
+            spPress = { idx, timer };
+        }
+        function spUp(pad, idx) {
+            setTimeout(() => pad.classList.remove('active-btn'), 100);
+            if (!spPress || spPress.idx !== idx) return;
+            clearTimeout(spPress.timer);
+            spPress = null;
+            spPlay(pad, idx);
+        }
+        function spPlay(pad, idx) {
+            lastPadKey = pad;   // a `refused` answer lands on it
+            const clip = spBtns[idx];
             if (serverFeatures.has('pairing')) {
                 // By the pad's id: the server resolves the file inside the sounds folder.
-                sendMessage({ type: 'play_clip', id: pad.uid });
+                sendMessage({ type: 'play_clip', id: clip.uid });
             } else if (osTarget === 'linux') {
-                sendSocket('action', 'local_play_' + pad.id);   // a server from before pairing
+                sendSocket('action', 'local_play_' + clip.id);   // a server from before pairing
             } else {
-                sendSocket('action', 'sp_play_' + pad.id);
+                sendSocket('action', 'sp_play_' + clip.id);
             }
         }
 
@@ -11351,14 +12016,11 @@
         let _sbVolTimer = null;
 
         function updateSbVolVisuals(val) {
-            currentSbVol = Math.max(0, Math.min(200, val));
-            const lbl = document.getElementById('sb-vol-label');
-            if (lbl) lbl.textContent = currentSbVol + '%';
-            const fill = document.getElementById('sb-vol-fill');
-            if (fill) {
-                const pct = (currentSbVol / 200) * 100;
-                fill.style.width = pct + '%';
-            }
+            currentSbVol = Math.max(0, Math.min(200, Math.round(val)));
+            setText(dom.sbVolValue, currentSbVol + '%');
+            dom.sbVolFill.style.transform = `scaleX(${currentSbVol / 200})`;
+            dom.sbVolSlider.setAttribute('aria-valuenow', String(currentSbVol));
+            dom.sbVolSlider.setAttribute('aria-valuetext', currentSbVol + '%');
         }
 
         function sbVolCommit(val) {
@@ -11379,51 +12041,32 @@
             sbVolCommit(currentSbVol);
         }
 
-        // Initialize drag for soundboard volume
-        setTimeout(() => {
-            const track = document.getElementById('sb-vol-slider');
-            if (!track) return;
-            let isDragging = false;
-            let rAF = null;
-            function setFromEvent(e) {
-                const r = track.getBoundingClientRect();
-                let clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
-                if (clientX === undefined) return currentSbVol;
-                let rawPct = ((clientX - r.left) / r.width) * 100;
-                let pct = Math.max(0, Math.min(100, Math.round(rawPct)));
-                let val = pct * 2;
-                if (rAF) cancelAnimationFrame(rAF);
-                rAF = requestAnimationFrame(() => updateSbVolVisuals(val));
-                return val;
-            }
-            function drag(e) {
-                if (!isDragging) return;
-                if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
-                const val = setFromEvent(e);
-                sbVolCommit(val);
-            }
-            function startDrag(e) {
-                if (e.cancelable !== false && e.type.startsWith('touch')) e.preventDefault();
-                isDragging = true;
-                document.addEventListener('mousemove', drag, { passive: false });
-                document.addEventListener('touchmove', drag, { passive: false });
-                document.addEventListener('mouseup', endDrag);
-                document.addEventListener('touchend', endDrag);
-                drag(e);
-            }
-            function endDrag() {
-                if (isDragging) {
-                    isDragging = false;
-                    document.removeEventListener('mousemove', drag);
-                    document.removeEventListener('touchmove', drag);
-                    document.removeEventListener('mouseup', endDrag);
-                    document.removeEventListener('touchend', endDrag);
-                    sbVolCommit(currentSbVol);
-                }
-            }
-            track.addEventListener('mousedown', startDrag);
-            track.addEventListener('touchstart', startDrag, { passive: false });
-        }, 100);
+        // Drag anywhere on the strip; Pointer Events only (touch + mouse ran twice).
+        (() => {
+            const track = dom.sbVolSlider;
+            const slot = track.querySelector('.sb-vol-slot');
+            let dragging = false;
+            const fromX = (x) => {
+                const r = slot.getBoundingClientRect();
+                return Math.round(Math.max(0, Math.min(1, (x - r.left) / r.width)) * 100) * 2;
+            };
+            track.addEventListener('pointerdown', (e) => {
+                if (!e.isPrimary) return;
+                dragging = true;
+                try { track.setPointerCapture(e.pointerId); } catch (err) { /* the pointer already ended */ }
+                sbVolSet(fromX(e.clientX));
+            });
+            track.addEventListener('pointermove', (e) => { if (dragging) sbVolSet(fromX(e.clientX)); });
+            const end = () => { dragging = false; };
+            track.addEventListener('pointerup', end);
+            track.addEventListener('pointercancel', end);
+            track.addEventListener('keydown', (e) => {
+                const step = { ArrowRight: 5, ArrowUp: 5, ArrowLeft: -5, ArrowDown: -5 }[e.key];
+                if (!step) return;
+                e.preventDefault();
+                sbVolStep(step);
+            });
+        })();
 
         // --- Pad editor (soundboard) ---
         // Local pads play a file from the sounds folder; Soundpad pads play a
@@ -11900,7 +12543,7 @@
                 discToggleAt[a] = now;
                 if (a === 'disc_cam') {
                     discordVidLock = now + 1500;
-                    if (dom.btnDiscCam) dom.btnDiscCam.classList.toggle('vid-active');
+                    if (dom.btnDiscCam) camAsked = dom.btnDiscCam.classList.toggle('vid-active');
                 } else {
                     // Discord does not say whether a screen share is running, so this
                     // key cannot show it: it is a push key. Each press visibly sinks
@@ -11910,6 +12553,24 @@
             }
 
             sendSocket('action', a);
+        }
+
+        // A paired tablet asks before the PC's shutdown prompt opens: that prompt
+        // carries on by itself after its countdown (KDE, GNOME), on a screen the
+        // user may not be watching. On the PC the prompt itself is the question.
+        async function powerOff() {
+            if (myRole !== 'admin') {
+                const ok = await tdConfirm({
+                    title: 'Turn off the PC?',
+                    text: 'Your PC shows its shutdown prompt, and may turn off by itself when its countdown ends.',
+                    icon: 'power',
+                    tone: 'danger',
+                    confirm: 'Turn off',
+                    cancel: 'Cancel',
+                });
+                if (!ok) return;
+            }
+            act('sys_power_off');
         }
 
         // A momentary key: down for a beat, then the key's own spring brings it back
@@ -11922,12 +12583,48 @@
             key._strike = setTimeout(() => key.classList.remove('active-btn'), KEY_STRIKE_MS);
         }
 
+        // --- Refused keys ---
+        // Keys show a tap at once and hold it until the PC confirms. When the PC,
+        // Discord or a player refuses, the key (or display) says so for
+        // KEY_REFUSED_MS, with a firm haptic, then shows its true state. Up to
+        // v0.13.8 it quietly turned back 2–5 s later, often after the user had
+        // looked away, and a refused macro showed nothing at all.
+        const KEY_REFUSED_MS = 900;
+        const KEY_WARN = '<i data-lucide="alert-triangle" class="key-warn"></i>';   // drawn into keys built in JS
+        let lastRunKey = null, lastPadKey = null, lastSeekKey = null;
+        function keyRefused(key) {
+            if (!key || !key.isConnected) return;
+            clearTimeout(key._refused);
+            key.classList.add('is-refused');
+            key._refused = setTimeout(() => key.classList.remove('is-refused'), KEY_REFUSED_MS);
+            haptic(HAPTIC_END);
+        }
+
+        // A `refused` answer names the message it refused; admin-only refusals
+        // come from keys a device does not show.
+        function onRefused(d) {
+            if (!d || d.reason === 'admin_only') return;
+            if (d.action === 'action:audio_cycle') {
+                encoderSettled();
+                keyRefused(dom.encoderDisplay);
+                return;
+            }
+            const key = {
+                'run_macro': lastRunKey, 'play_clip': lastPadKey, 'disc_voice': dom.btnDiscMute,
+                'action:disc_mute': dom.btnDiscMute, 'action:disc_deaf': dom.btnDiscDeaf,
+                'action:disc_cam': dom.btnDiscCam, 'action:disc_screen': dom.btnDiscScreen,
+                'action:spot_play': dom.btnSpotPlay, 'action:spot_next': dom.npNext, 'action:spot_prev': dom.npPrev,
+                'media_like': dom.npLike, 'media_seek': lastSeekKey,
+            }[d.action];
+            keyRefused(key);
+        }
+
         function runSpeedtest() {
             if (['connect', 'ping', 'down', 'up'].includes(speedTest.phase)) return;   // one at a time
             speedTest.live = false;
             setSpeedPhase('connect', 'Server');
-            setSpeedLine('down', 'wait');
             setSpeedLine('up', 'wait');
+            setSpeedLine('ping', 'wait');
             setMeter(0);
             sendSocket('run_speedtest');
         }
@@ -11984,15 +12681,24 @@
 
         // --- First paint: the modules settle in once ---
         // Skipped under reduced motion and on the CPU-rendered desktop window.
+        // The modules wait hidden for the first readings (startEntrance(), from
+        // updateSysDataDOM), so each rises at its real size: started at load, the
+        // Discord module took its space when config_sync showed it (~0.2 s in) and
+        // Now playing's keys jumped 277 px under the fading cards. Without a
+        // server, they rise after ENTRANCE_WAIT_MS.
         if (gsap.matchMedia && document.documentElement.dataset.fx === 'rich') {
             gsap.matchMedia().add('(prefers-reduced-motion: no-preference)', () => {
-                gsap.from('.top-bar, #main-view > .col > .card', {
-                    autoAlpha: 0, y: 18, scale: 0.985,
+                const cards = '.top-bar, #main-view > .col > .card';
+                gsap.set(cards, { autoAlpha: 0, y: 18, scale: 0.985 });
+                playEntrance = () => gsap.to(cards, {
+                    autoAlpha: 1, y: 0, scale: 1,
                     duration: 0.7, ease: 'power3.out', stagger: 0.06,
                     clearProps: 'transform,opacity,visibility'
                 });
+                entranceTimer = setTimeout(startEntrance, ENTRANCE_WAIT_MS);
             });
         }
+        if (!playEntrance) entranceDone = true;
 
     </script>
 </body>

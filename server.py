@@ -1210,6 +1210,11 @@ async def hardware_loop():
             pass
 
 
+def _sentence_case(text: str) -> str:
+    """"few clouds" → "Few clouds": the UI is in sentence case (DESIGN.md §3)."""
+    return text[:1].upper() + text[1:]
+
+
 def _weather_from_owm(data: dict) -> dict:
     """OpenWeatherMap's current weather (metric) as the page gets it. temp and
     desc are on every screen; the rest feeds the full-screen clock and is None
@@ -1223,7 +1228,7 @@ def _weather_from_owm(data: dict) -> dict:
     city = data.get("name")
     return {
         "temp":       round(main["temp"]),
-        "desc":       data["weather"][0]["description"].title(),
+        "desc":       _sentence_case(data["weather"][0]["description"]),
         "feels_like": whole(main.get("feels_like")),
         "humidity":   whole(main.get("humidity")),
         "wind_kmh":   whole(wind.get("speed"), 3.6),        # m/s in metric units

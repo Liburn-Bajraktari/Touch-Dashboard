@@ -486,7 +486,7 @@ def test_weather_carries_the_full_screen_clock_details():
            "main": {"temp": 17.6, "feels_like": 16.4, "humidity": 64, "temp_min": 12.0, "temp_max": 21.0},
            "wind": {"speed": 3.4}, "sys": {"sunrise": 1761109080, "sunset": 1761147720}}
     w = server._weather_from_owm(owm)
-    assert (w["temp"], w["desc"], w["feels_like"], w["humidity"]) == (18, "Few Clouds", 16, 64)
+    assert (w["temp"], w["desc"], w["feels_like"], w["humidity"]) == (18, "Few clouds", 16, 64)
     assert w["wind_kmh"] == 12 and w["tz"] == 7200 and w["city"] == "Pristina"
     assert (w["sunrise"], w["sunset"]) == (1761109080, 1761147720)
     assert "temp_min" not in w and "temp_max" not in w     # not a day's high and low
