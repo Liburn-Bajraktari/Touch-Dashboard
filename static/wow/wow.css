@@ -615,11 +615,44 @@
     min-width: 0;
 }
 
+/* The identity is the switcher: a flat plate-coloured key, a chevron at its end. */
 .wow-char-top {
     display: flex;
     align-items: center;
     gap: 1rem;
     min-width: 0;
+    margin: -0.4rem;
+    padding: 0.4rem;
+    border: 0;
+    border-radius: calc(var(--radius-key) * var(--sq));
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: transform var(--dur-spring) var(--spring-bounce), background-color var(--dur-fast) var(--ease);
+}
+
+.wow-char-top:is(:active, .is-pressed) {
+    transform: scale(0.98);
+    background: var(--surface-2);
+    transition-duration: var(--dur-fast);
+}
+
+.wow-char-top:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+.wow-char-id {
+    flex: 1;
+}
+
+.wow-char-swap {
+    flex: none;
+    width: 1.8rem;
+    height: 1.8rem;
+    color: var(--text-3);
 }
 
 /* The portrait in a display window; a glyph until (or unless) it loads. */
@@ -657,6 +690,13 @@
 
 .wow-char-id {
     min-width: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .wow-char-top:hover,
+    .wow-pick-row:hover {
+        background: var(--surface-3);
+    }
 }
 
 .wow-char-name {
@@ -987,6 +1027,93 @@
     width: 1.8rem;
     height: 1.8rem;
     color: var(--accent);
+}
+
+.wow-set-span {
+    grid-column: 1 / -1;
+}
+
+/* ── Picker (the character switcher) ──────────────────────────────────── */
+/* A dialog plate of rows; borders, not inset shadows (it scrolls). */
+.wow-picker-card {
+    max-height: min(44rem, 88vh);
+}
+
+.wow-picker-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    border-radius: calc(var(--radius-key) * var(--sq));
+    background: var(--surface-2);
+}
+
+.wow-picker-list:empty,
+.wow-picker-search[hidden],
+.wow-picker-empty[hidden],
+.wow-pick-row[hidden] {
+    display: none;
+}
+
+.wow-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-height: 5rem;
+    padding: 0.7rem 1.2rem;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.wow-pick-row + .wow-pick-row {
+    border-top: var(--line-w) solid var(--line);
+}
+
+.wow-pick-row:active {
+    background: var(--surface-3);
+}
+
+.wow-pick-row:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+}
+
+.wow-pick-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.wow-pick-name {
+    font-size: var(--fs-md);
+    font-weight: 500;
+}
+
+.wow-pick-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.wow-pick-row svg.lucide {
+    flex: none;
+    width: 1.6rem;
+    height: 1.6rem;
+    color: var(--positive);
+}
+
+.wow-picker-empty {
+    margin: 0;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    line-height: 1.45;
 }
 
 /* A key slot: Ctrl + Alt + Shift + F1 printed as keycaps, then its command. */

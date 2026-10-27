@@ -4,9 +4,15 @@ armory.py — what Raider.IO and Battle.net say about the player's character.
 Raider.IO (no key): the character's spec, item level, Mythic+ score and raid
 progress, this week's affixes, and the raids' names and dates. Battle.net
 (an API client's ID and secret, client credentials): the character's profile
-and avatar, and spell names and icons for NSRT's reminders. Nobody signs in:
-Battle.net only returns to HTTPS addresses after a sign-in, and everything
-used here is public game data.
+and avatar, and spell names and icons for NSRT's reminders.
+
+Signing in with Battle.net (authorization code, scope wow.profile) only lists
+the account's characters, in every region, for the character switcher. The
+token is used once and dropped; the list is kept (account_file, 0600) with
+the characters added by name, the recently used first. Battle.net's guide
+asks for an HTTPS return address: the server's own http://127.0.0.1 one is
+tried by default, and docs/bnet-callback.html is a relay page to host when
+Battle.net refuses it.
 
 This is data, not live state: Blizzard updates a character when it logs out,
 Raider.IO when it next crawls it. The boss of an NSRT note cannot be named
@@ -25,7 +31,8 @@ import re
 import threading
 import time
 from datetime import datetime, timezone
-from urllib.parse import quote, urlparse
+import hashlib
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 
@@ -33,6 +40,10 @@ logger = logging.getLogger(__name__)
 
 REGIONS = ("eu", "us", "kr", "tw")
 TOKEN_URL = "https://oauth.battle.net/token"       # every region but China
+AUTHORIZE_URL = "https://oauth.battle.net/authorize"
+USERINFO_URL = "https://oauth.battle.net/userinfo"
+ACCOUNT_SCOPES = "wow.profile openid"              # the characters; openid for the BattleTag
+CHARACTERS_MAX = 300
 API_URL = "https://{region}.api.blizzard.com"
 LOCALES = {"us": "en_US", "eu": "en_GB", "kr": "en_US", "tw": "en_US"}
 RIO_URL = "https://raider.io/api/v1"
@@ -116,6 +127,11 @@ def _text(value) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def character_id(region: str, realm: str, name: str) -> str:
+    """A saved character's id: stable, and safe in a message (names need not be ASCII)."""
+    return "c" + hashlib.sha1(f"{region}|{realm_slug(realm)}|{name.lower()}".encode()).hexdigest()[:12]
+
+
 def _time(value: str | None) -> float | None:
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() if value else None
@@ -125,7 +141,7 @@ def _time(value: str | None) -> float | None:
 
 class Armory:
     def __init__(self, cache_file: str | None = None, session=None, clock=time.time,
-                 user_agent: str = "TouchDashboard"):
+                 user_agent: str = "TouchDashboard", account_file: str | None = None):
         self._session = session or requests.Session()
         self._ua = {"User-Agent": user_agent}
         self._clock = clock
@@ -144,7 +160,11 @@ class Armory:
         self._failed_at = 0.0
         self._asked_at = 0.0
         self._asked = False
+        self._account_file = account_file
+        self._account: dict = {"battletag": None, "signed_in": None, "characters": []}
+        self._looked_up: dict[tuple, dict] = {}   # the last lookups, for "Add and use"
         self._load()
+        self._load_account()
 
     # ── key ───────────────────────────────────────────────────────────────
 
@@ -284,7 +304,7 @@ class Armory:
             sources["raiderio"] = "ok"
         except ArmoryError as e:
             sources["raiderio"] = e.reason
-        slug = (rio or {}).get("realm_slug") or realm_slug(realm)
+        slug = (rio or {}).get("realm_slug") or self.slug_for(region, realm) or realm_slug(realm)
         try:
             bnet = self._bnet_character(region, slug, name.strip(), key or self._key)
             sources["bnet"] = "ok"
@@ -301,7 +321,15 @@ class Armory:
         merged["region"] = region
         merged["role_tag"] = role_tag(merged.get("class"), merged.get("spec"), (rio or {}).get("rio_role"))
         merged["sources"] = sources
+        with self._lock:
+            self._looked_up[(region, realm.strip().lower(), name.strip().lower())] = merged
+            while len(self._looked_up) > 16:
+                self._looked_up.pop(next(iter(self._looked_up)))
         return merged
+
+    def looked_up(self, region: str, realm: str, name: str) -> dict | None:
+        with self._lock:
+            return self._looked_up.get((region, realm.strip().lower(), name.strip().lower()))
 
     def refresh_due(self, who: tuple | None) -> bool:
         """Whether to read the character again: another one, asked for, or old."""
@@ -409,6 +437,186 @@ class Armory:
         with self._lock:
             hit = self._affixes.get(region)
             return hit[1] if hit else None
+
+    # ── the account: sign-in and the saved characters ─────────────────────
+
+    def authorize_url(self, redirect_uri: str, state: str) -> str:
+        """Battle.net's sign-in page for this client (needs the API key)."""
+        if not self.has_key():
+            raise ArmoryError("no_key")
+        with self._lock:
+            client_id = self._key[0]
+        return AUTHORIZE_URL + "?" + urlencode({
+            "client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code",
+            "scope": ACCOUNT_SCOPES, "state": state})
+
+    def sign_in(self, code: str, redirect_uri: str) -> dict:
+        """Trade the sign-in code for a token, read the BattleTag and the account's
+        characters in every region, keep the list; the token is dropped."""
+        with self._lock:
+            key = self._key
+        if not all(key):
+            raise ArmoryError("no_key")
+        try:
+            r = self._session.post(TOKEN_URL, data={"grant_type": "authorization_code", "code": code,
+                                                    "redirect_uri": redirect_uri},
+                                   auth=key, headers=self._ua, timeout=TIMEOUT_S)
+        except requests.RequestException:
+            raise ArmoryError("offline") from None
+        if r.status_code in (400, 401, 403):
+            raise ArmoryError("refused")   # an expired code, another redirect address, a wrong secret
+        if r.status_code >= 400:
+            raise ArmoryError("failed")
+        try:
+            token = r.json()["access_token"]
+        except (ValueError, KeyError, TypeError):
+            raise ArmoryError("failed") from None
+        auth = {"Authorization": f"Bearer {token}"}
+        battletag = None
+        try:
+            battletag = self._get(USERINFO_URL, headers=auth).get("battletag")
+        except ArmoryError:
+            pass
+        found: list[dict] = []
+        answered = False
+        for region in REGIONS:
+            try:
+                d = self._get(API_URL.format(region=region) + "/profile/user/wow",
+                              {"namespace": f"profile-{region}", "locale": LOCALES[region]}, auth)
+            except ArmoryError as e:
+                if e.reason in ("offline", "busy", "failed"):
+                    continue
+                answered = True       # no characters there (not found / not allowed)
+                continue
+            answered = True
+            for account in d.get("wow_accounts") or []:
+                for c in (account or {}).get("characters") or []:
+                    if not isinstance(c, dict) or not isinstance(c.get("name"), str):
+                        continue
+                    realm = c.get("realm") or {}
+                    found.append(self._entry(region, c["name"], _text(realm), realm.get("slug"),
+                                             _text(c.get("playable_class")), c.get("level"),
+                                             _text(c.get("faction")), "account"))
+        if not answered:
+            raise ArmoryError("offline")
+        with self._lock:
+            used = {c["id"]: c.get("used", 0) for c in self._account["characters"]}
+            added = [c for c in self._account["characters"] if c["source"] == "added"]
+            ids = {c["id"] for c in found}
+            for c in found:
+                c["used"] = used.get(c["id"], 0)
+            self._account = {
+                "battletag": battletag if isinstance(battletag, str) else None,
+                "signed_in": self._clock(),
+                "characters": (found + [c for c in added if c["id"] not in ids])[:CHARACTERS_MAX],
+            }
+        self._save_account()
+        return self.account()
+
+    def _entry(self, region, name, realm, slug, class_name, level, faction, source) -> dict:
+        realm = realm or slug or ""
+        return {"id": character_id(region, slug or realm, name), "name": name[:48], "realm": str(realm)[:64],
+                "realm_slug": slug or realm_slug(realm), "region": region,
+                "class": class_name if isinstance(class_name, str) else None,
+                "level": level if isinstance(level, int) and not isinstance(level, bool) else None,
+                "faction": faction if isinstance(faction, str) else None, "source": source, "used": 0}
+
+    def add_character(self, char: dict) -> dict:
+        """A character found by name (Settings' lookup), kept beside the account's."""
+        entry = self._entry(char["region"], char["name"], char.get("realm"), char.get("realm_slug"),
+                            char.get("class"), char.get("level"), char.get("faction"), "added")
+        with self._lock:
+            known = next((c for c in self._account["characters"] if c["id"] == entry["id"]), None)
+            if known:
+                entry = known
+            else:
+                self._account["characters"] = (self._account["characters"] + [entry])[:CHARACTERS_MAX]
+        self._save_account()
+        return entry
+
+    def remove_character(self, char_id: str) -> bool:
+        with self._lock:
+            before = len(self._account["characters"])
+            self._account["characters"] = [c for c in self._account["characters"] if c["id"] != char_id]
+            removed = len(self._account["characters"]) != before
+        if removed:
+            self._save_account()
+        return removed
+
+    def sign_out(self) -> None:
+        """Forget the account's list; characters added by name stay."""
+        with self._lock:
+            self._account = {"battletag": None, "signed_in": None,
+                             "characters": [c for c in self._account["characters"] if c["source"] == "added"]}
+        self._save_account()
+
+    def find_character(self, char_id) -> dict | None:
+        with self._lock:
+            return next((dict(c) for c in self._account["characters"] if c["id"] == char_id), None)
+
+    def mark_used(self, char_id: str) -> None:
+        with self._lock:
+            for c in self._account["characters"]:
+                if c["id"] == char_id:
+                    c["used"] = self._clock()
+        self._save_account()
+
+    def slug_for(self, region: str, realm: str) -> str | None:
+        """A realm's slug as Battle.net gave it for a saved character."""
+        name = realm.strip().lower()
+        with self._lock:
+            return next((c["realm_slug"] for c in self._account["characters"]
+                         if c["region"] == region and c["realm"].lower() == name and c.get("realm_slug")), None)
+
+    def account(self) -> dict:
+        """The BattleTag, when it signed in, and the saved characters: the
+        recently used first, then by level and name."""
+        with self._lock:
+            chars = [dict(c) for c in self._account["characters"]]
+            out = {"battletag": self._account["battletag"], "signed_in": self._account["signed_in"]}
+        recent = sorted((c for c in chars if c.get("used")), key=lambda c: -c["used"])[:5]
+        ids = {c["id"] for c in recent}
+        rest = sorted((c for c in chars if c["id"] not in ids),
+                      key=lambda c: (-(c.get("level") or 0), c["name"].lower()))
+        out["characters"] = recent + rest
+        return out
+
+    def _load_account(self) -> None:
+        if not self._account_file or not os.path.isfile(self._account_file):
+            return
+        try:
+            with open(self._account_file, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return
+        chars = []
+        for c in data.get("characters") or []:
+            if (isinstance(c, dict) and isinstance(c.get("name"), str) and c.get("region") in REGIONS
+                    and isinstance(c.get("realm"), str) and c.get("source") in ("account", "added")):
+                entry = self._entry(c["region"], c["name"], c["realm"], c.get("realm_slug"), c.get("class"),
+                                    c.get("level"), c.get("faction"), c["source"])
+                entry["used"] = c["used"] if isinstance(c.get("used"), (int, float)) else 0
+                chars.append(entry)
+        tag = data.get("battletag")
+        signed = data.get("signed_in")
+        self._account = {"battletag": tag if isinstance(tag, str) else None,
+                         "signed_in": signed if isinstance(signed, (int, float)) else None,
+                         "characters": chars[:CHARACTERS_MAX]}
+
+    def _save_account(self) -> None:
+        if not self._account_file:
+            return
+        with self._lock:
+            data = json.dumps(self._account)
+        tmp = self._account_file + ".tmp"
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(data)
+            os.replace(tmp, self._account_file)
+            os.chmod(self._account_file, 0o600)
+        except OSError as e:
+            logger.warning("Could not save the character list: %s", e)
 
     # ── spells ────────────────────────────────────────────────────────────
 

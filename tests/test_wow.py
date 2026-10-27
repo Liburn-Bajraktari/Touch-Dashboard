@@ -152,7 +152,7 @@ def test_settings_are_cleaned_and_defaults_filled_in():
     assert s["keybinds"] == {"F1": "open_nsrt"}
     # A command's own text names only its arguments and starts with "/".
     assert s["slash"] == {"bw_pull": "/pull {seconds} now"}
-    assert s["bigwigs"] == {"pull_s": 25, "break_m": 3}
+    assert s["bigwigs"] == {"pull_s": 60, "break_m": 3}
     assert s["ellesmere"] == {"profiles": ["Raid", "M+"]}
     assert s["combatlog"] == {"wcl_enabled": True, "wcl_key": "", "wcl_app": ""}
 

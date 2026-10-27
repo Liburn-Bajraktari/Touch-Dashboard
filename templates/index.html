@@ -4442,6 +4442,60 @@
             display: none;
         }
 
+        .bnet-char .title {
+            display: block;
+            color: var(--text);
+            font-size: var(--fs-md);
+            font-weight: 500;
+        }
+
+        .bnet-char .desc {
+            display: block;
+            color: var(--text-2);
+            font-size: var(--fs-sm);
+        }
+
+        .bnet-row-keys {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            flex-shrink: 0;
+        }
+
+        .bnet-row-key {
+            height: 3rem;
+            padding: 0 1.3rem;
+            font-size: var(--fs-sm);
+        }
+
+        .bnet-current {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: var(--text-2);
+            font-size: var(--fs-sm);
+        }
+
+        .bnet-current svg.lucide {
+            color: var(--positive);
+        }
+
+        .bnet-current svg.lucide,
+        .bnet-remove svg.lucide {
+            width: 1.3rem;
+            height: 1.3rem;
+        }
+
+        .bnet-remove {
+            width: 3rem;
+            height: 3rem;
+            color: var(--text-3);
+        }
+
+        .bnet-none {
+            padding: 1.1rem 1.25rem;
+        }
+
         .bnet-pic {
             display: grid;
             place-items: center;
@@ -6688,24 +6742,43 @@
 
                 <div id="tab-bnet" class="tab-content">
                     <h3 class="settings-h">Battle.net</h3>
-                    <p class="settings-sub">Your World of Warcraft character on the WoW page: item level, Mythic+ score,
-                        raid progress and this week's affixes from Raider.IO, and spell names on NSRT reminders from
-                        Battle.net.</p>
+                    <p class="settings-sub">Your World of Warcraft characters on the WoW page: sign in to list them all
+                        and switch between them there. Item level, Mythic+ score, raid progress and affixes come from
+                        Raider.IO, spell names on NSRT reminders from Battle.net.</p>
                     <div class="hw-row">
                         <div class="form-group"><label for="cfg-bnet-id">Client ID</label><input type="text"
                                 id="cfg-bnet-id" autocomplete="off" spellcheck="false"></div>
                         <div class="form-group"><label for="cfg-bnet-secret">Client secret</label><input
                                 type="password" id="cfg-bnet-secret" autocomplete="off"></div>
                     </div>
+                    <div class="form-group"><label for="cfg-bnet-redirect">Redirect URL</label><input type="text"
+                            id="cfg-bnet-redirect" autocomplete="off" spellcheck="false"
+                            placeholder="http://127.0.0.1:8888/bnet_callback"></div>
                     <div class="notice">
                         <i data-lucide="lightbulb"></i>
                         <p>Create a free client at <a href="https://develop.battle.net/access/clients" target="_blank"
-                                rel="noopener">develop.battle.net</a> (API Access, Create client) and paste its ID and
-                            secret here. Nobody signs in, so any HTTPS address will do as its redirect URL. Without a
-                            key, Raider.IO still fills in the character; spell names need the key.</p>
+                                rel="noopener">develop.battle.net</a> (API Access, Create client). Add the Redirect URL
+                            above to its Redirect URIs exactly, paste its ID and secret here and Save &amp; apply.
+                            If Battle.net refuses that address, it wants HTTPS: host
+                            <code>docs/bnet-callback.html</code> on HTTPS (GitHub Pages works) and use its address in
+                            both places.</p>
                     </div>
 
-                    <h3 class="settings-h">Your character</h3>
+                    <div class="auth-row">
+                        <button class="btn btn-primary btn-pill" id="bnet-sign-in" type="button"
+                            onclick="goToServerPath('/bnet_login')"><i data-lucide="log-in"></i>Sign in with
+                            Battle.net</button>
+                        <span class="bnet-status" id="bnet-account-status"></span>
+                        <button class="btn btn-danger btn-pill" id="bnet-sign-out" type="button" hidden
+                            onclick="sendSocket('bnet_sign_out')">Sign out</button>
+                    </div>
+
+                    <h3 class="settings-h">Your characters</h3>
+                    <p class="settings-sub">The one in use is the WoW page's: NSRT's filter and the Character plate.
+                        Switch on the plate itself, from any screen.</p>
+                    <div class="setting-group bnet-chars" id="bnet-chars"></div>
+
+                    <h3 class="settings-h">Add by name</h3>
                     <div class="setting-group">
                         <div class="setting-row">
                             <div><label class="title" id="bnet-region-label">Region</label></div>
@@ -6739,7 +6812,7 @@
                             <div class="bnet-sub" id="bnet-card-stats"></div>
                         </div>
                         <button class="btn btn-pill btn-primary" id="bnet-use-btn" type="button"
-                            onclick="bnetUse()"><i data-lucide="check"></i>Use this character</button>
+                            onclick="bnetUse()"><i data-lucide="plus"></i>Add and use</button>
                     </div>
                 </div>
 
@@ -9678,7 +9751,7 @@
             ['cfg-weather', 'weather_api'], ['cfg-city', 'weather_city'],
             ['cfg-spot-id', 'spot_id'], ['cfg-spot-secret', 'spot_secret'],
             ['cfg-disc-id', 'disc_id'], ['cfg-disc-secret', 'disc_secret'],
-            ['cfg-bnet-id', 'bnet_id'], ['cfg-bnet-secret', 'bnet_secret'],
+            ['cfg-bnet-id', 'bnet_id'], ['cfg-bnet-secret', 'bnet_secret'], ['cfg-bnet-redirect', 'bnet_redirect'],
             ['cfg-sounds-path', 'sounds_path'],
             ['cfg-sb-norm-db', 'sb_normalization_db']
         ];
@@ -10191,6 +10264,9 @@
                 }
                 else if (msg.type === 'bnet_lookup_result') {
                     onBnetLookup(d);
+                }
+                else if (msg.type === 'bnet_account') {
+                    renderBnetAccount(d);
                 }
                 else if (msg.type.startsWith('wow_')) {
                     // The WoW plugin page: wow_state, wow_cmd_ack, wow_<addon>_update.
@@ -12615,15 +12691,45 @@
             document.getElementById('bnet-card').hidden = false;
         }
 
+        // "Add and use": the server keeps the character found in the list and switches to it.
         function bnetUse() {
             const c = bnetFound;
             if (!c) return;
-            const s = (window.TDWow && TDWow.settings()) || {};
-            sendMessage({ type: 'wow_settings_save', wow_addons: {
-                character: c.name, realm: c.realm, region: c.region, role: c.role_tag || s.role || '',
-            } });
-            setBnetStatus(`The WoW page now shows ${c.name}${c.role_tag ? `, with the role tag “${c.role_tag}”` : ''}.`);
+            sendSocket('bnet_add_character', { region: c.region, realm: document.getElementById('bnet-realm').value.trim(), name: document.getElementById('bnet-name').value.trim() });
+            setBnetStatus(`Added: the WoW page now shows ${c.name}.`);
         }
+
+        // The sign-in and the saved characters (bnet_account, admins only).
+        function renderBnetAccount(d) {
+            const signedIn = !!d.signed_in;
+            const status = document.getElementById('bnet-account-status');
+            const own = d.characters.filter(c => c.source === 'account').length;
+            status.textContent = signedIn
+                ? `Signed in${d.battletag ? ` as ${d.battletag}` : ''} · ${own} character${own === 1 ? '' : 's'}`
+                : d.has_key ? 'Not signed in.' : 'Save a client ID and secret first.';
+            document.getElementById('bnet-sign-in').disabled = !d.has_key;
+            document.getElementById('bnet-sign-in').innerHTML = `<i data-lucide="log-in"></i>${signedIn ? 'Sign in again' : 'Sign in with Battle.net'}`;
+            document.getElementById('bnet-sign-out').hidden = !signedIn;
+            document.getElementById('cfg-bnet-redirect').placeholder = d.default_redirect || '';
+            const list = document.getElementById('bnet-chars');
+            list.innerHTML = d.characters.length ? d.characters.map(c => {
+                const sub = [c.level ? `Level ${c.level}` : '', c.class, c.realm, (c.region || '').toUpperCase(),
+                    c.source === 'added' ? 'added by name' : ''].filter(Boolean).join(' · ');
+                const use = c.id === d.current
+                    ? '<span class="bnet-current"><i data-lucide="check"></i>In use</span>'
+                    : `<button class="btn btn-pill btn-ghost bnet-row-key" type="button" data-use="${escapeHtml(c.id)}">Use</button>`;
+                return `<div class="setting-row bnet-char"><div><span class="title">${escapeHtml(c.name)}</span>`
+                    + `<span class="desc">${escapeHtml(sub)}</span></div><div class="bnet-row-keys">${use}`
+                    + `<button class="btn round bnet-remove" type="button" data-remove="${escapeHtml(c.id)}" aria-label="Remove ${escapeHtml(c.name)}"><i data-lucide="x"></i></button></div></div>`;
+            }).join('') : '<p class="settings-sub bnet-none">None yet: sign in, or add one by name below.</p>';
+            renderIcons(document.getElementById('tab-bnet'));
+        }
+        document.getElementById('bnet-chars').addEventListener('click', (e) => {
+            const use = e.target.closest('[data-use]');
+            const remove = e.target.closest('[data-remove]');
+            if (use) sendSocket('bnet_use_character', { id: use.dataset.use });
+            else if (remove) sendSocket('bnet_remove_character', { id: remove.dataset.remove });
+        });
 
         let spBtns = [];
         let clipSource = 'local';   // 'local' files or 'soundpad' indices, from config_sync

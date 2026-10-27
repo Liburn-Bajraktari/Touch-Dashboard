@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from wow_addons import AddonModule, Arg, Command, Context, clean_int
 
-PULL_RANGE = (5, 25)      # the page's fader; a command accepts 1-60
-BREAK_RANGE = (2, 15)     # minutes
+PULL_RANGE = (5, 60)      # the page's fader; a command accepts 1-60
+BREAK_RANGE = (2, 30)     # minutes
 
 
 def _timer(kind: str, label: str):

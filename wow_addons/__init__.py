@@ -265,6 +265,10 @@ class Context:
         """{name, icon} of a spell once Battle.net has named it (needs an API key)."""
         return self._core.armory.spell(spell_id) if self._core.armory else None
 
+    def set_player(self, character: str, realm: str, region: str) -> None:
+        """Switch the player's character; the server saves it (take_dirty)."""
+        self._core.set_player(character, realm, region)
+
     @property
     def state(self) -> dict:
         return self._core.module_state(self.module.id)
@@ -303,7 +307,8 @@ class Context:
         self._core.launch(exec_cmd)
 
 
-GENERAL_KEYS = ("modules", "character", "role", "region", "realm", "wow_path", "account", "keybinds", "slash")
+GENERAL_KEYS = ("modules", "character", "role", "role_auto", "region", "realm", "wow_path", "account",
+                "keybinds", "slash")
 ADMIN_ONLY_KEYS = frozenset({"wow_path", "account", "slash"})
 
 
@@ -348,6 +353,7 @@ class WowAddons:
         self._data: dict[str, Any] = {}
         self._stamps: dict[str, tuple | None] = {}
         self._files: dict[str, str | None] = {}
+        self._dirty = False
 
     # ── settings ──────────────────────────────────────────────────────────
 
@@ -359,6 +365,7 @@ class WowAddons:
         out["modules"] = {mid: toggles.get(mid) is not False for mid in self.modules}
         out["character"] = chat_text(raw.get("character"), NAME_MAX)
         out["role"] = chat_text(raw.get("role"), NAME_MAX)
+        out["role_auto"] = raw.get("role_auto") is not False   # the role tag follows the character's spec
         out["region"] = raw.get("region") if raw.get("region") in REGIONS else REGIONS[0]
         out["realm"] = chat_text(raw.get("realm"), 64)
         path = raw.get("wow_path")
@@ -424,6 +431,20 @@ class WowAddons:
     def module_settings(self, module_id: str) -> dict:
         with self._lock:
             return self._settings.get(module_id, {})
+
+    def set_player(self, character: str, realm: str, region: str) -> dict:
+        """Switch to another character (a command, the settings' list). Marks the
+        settings for the server to save: see take_dirty()."""
+        settings = self.configure({**self.settings(), "character": character, "realm": realm, "region": region})
+        with self._lock:
+            self._dirty = True
+        return settings
+
+    def take_dirty(self) -> bool:
+        """Whether a command changed the settings since the last call."""
+        with self._lock:
+            dirty, self._dirty = self._dirty, False
+            return dirty
 
     def who(self) -> tuple[str, str, str] | None:
         """(region, realm, character) of the player, when all three are set."""

@@ -115,6 +115,7 @@
             view: (mid = id) => views.get(mid) || null,
             key: makeKey,
             fader: makeFader,
+            pick,
             admin,
             rich,
             esc,
@@ -250,6 +251,55 @@
         el.setValue = (v) => { if (!drag) set(v, false); };
         el.value = () => value;
         return el;
+    }
+
+    // A list to choose from, as a dialog plate (the character switcher): rows
+    // of a name and a quiet line, the current one ticked, a search field over
+    // a long list. pick({title, items: [{id, label, sub, current}], empty, onPick}).
+    let pickerEl = null, pickerOpts = null;
+    function pick(o) {
+        if (!pickerEl) {
+            pickerEl = document.createElement('div');
+            pickerEl.id = 'wow-picker';
+            pickerEl.className = 'modal-overlay';
+            pickerEl.innerHTML = '<div class="modal-card is-compact wow-picker-card" role="dialog" aria-modal="true" aria-labelledby="wow-picker-title">'
+                + '<h2 class="modal-title" id="wow-picker-title"></h2>'
+                + '<input type="search" class="wow-picker-search" placeholder="Search" aria-label="Search" autocomplete="off" spellcheck="false">'
+                + '<div class="wow-picker-list" role="listbox"></div><p class="wow-picker-empty" hidden></p>'
+                + '<div class="modal-actions"><button class="btn btn-pill btn-ghost" type="button" data-act="close">Cancel</button></div></div>';
+            document.body.appendChild(pickerEl);
+            const closePicker = () => pickerEl.classList.remove('active');
+            pickerEl.querySelector('[data-act="close"]').addEventListener('click', closePicker);
+            pickerEl.addEventListener('click', (e) => { if (e.target === pickerEl) closePicker(); });
+            pickerEl.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePicker(); } });
+            pickerEl.querySelector('.wow-picker-search').addEventListener('input', (e) => {
+                const q = e.target.value.trim().toLowerCase();
+                pickerEl.querySelectorAll('.wow-pick-row').forEach(r => { r.hidden = q && !r.dataset.q.includes(q); });
+            });
+            pickerEl.querySelector('.wow-picker-list').addEventListener('click', (e) => {
+                const row = e.target.closest('.wow-pick-row');
+                if (!row) return;
+                haptic(HAPTIC_KEY);
+                closePicker();
+                if (pickerOpts && pickerOpts.onPick && row.getAttribute('aria-selected') !== 'true') pickerOpts.onPick(row.dataset.id);
+            });
+            if (typeof dialogWatch !== 'undefined') dialogWatch.observe(pickerEl, { attributes: true, attributeFilter: ['class'] });
+        }
+        pickerOpts = o;
+        const items = o.items || [];
+        text(pickerEl.querySelector('#wow-picker-title'), o.title || '');
+        const search = pickerEl.querySelector('.wow-picker-search');
+        search.value = '';
+        search.hidden = items.length <= 8;
+        pickerEl.querySelector('.wow-picker-list').innerHTML = items.map(it => `<button class="wow-pick-row" type="button" role="option" aria-selected="${it.current ? 'true' : 'false'}" data-id="${esc(it.id)}" data-q="${esc(`${it.label} ${it.sub || ''}`.toLowerCase())}">`
+            + `<span class="wow-pick-text"><span class="wow-pick-name">${esc(it.label)}</span><span class="wow-pick-sub">${esc(it.sub || '')}</span></span>`
+            + (it.current ? '<i data-lucide="check"></i>' : '') + '</button>').join('');
+        const empty = pickerEl.querySelector('.wow-picker-empty');
+        empty.hidden = items.length > 0;
+        text(empty, o.empty || '');
+        renderIcons(pickerEl);
+        pickerEl.classList.add('active');
+        (search.hidden ? pickerEl.querySelector('.wow-pick-row, [data-act="close"]') : search).focus({ preventScroll: true });
     }
 
     // ── commands ─────────────────────────────────────────────────────────
@@ -585,6 +635,9 @@
             + '<div class="wow-set-grid">'
             + `<div class="form-group"><label for="wow-set-char">Character name</label><input type="text" id="wow-set-char" maxlength="48" autocomplete="off" spellcheck="false" placeholder="Magicbane" value="${esc(s.character)}"></div>`
             + `<div class="form-group"><label for="wow-set-role">Role tag</label><input type="text" id="wow-set-role" maxlength="48" autocomplete="off" spellcheck="false" placeholder="ranged" value="${esc(s.role)}"></div>`
+            + '<div class="setting-row wow-set-span" style="padding: 0">'
+            + '<div><label class="title" for="wow-set-role-auto">Follow the character’s spec</label><label class="desc" for="wow-set-role-auto">The role tag becomes ranged, melee, tank or healer whenever the character is read, so switching to an alt filters NSRT for it</label></div>'
+            + `<label class="switch"><input type="checkbox" id="wow-set-role-auto"${s.role_auto !== false ? ' checked' : ''}><span class="slider"></span></label></div>`
             + `<div class="form-group"><label for="wow-set-realm">Realm</label><input type="text" id="wow-set-realm" maxlength="64" autocomplete="off" spellcheck="false" placeholder="Draenor" value="${esc(s.realm)}"></div>`
             + '<div class="form-group"><label for="wow-set-region">Region</label><select id="wow-set-region">'
             + ['eu', 'us', 'kr', 'tw'].map(r => `<option value="${r}"${s.region === r ? ' selected' : ''}>${r.toUpperCase()}</option>`).join('')
@@ -666,6 +719,7 @@
         const out = {
             character: q('#wow-set-char').value.trim(),
             role: q('#wow-set-role').value.trim(),
+            role_auto: q('#wow-set-role-auto').checked,
             realm: q('#wow-set-realm').value.trim(),
             region: q('#wow-set-region').value,
             wow_path: q('#wow-set-path').value.trim(),

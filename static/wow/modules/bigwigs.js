@@ -8,7 +8,7 @@
 (function () {
     'use strict';
 
-    const PULL = [5, 25], BREAK = [2, 15];
+    const PULL = [5, 60], BREAK = [2, 30];
     let pull = null, brk = null;             // chosen lengths; null: follow the default
     let pullKey = null, breakKey = null, pullFader = null, breakFader = null;
     let timerEl = null, timer = null, tick = 0;

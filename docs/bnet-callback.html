@@ -1,0 +1,54 @@
+<!doctype html>
+<!--
+  Battle.net sign-in relay for Touch Dashboard.
+
+  Battle.net returns from a sign-in only to an HTTPS address. When it refuses
+  the dashboard's own http://127.0.0.1:<port>/bnet_callback, host this file on
+  HTTPS (GitHub Pages: Settings → Pages → main, /docs), register its address
+  as the Redirect URL of your Battle.net client and in Settings → Battle.net.
+
+  It does one thing: sends the browser, with Battle.net's code and state, to
+  the dashboard on this same PC. The port comes from the state ("8888.xxxx").
+  The code is useless without the client secret, which never leaves the PC,
+  and nothing is sent anywhere else.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark light">
+<title>Touch Dashboard · Battle.net sign-in</title>
+<style>
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 36rem; margin: 4rem auto; padding: 0 1rem; }
+</style>
+</head>
+<body>
+<h2>Back to Touch Dashboard…</h2>
+<p id="msg">Taking your Battle.net sign-in back to Touch Dashboard on this PC.</p>
+<p><a id="go" href="#" hidden>Continue</a></p>
+<script>
+(function () {
+    'use strict';
+    var q = new URLSearchParams(location.search);
+    var code = q.get('code') || '', state = q.get('state') || '', error = q.get('error') || '';
+    var safe = /^[A-Za-z0-9._~-]{1,512}$/;
+    var m = /^(\d{2,5})\./.exec(state);
+    var port = m && Number(m[1]) >= 1024 && Number(m[1]) <= 65535 ? m[1] : '8888';
+    var out = new URLSearchParams();
+    if (safe.test(state)) out.set('state', state);
+    if (code && safe.test(code)) out.set('code', code);
+    else if (error && /^[a-z_]{1,64}$/.test(error)) out.set('error', error);
+    if (!out.has('state') || !(out.has('code') || out.has('error'))) {
+        document.getElementById('msg').textContent = 'This page only finishes a Battle.net sign-in started from Touch Dashboard. Start it again from Settings → Battle.net.';
+        return;
+    }
+    var target = 'http://127.0.0.1:' + port + '/bnet_callback?' + out.toString();
+    var go = document.getElementById('go');
+    go.href = target;
+    go.hidden = false;
+    location.replace(target);
+})();
+</script>
+</body>
+</html>

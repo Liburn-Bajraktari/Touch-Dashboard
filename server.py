@@ -236,7 +236,7 @@ from macro_system import MacroSystem, AppEnumerator
 import media as media_module
 import security
 import wow_addons
-from wow_addons.armory import Armory, ArmoryError
+from wow_addons.armory import Armory, ArmoryError, character_id
 
 import lock_monitor as _lock_monitor_mod
 
@@ -316,7 +316,8 @@ DEFAULT_CONFIG: dict = {
     "idle_clock_min": 15,     # ... and show the full-screen clock after this many (0: never)
     "device_av_controls": True,  # paired tablets may toggle Discord camera / screen share
     "wow_addons": {},         # the WoW plugin page (wow_addons.WowAddons.clean_settings)
-    "bnet_id": "", "bnet_secret": "",   # a Battle.net API client (client credentials: nobody signs in)
+    "bnet_id": "", "bnet_secret": "",   # a Battle.net API client (Settings → Battle.net)
+    "bnet_redirect": "",      # where Battle.net returns after a sign-in; "" = this server's /bnet_callback
 }
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
@@ -497,7 +498,8 @@ speedtest_lock: asyncio.Lock | None = None
 sb_route_event: asyncio.Event | None = None
 
 # Raider.IO and Battle.net for the WoW page: the character, affixes, spell names.
-armory = Armory(cache_file=os.path.join(DATA_DIR, "wow_spells.json"), user_agent=f"TouchDashboard/{VERSION}")
+armory = Armory(cache_file=os.path.join(DATA_DIR, "wow_spells.json"), user_agent=f"TouchDashboard/{VERSION}",
+                account_file=os.path.join(DATA_DIR, "wow_characters.json"))
 armory.configure(config.get("bnet_id", ""), config.get("bnet_secret", ""))
 armory_event: asyncio.Event | None = None   # wakes armory_loop (created in lifespan)
 ARMORY_IDLE_S = 60
@@ -2051,6 +2053,61 @@ async def discord_callback(code: str | None = None, state: str | None = None):
     return RedirectResponse("/")
 
 
+# ── Battle.net sign-in: the account's characters for the switcher ────────────
+# Loopback only, like the other sign-ins. The state carries this server's port
+# before a "." so an HTTPS relay page (docs/bnet-callback.html) knows where to
+# send the browser back; only the part after it is checked.
+BNET_SIGN_IN_HELP = {
+    "access_denied": "The sign-in was cancelled on Battle.net's page.",
+    "refused": ("Battle.net did not accept the sign-in. The Redirect URL in Settings → Battle.net must be "
+                "exactly the one registered for your client, and the client secret must be its own. If "
+                "Battle.net shows an error about the redirect before you log in, it wants an HTTPS address: "
+                "use the relay page (see Settings → Battle.net)."),
+    "offline": "Battle.net could not be reached. Try again in a moment.",
+    "no_key": "Add your Battle.net client ID and secret in Settings → Battle.net, then Save & apply.",
+    "failed": "Battle.net's answer could not be read. Try again.",
+}
+
+
+def _bnet_page(title: str, text: str, status: int = 200) -> HTMLResponse:
+    return HTMLResponse("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                        "<title>Touch Dashboard</title><h2>" + html.escape(title) + "</h2><p>"
+                        + html.escape(text) + "</p>", status_code=status)
+
+
+@_app.get("/bnet_login", dependencies=[Depends(_require_loopback)])
+async def bnet_login():
+    try:
+        url = armory.authorize_url(_bnet_redirect(), f"{origin_policy.port}.{_oauth_state('bnet')}")
+    except ArmoryError:
+        return _bnet_page("No Battle.net key yet", BNET_SIGN_IN_HELP["no_key"], 400)
+    return RedirectResponse(url)
+
+
+@_app.get("/bnet_callback", dependencies=[Depends(_require_loopback)])
+async def bnet_callback(code: str | None = None, state: str | None = None, error: str | None = None):
+    presented = state.rsplit(".", 1)[-1] if isinstance(state, str) else None
+    if not _spend_oauth_state("bnet", presented):
+        logger.warning("Battle.net sign-in callback refused: OAuth state missing or wrong")
+        return _oauth_state_mismatch()
+    if error or not code:
+        logger.warning(f"Battle.net sign-in not completed: {error or 'no code'}")
+        return _bnet_page("Battle.net sign-in did not complete",
+                          BNET_SIGN_IN_HELP.get(error or "", f"Battle.net said: {(error or 'no sign-in code')[:200]}"), 400)
+    try:
+        acct = await asyncio.to_thread(armory.sign_in, code, _bnet_redirect())
+    except ArmoryError as e:
+        logger.warning(f"Battle.net sign-in failed: {e.reason}")
+        return _bnet_page("Battle.net sign-in did not complete", BNET_SIGN_IN_HELP.get(e.reason, BNET_SIGN_IN_HELP["failed"]), 400)
+    count = sum(1 for c in acct["characters"] if c["source"] == "account")
+    logger.info("Battle.net signed in: %d characters", count)
+    await _bnet_changed()
+    who = f" as {acct['battletag']}" if acct.get("battletag") else ""
+    return _bnet_page(f"Signed in{who}",
+                      f"Touch Dashboard has your {count} character{'s' if count != 1 else ''}. Switch between them on "
+                      "the WoW page's Character plate. You can close this tab.")
+
+
 _update_running = False
 RELEASE_TAG_RE       = re.compile(r"v\d+\.\d+\.\d+")
 RELEASE_DOWNLOAD_URL = "https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/download"
@@ -2463,6 +2520,7 @@ async def _send_initial_state(client: Client) -> None:
 
     if client.is_admin:
         await client.ws.send_text(_dumps(_devices_msg()))
+        await client.ws.send_text(_dumps(_bnet_account_msg()))
         for req in pairing.pending():
             await client.ws.send_text(_dumps(_pair_pending_msg(req)))
     else:
@@ -2595,6 +2653,8 @@ async def _ws_save_config(client: Client, msg: dict) -> None:
     for key, choices in IDLE_CHOICES.items():
         if key in data:
             data[key] = _idle_minutes(key, data[key], choices)
+    if "bnet_redirect" in data:
+        data["bnet_redirect"] = _clean_bnet_redirect(data["bnet_redirect"])
     for key in ("bnet_id", "bnet_secret"):
         if key in data:
             value = data[key]
@@ -2936,8 +2996,29 @@ def _armory_kick() -> None:
     another character, or one due."""
     if armory_event is None:
         return
-    if armory.wanted() or (wow.enabled("char") and armory.refresh_due(wow.who())):
+    if armory.wanted() or (_character_wanted() and armory.refresh_due(wow.who())):
         armory_event.set()
+
+
+def _character_wanted() -> bool:
+    """Read the character for the Character plate, or for a role tag that follows its spec."""
+    return wow.enabled("char") or wow.settings()["role_auto"]
+
+
+async def _follow_spec() -> None:
+    """With "follow the spec" on, the role tag becomes the character's (ranged,
+    melee, tank, healer): switching to an alt re-filters NSRT's reminders."""
+    char, s = armory.character, wow.settings()
+    tag = char.get("role_tag") if char and char.get("_who") == wow.who() else None
+    if s["role_auto"] and tag and tag != s["role"]:
+        wow.configure({**s, "role": tag})
+        await _save_wow_settings()
+
+
+async def _save_wow_settings() -> None:
+    with CONFIG_LOCK:
+        config["wow_addons"] = wow.settings()
+    await asyncio.to_thread(save_config)
 
 
 async def armory_loop() -> None:
@@ -2950,8 +3031,9 @@ async def armory_loop() -> None:
             if armory.wanted():
                 changed = await asyncio.to_thread(armory.fetch_spells, wow.settings()["region"])
             who = wow.who()
-            if wow.enabled("char") and armory.refresh_due(who):
+            if _character_wanted() and armory.refresh_due(who):
                 await asyncio.to_thread(armory.refresh, who)
+                await _follow_spec()
                 changed = True
             if changed:
                 await _broadcast_wow()
@@ -2968,6 +3050,103 @@ async def armory_loop() -> None:
 
 CHARACTER_KEYS = ("name", "realm", "region", "class", "spec", "level", "ilvl", "score", "guild",
                   "avatar", "role_tag", "profile_url")
+
+
+def _bnet_default_redirect() -> str:
+    return f"http://127.0.0.1:{origin_policy.port}/bnet_callback"
+
+
+def _bnet_redirect() -> str:
+    """Where Battle.net sends the browser after a sign-in: this server, or an
+    HTTPS relay page (docs/bnet-callback.html) when Battle.net refuses http."""
+    return config.get("bnet_redirect") or _bnet_default_redirect()
+
+
+def _clean_bnet_redirect(value) -> str:
+    """An https address (a relay), or this server's own /bnet_callback; else the default."""
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > 512:
+        return ""
+    v = value.strip()
+    try:
+        p = urllib.parse.urlparse(v)
+    except ValueError:
+        return ""
+    if p.username or p.password or not p.hostname:
+        return ""
+    if p.scheme == "https":
+        return v
+    if p.scheme == "http" and p.hostname in ("127.0.0.1", "localhost") and p.path == "/bnet_callback":
+        return v
+    return ""
+
+
+def _bnet_account_msg() -> dict:
+    """Settings → Battle.net (admins): the sign-in and the saved characters."""
+    acct = armory.account()
+    who = wow.who()
+    current = character_id(*who) if who else None
+    return {"type": "bnet_account", "data": {
+        **acct, "current": current, "has_key": armory.has_key(),
+        "redirect": _bnet_redirect(), "default_redirect": _bnet_default_redirect()}}
+
+
+async def _bnet_changed() -> None:
+    await ws_manager.broadcast(_bnet_account_msg(), admin_only=True)
+    await _broadcast_wow()
+
+
+async def _use_character(char: dict, role: str | None = None) -> None:
+    """Make a saved character the player's (Settings' list and "Add and use")."""
+    wow.set_player(char["name"], char["realm"], char["region"])
+    wow.take_dirty()   # saved right here
+    if role:           # known from the lookup; otherwise it follows once the character is read
+        wow.configure({**wow.settings(), "role": role})
+    armory.mark_used(char["id"])
+    await _save_wow_settings()
+    await _bnet_changed()
+
+
+def _char_id(msg: dict) -> str:
+    value = msg["data"]["id"]
+    if not (isinstance(value, str) and ITEM_ID_RE.fullmatch(value)):
+        raise ValueError("not a character id")
+    return value
+
+
+async def _ws_bnet_use_character(client: Client, msg: dict) -> None:
+    char = armory.find_character(_char_id(msg))
+    if not char:
+        raise ValueError("unknown character")
+    await _use_character(char)
+
+
+async def _ws_bnet_remove_character(client: Client, msg: dict) -> None:
+    if not await asyncio.to_thread(armory.remove_character, _char_id(msg)):
+        raise ValueError("unknown character")
+    await _bnet_changed()
+
+
+async def _ws_bnet_add_character(client: Client, msg: dict) -> None:
+    """Settings' lookup → "Add and use": the character found, kept in the list."""
+    data = msg["data"]
+    region, realm, name = data["region"], data["realm"], data["name"]
+    if not all(isinstance(v, str) for v in (region, realm, name)):
+        raise TypeError("region, realm and name must be strings")
+    found = armory.looked_up(region, realm, name)
+    if found is None:
+        try:
+            found = await asyncio.to_thread(armory.lookup, region, realm[:64], name[:48])
+        except ArmoryError as e:
+            await _send(client.ws, {"type": "bnet_lookup_result", "data": {"ok": False, "reason": e.reason,
+                                                                           "sources": e.sources}})
+            return
+    entry = await asyncio.to_thread(armory.add_character, found)
+    await _use_character(entry, found.get("role_tag"))
+
+
+async def _ws_bnet_sign_out(client: Client, msg: dict) -> None:
+    await asyncio.to_thread(armory.sign_out)
+    await _bnet_changed()
 
 
 async def _ws_bnet_lookup(client: Client, msg: dict) -> None:
@@ -3001,6 +3180,11 @@ async def _ws_wow_addon_action(client: Client, msg: dict) -> None:
                                                                 "reason": e.reason}})
         return
     await _send(client.ws, {"type": "wow_cmd_ack", "data": {"command": name, "status": "sent"}})
+    if wow.take_dirty():   # a character switch: saved, and every screen gets the new state
+        await _save_wow_settings()
+        await ws_manager.broadcast(_bnet_account_msg(), admin_only=True)
+        await _broadcast_wow()
+        return
     await _broadcast_wow({module_id})
 
 
@@ -3054,6 +3238,10 @@ WS_HANDLERS = {
     "wow_addon_action":   _ws_wow_addon_action,
     "wow_settings_save":  _ws_wow_settings_save,
     "bnet_lookup":        _ws_bnet_lookup,
+    "bnet_use_character": _ws_bnet_use_character,
+    "bnet_remove_character": _ws_bnet_remove_character,
+    "bnet_add_character": _ws_bnet_add_character,
+    "bnet_sign_out":      _ws_bnet_sign_out,
 }
 
 # Names a client may send as {"type": "action", "data": <name>}. Launchers
@@ -3071,7 +3259,7 @@ ADMIN_ACTIONS = frozenset({
     "save_config", "save_macros", "set_theme", "set_play_key", "req_local_sounds", "req_apps_list",
     "check_update", "run_update", "pair_decision", "rename_device", "revoke_device",
     "action:spot_clear_auth", "action:disc_auth", "action:disc_clear_auth", "wow_settings_save",
-    "bnet_lookup",
+    "bnet_lookup", "bnet_use_character", "bnet_remove_character", "bnet_add_character", "bnet_sign_out",
 })
 # Paired devices may use these only while device_av_controls is on.
 DEVICE_AV_ACTIONS = frozenset({"action:disc_cam", "action:disc_screen"})
