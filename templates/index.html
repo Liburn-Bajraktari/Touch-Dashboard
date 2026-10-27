@@ -5566,23 +5566,26 @@
                 overflow: hidden;
             }
 
-            /* Two rows: the title and the mouse's battery, then the speed test
-               and power. The soundboard's back key, volume and Stop audio take
-               the same places (positioned in the bar, .top-bar). */
+            /* Two rows. The console's name, with power at its right; then the
+               two readouts side by side as a matched pair of displays, the
+               mouse's battery and the speed test. In the soundboard, Stop audio
+               takes power's place and the back key and volume take the
+               readouts' row (positioned in the bar, .top-bar). */
             .top-bar {
                 position: relative;
                 flex: none;
                 height: var(--bar-h);
-                grid-template-columns: minmax(0, 1fr) auto;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
                 grid-template-rows: 3.8rem 4.6rem;
-                grid-template-areas: "title left" "right right";
+                grid-template-areas: "title title" "left right";
                 gap: 0.5rem 0.6rem;
-                padding: 0.6rem 0.6rem 0.6rem 1rem;
+                padding: 0.6rem;
             }
 
             .bar-title {
                 grid-area: title;
                 justify-content: flex-start;
+                padding-inline: 0.5rem 5.2rem;   /* clear of the power key */
             }
 
             .bar-left {
@@ -5595,19 +5598,51 @@
                 position: static;
             }
 
-            #top-right-normal {
-                width: 100%;
-                justify-content: space-between;
+            /* The battery switched off (Settings): the speed test takes the row. */
+            .top-bar:has(#batt-slide[style*="none"]) .bar-right {
+                grid-column: 1 / -1;
             }
 
+            #top-right-normal {
+                position: relative;
+                width: 100%;
+                height: 100%;
+            }
+
+            /* One height, one shape, the contents centred. */
+            .batt-slide,
             .speed-widget,
+            .sb-vol-row {
+                flex: 1;
+                height: 4.6rem;
+                border-radius: calc(var(--radius-key) * var(--sq));
+            }
+
+            .batt-slide,
+            .speed-widget {
+                justify-content: center;
+            }
+
+            [data-corners="squircle"] .batt-slide {
+                corner-shape: squircle;
+            }
+
             .top-bar .btn-top {
                 height: 4.6rem;
             }
 
+            #btn-shutdown {
+                position: absolute;
+                right: 0;
+                bottom: calc(100% + 0.5rem);
+                height: 3.8rem;
+            }
+
+            /* 44 CSS px wide: the volume track keeps its own 44 at 360 px. */
             #btn-back {
-                left: 0.4rem;
+                left: 0.6rem;
                 bottom: 0.6rem;
+                width: 4.4rem;
             }
 
             #top-right-soundboard {
@@ -5619,7 +5654,6 @@
             }
 
             .sb-vol-row {
-                flex: 1;
                 width: auto;
                 min-width: 0;
             }
