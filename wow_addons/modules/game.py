@@ -21,6 +21,7 @@ NSRT alert plates show them.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from wow_addons import AddonModule, Arg, Command, CommandError, Context, Watch, Widget, chat_text
@@ -48,6 +49,8 @@ CONSUMABLES = (
     ("rune", "Augment rune", ("Augment",), (1264426,)),
 )
 ALERTS_MAX = 8
+_DEFEATED = re.compile(r"\s+defeated$", re.I)
+_DEFEATED_CUT = re.compile(r"\s+d(?:e(?:f(?:e(?:a(?:t(?:e(?:d)?)?)?)?)?)?)?$", re.I)   # cut short at 24 bytes
 CHESTS = (0.6, 0.8, 1.0)       # +3, +2, +1: the share of the key's time each needs (EllesmereUI's timer, Midnight)
 VAULT_KINDS = {1: "dungeons", 3: "raid", 6: "world", 2: "pvp"}
 
@@ -119,11 +122,19 @@ def _live_key(snap: dict) -> str | None:
     return f"{c['name']}-{c['realm']}" if isinstance(c.get("name"), str) and isinstance(c.get("realm"), str) else None
 
 
+def _buffs_hidden(snap: dict) -> bool:
+    """The game keeps auras from addons now: in combat, chat lockdown or a Mythic+ key."""
+    return snap.get("combat") is True or snap.get("lockdown") is True or table(snap.get("mplus")).get("state") == 1
+
+
 def _checks(snap: dict, cls: str | None) -> list[dict]:
     """The pre-pull checklist from the live buffs: what is yours to see to
     (consumables, weapon oil, your own class's raid buff) always; another
     class's raid buff when it is on you, or in a group with that class in it
-    (any class, from an addon that does not say which are there)."""
+    (any class, from an addon that does not say which are there). While the
+    game hides auras a buff not seen is `hidden`, not missing; weapon oil is
+    not an aura and always shows."""
+    hidden = _buffs_hidden(snap)
     buffs = [table(b) for b in items(snap.get("buffs"))]
     by_id = {_num(b.get("id")): b for b in buffs}
     group = table(snap.get("group"))
@@ -136,12 +147,14 @@ def _checks(snap: dict, cls: str | None) -> list[dict]:
         if hit is None and cls != caster and not (grouped and (here is None or caster in here)):
             continue                               # no one here to cast it: not missing
         out.append({"id": bid, "name": name, "ok": hit is not None, "rem": _num(hit.get("rem")) if hit else None,
-                    "cast": cast if cls == caster else None, "kind": "raid"})
+                    "cast": cast if cls == caster and not hidden else None, "kind": "raid",
+                    "hidden": hit is None and hidden})
     for cid, name, words, ids in CONSUMABLES:
         hit = next((by_id[i] for i in ids if i in by_id), None) or next(
             (b for b in buffs if isinstance(b.get("name"), str) and any(w in b["name"] for w in words)), None)
         out.append({"id": cid, "name": name, "ok": hit is not None, "rem": _num(hit.get("rem")) if hit else None,
-                    "label": _text(hit.get("name")) if hit else None, "kind": "consumable"})
+                    "label": _text(hit.get("name")) if hit else None, "kind": "consumable",
+                    "hidden": hit is None and hidden})
     weapon = table(snap.get("weapon"))
     mh = _num(weapon.get("mh"))
     out.append({"id": "weapon", "name": "Weapon oil", "ok": bool(mh), "rem": mh, "kind": "consumable"})
@@ -172,6 +185,15 @@ def _alerts(raw: Any) -> dict | None:
             "list": [x for x in upcoming if x["text"] and x["rem"] is not None]}
 
 
+def _boss(name: Any) -> str | None:
+    """A boss as the key's criteria name it, less the game's " defeated" (2.5.0 sent it, cut at 24 bytes)."""
+    text = _text(name, 48)
+    if not text:
+        return None
+    cut = _DEFEATED_CUT if len(text.encode()) == 24 else _DEFEATED
+    return cut.sub("", text) or text
+
+
 def _mplus(raw: Any) -> dict | None:
     """The Mythic+ run: in a key (elapsed counts on from here once the timer
     runs) or over (its result), with the times its chests need."""
@@ -181,8 +203,8 @@ def _mplus(raw: Any) -> dict | None:
         return None
     limit = _num(m.get("limit")) or 0
     elapsed = _num(m.get("elapsed")) or 0
-    bosses = [{"name": _text(table(b).get("name"), 48), "done": table(b).get("done") is True,
-               "at": _num(table(b).get("at"))} for b in items(m.get("bosses"))[:8] if _text(table(b).get("name"), 48)]
+    bosses = [{"name": _boss(table(b).get("name")), "done": table(b).get("done") is True,
+               "at": _num(table(b).get("at"))} for b in items(m.get("bosses"))[:8] if _boss(table(b).get("name"))]
     return {"state": "running" if state == 1 else "over", "name": _text(m.get("name"), 64),
             "level": _num(m.get("level")) or 0, "limit": limit, "elapsed": elapsed,
             "counting": state == 1 and elapsed > 0, "chests": [round(limit * f) for f in CHESTS] if limit else [],

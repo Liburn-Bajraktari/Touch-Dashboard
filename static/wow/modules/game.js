@@ -50,6 +50,7 @@
         if (!live) return 'Nothing from the game yet: log in with the addon on, or tap Read with WoW in front.';
         const when = live.link ? 'live' : `read ${ago(live.age)}`;
         if (live.combat || live.lockdown) return `In combat the game keeps buffs secret · ${when}`;
+        if (live.mplus && live.mplus.state === 'running') return `In a Mythic+ key the game keeps buffs secret · ${when}`;
         return live.link ? 'Live from the game' : `From the game · ${ago(live.age)}`;
     }
 
@@ -88,14 +89,16 @@
         if (!ui.buffs || !ui.buffs.isConnected) return;
         const live = data && data.live;
         const checks = (live ? live.checks : []).map(c => ({ ...c, rem: remNow(c.rem) }));
-        const key = JSON.stringify(checks.map(c => [c.id, c.ok, c.cast, c.label, left(c.rem)]));
+        const key = JSON.stringify(checks.map(c => [c.id, c.ok, c.hidden, c.cast, c.label, left(c.rem)]));
         if (key !== ui.buffsDrawn) {
             ui.buffsDrawn = key;
             ui.buffs.innerHTML = checks.map(c => {
-                const cast = !c.ok && c.cast;
-                return `<${cast ? 'button' : 'div'} class="${cast ? 'btn ' : ''}wow-buff" ${cast ? `type="button" data-cast="${api.esc(c.cast)}"` : 'role="img"'} data-state="${c.ok ? 'on' : 'off'}" aria-label="${api.esc(`${c.name}: ${c.ok ? left(c.rem) : (cast ? 'missing, tap to cast' : 'missing')}`)}">`
+                // While the game hides auras, one not seen is hidden, not missing
+                const cast = !c.ok && !c.hidden && c.cast;
+                const word = c.ok ? left(c.rem) : (c.hidden ? 'Hidden' : (cast ? 'Cast' : 'Missing'));
+                return `<${cast ? 'button' : 'div'} class="${cast ? 'btn ' : ''}wow-buff" ${cast ? `type="button" data-cast="${api.esc(c.cast)}"` : 'role="img"'} data-state="${c.ok ? 'on' : (c.hidden ? 'hidden' : 'off')}" aria-label="${api.esc(`${c.name}: ${cast ? 'missing, tap to cast' : word.toLowerCase()}`)}">`
                     + `<span class="key-glyph"><i data-lucide="${GLYPHS[c.id] || 'circle'}"></i>${KEY_WARN}</span><span class="wow-buff-name">${api.esc(c.label || c.name)}</span>`
-                    + `<span class="wow-buff-state"><span class="wow-buff-led" aria-hidden="true"></span><span class="wow-buff-word">${c.ok ? left(c.rem) : (cast ? 'Cast' : 'Missing')}</span></span></${cast ? 'button' : 'div'}>`;
+                    + `<span class="wow-buff-state"><span class="wow-buff-led" aria-hidden="true"></span><span class="wow-buff-word">${word}</span></span></${cast ? 'button' : 'div'}>`;
             }).join('');
             api.icons(ui.buffs);
         }

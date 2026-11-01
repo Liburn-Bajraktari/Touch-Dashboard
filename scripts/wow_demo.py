@@ -8,8 +8,11 @@ and clipboard are never touched. It has a fake game folder with the companion
 and a few addons "installed", SavedVariables for three characters and an NSRT
 note, Battle.net and Raider.IO answered from the test fixtures (names changed),
 an emulated companion behind a keyboard and clipboard that go nowhere, and the
-live link faked above its pixels: one moment of a raid night, kept as it is so
-screenshots come out the same every time (the page still counts its timers).
+live link faked above its pixels: one moment kept as it is, so screenshots come
+out the same every time (the page still counts its timers). Two moments: a raid
+night (the default) and a Mythic+ key, where the game hides buffs; GET
+/demo/moment/raid or /demo/moment/key switches (a demo-only route), and a page
+loaded after it shows that moment.
 
 scripts/wow_docs_render.py takes the renders in docs/WOW.md from it.
 """
@@ -94,7 +97,7 @@ with open(os.path.join(data_dir, "wow_spells.json"), "w") as f:
 LAYOUT = {"columns": [
     [{"w": "nsrt.note", "size": "full"}, {"w": "game.buffs", "size": "full"}],
     [{"w": "char.plate", "size": "full"}, {"w": "raid.timers", "size": "full"}, {"w": "nsrt.next", "size": "full"}],
-    [{"w": "raid.mplus", "size": "full"}, {"w": "markers.world", "size": "full"},
+    [{"w": "markers.world", "size": "full"}, {"w": "game.keystone", "size": "full"},
      {"w": "token.price", "size": "half"}, {"w": "game.wallet", "size": "half"}],
 ]}
 with open(os.path.join(data_dir, "config.json"), "w") as f:
@@ -146,16 +149,33 @@ SNAP = {"v": 1, "ver": server.wow_addons.bundled_version(), "combat": False, "lo
         "group": {"n": 20, "raid": True, "classes": ["MAGE", "PRIEST", "DRUID", "WARRIOR", "EVOKER"]},
         "rc": {"state": 1, "rem": 24.0, "total": 20, "ready": 17,
                "missing": [{"name": "Steelhide", "a": 0}, {"name": "Leafwhisper", "a": 2}, {"name": "Brannoc", "a": 0}]},
-        "mplus": {"state": 1, "map": 503, "name": "Ara-Kara, City of Echoes", "level": 12, "limit": 1800,
-                  "elapsed": 1045.0, "running": True, "deaths": 3, "lost": 45, "forces": 72.4,
-                  "bosses": [{"name": "Avanoxx", "done": True, "at": 371}, {"name": "Anub'zekt", "done": True, "at": 842},
-                             {"name": "Ki'katal the Harvester", "done": False, "at": None}]},
         "alerts": {"phase": 1, "enc": "Dimensius", "list": [
             {"text": "Ice Block the {skull} soak", "rem": 9.0, "spell": None},
             {"text": "Spread {star} {circle}", "rem": 24.0, "spell": None},
             {"text": "Tranquility", "rem": 41.0, "spell": 740},
             {"text": "Stack on {moon} for the add", "rem": 66.0, "spell": None},
             {"text": "Bloodlust", "rem": 95.0, "spell": None}]}}
+
+# A Mythic+ key: a party of five, the timer running; the game hides buffs from addons.
+KEY = dict(SNAP, buffs=[], bars=[], rc={"state": 0}, alerts={"phase": 0, "list": []}, zone="Ara-Kara, City of Echoes",
+           group={"n": 5, "raid": False, "classes": ["MAGE", "PRIEST", "DRUID", "WARRIOR", "EVOKER"]},
+           mplus={"state": 1, "map": 503, "name": "Ara-Kara, City of Echoes", "level": 12, "limit": 1800,
+                  "elapsed": 1045.0, "running": True, "deaths": 3, "lost": 45, "forces": 72.4,
+                  "bosses": [{"name": "Avanoxx", "done": True, "at": 371},
+                             {"name": "Anub'zekt", "done": True, "at": 842},
+                             {"name": "Ki'katal the Harvester", "done": False, "at": None}]})
+MOMENTS = {"raid": SNAP, "key": KEY}
+moment = {"now": "raid"}
+
+
+@server._app.get("/demo/moment/{name}")
+async def demo_moment(name: str):
+    """The demo only: which moment the live link shows."""
+    if name not in MOMENTS:
+        return {"ok": False, "moments": list(MOMENTS)}
+    moment["now"] = name
+    return {"ok": True, "moment": name}
+
 
 clip = Clip()
 box = {"on": False, "text": ""}
@@ -165,7 +185,7 @@ def keys(*k):
     """The companion addon, emulated: its box answers the chord, Ctrl+C, Ctrl+V
     and Enter; everything else goes nowhere."""
     if k == server.wow_addons.FOCUS_KEYS:
-        box.update(on=True, text="TDS1 - " + json.dumps(SNAP))
+        box.update(on=True, text="TDS1 - " + json.dumps(MOMENTS[moment["now"]]))
     elif k == ("KEY_LEFTCTRL", "KEY_C") and box["on"]:
         clip.text = box["text"]
         if not box["text"].startswith("TDS1 - "):   # its answer copied: the box lets go, as the addon's does
@@ -177,7 +197,7 @@ def keys(*k):
         if parts[0] == "TD1":
             result = "loaded" if "b" in parts[2] else "ok"
             box["text"] = f"TDS1 {parts[1]} " + json.dumps(
-                {**SNAP, "sh": server.wow_addons.adler32(server.wow.slot_payload()), "result": result})
+                {**MOMENTS[moment["now"]], "sh": server.wow_addons.adler32(server.wow.slot_payload()), "result": result})
             box["on"] = "r" in parts[2]
         else:
             box["on"] = False
@@ -212,7 +232,7 @@ def hold():
     while True:
         with server.wow._lock:
             server.wow._link_at = server.wow.clock()
-            server.wow._snapshot = dict(SNAP)
+            server.wow._snapshot = dict(MOMENTS[moment["now"]])
             server.wow._snapshot_at = server.wow.clock()
         time.sleep(0.5)
 

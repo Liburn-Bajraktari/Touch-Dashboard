@@ -466,7 +466,9 @@ local function readRun()
                 elseif type(n) == "number" and type(total) == "number" and total > 0 then run.forces = n / total * 100 end
             else
                 local name = plain(c.description)
-                name = type(name) == "string" and name:gsub("^\226\156\147%s*", ""):gsub("^%-%s*", "") or ("Boss " .. i)
+                -- Blizzard's ✓ in front, and the " defeated" the criteria end with (English)
+                name = type(name) == "string" and name:gsub("^\226\156\147%s*", ""):gsub("^%-%s*", "")
+                    :gsub("%s+[Dd]efeated$", "") or ("Boss " .. i)
                 -- When it fell: stamped the first time it reads as done while the timer is known
                 if done and not run.at[i] and run.start > 0 and run.state == 1 then run.at[i] = now - run.start end
                 run.bosses[#run.bosses + 1] = { name = name, done = done, at = done and run.at[i] or nil }
@@ -711,7 +713,7 @@ local function build()
         u8(out, math.min(#r.bosses, 8))
         for i = 1, math.min(#r.bosses, 8) do
             local b = r.bosses[i]
-            str(out, b.name, 24); u8(out, b.done and 1 or 0); uint(out, b.at or 0, 2)
+            str(out, b.name, 32); u8(out, b.done and 1 or 0); uint(out, b.at or 0, 2)
         end
     end
     return out

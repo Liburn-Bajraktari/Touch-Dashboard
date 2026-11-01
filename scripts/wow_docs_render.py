@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import sys
+import urllib.request
 
 os.environ.setdefault("GDK_BACKEND", "x11")             # GDK_SCALE is ignored on Wayland
 os.environ.setdefault("GDK_SCALE", "2")                 # before GTK starts: draw at 2× without zooming the page
@@ -35,13 +36,15 @@ from gi.repository import GLib, Gtk, WebKit2  # noqa: E402
 
 W, H, ZOOM = 1138, 711, 2
 
-# The demo's first layout (scripts/wow_demo.py), and one with the other plates.
+# The demo's first layout (scripts/wow_demo.py), a raid night; one with the
+# other plates; one for the Mythic+ moment.
 MAIN = {"columns": [
     [{"w": "nsrt.note", "size": "full"}, {"w": "game.buffs", "size": "full"}],
     [{"w": "char.plate", "size": "full"}, {"w": "raid.timers", "size": "full"}, {"w": "nsrt.next", "size": "full"}],
-    [{"w": "raid.mplus", "size": "full"}, {"w": "markers.world", "size": "full"},
+    [{"w": "markers.world", "size": "full"}, {"w": "game.keystone", "size": "full"},
      {"w": "token.price", "size": "half"}, {"w": "game.wallet", "size": "half"}],
 ]}
+KEY = {"columns": [[{"w": "raid.mplus", "size": "full"}], [{"w": "game.buffs", "size": "full"}], []]}
 
 
 def callout(text, label, glyph):
@@ -111,7 +114,8 @@ SHOTS = {
     "plate-character": (MAIN, "graphite", False, "crop = plate('Character');", 1.0),
     "plate-raid": (MAIN, "graphite", False, "crop = plate('Raid & dungeons');", 1.0),
     "plate-markers": (MAIN, "graphite", False, "crop = plate('World markers');", 1.0),
-    "plate-mplus": (MAIN, "graphite", False, "crop = plate('Mythic+');", 1.0),
+    "plate-mplus": (KEY, "graphite", False, "crop = plate('Mythic+');", 1.0),
+    "plate-buffs-key": (KEY, "graphite", False, "crop = plate('Buff check');", 1.0),
     "plate-next": (MAIN, "graphite", False, "crop = plate('Next alert');", 1.0),
     "plate-token": (MAIN, "graphite", False, "crop = plate('WoW Token');", 1.0),
     "plate-gold": (MAIN, "graphite", False, "crop = plate('Gold');", 1.0),
@@ -123,6 +127,9 @@ SHOTS = {
     "plate-characters": (MORE, "graphite", False, "crop = plate('Characters');", 1.0),
     "plate-combatlog": (MORE, "graphite", False, "crop = plate('Combat log');", 1.0),
 }
+
+# The demo's moment each shot shows (wow_demo.py): a raid night unless named here.
+MOMENTS = {"plate-mplus": "key", "plate-buffs-key": "key"}
 
 parser = argparse.ArgumentParser(description="Renders of the WoW page for the docs")
 parser.add_argument("--url", default="http://127.0.0.1:8899")
@@ -190,6 +197,9 @@ def next_shot():
         Gtk.main_quit()
         return
     current["name"] = queue.pop(0)
+    with urllib.request.urlopen(f"{opts.url}/demo/moment/{MOMENTS.get(current['name'], 'raid')}", timeout=5) as r:
+        if not json.load(r).get("ok"):
+            sys.exit(f"{opts.url} is not scripts/wow_demo.py")
     view.load_uri(opts.url)
 
 

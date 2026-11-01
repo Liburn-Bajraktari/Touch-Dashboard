@@ -199,7 +199,7 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 
 ### World of Warcraft
 
-![The WoW page: the NSRT note, the buff check, the character, Raid & dungeons with a pull counting down and a ready check, the next encounter alert, the Mythic+ timer, world markers, the WoW Token and gold](docs/images/wow/wow-page.png)
+![The WoW page on a raid night: the NSRT note, the buff check, the character, Raid & dungeons with a pull counting down and a ready check, the next encounter alert, world markers, keystone and vault, the WoW Token and gold](docs/images/wow/wow-page.png)
 
 <p align="center"><sub>Rendered from the app with fictional data.</sub></p>
 

@@ -1102,6 +1102,12 @@
     color: var(--well-ink);
 }
 
+/* Hidden by the game (combat, a key): neither lit nor amber. */
+.wow-buff[data-state="hidden"] .wow-buff-led {
+    background: transparent;
+    box-shadow: inset 0 0 0 var(--line-w) var(--line-strong);
+}
+
 /* ── Raid & dungeons: the timer ───────────────────────────────────────── */
 /* The display fills its plate: the label, the countdown large, the bar. */
 .wow-timer {

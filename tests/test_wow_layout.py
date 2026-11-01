@@ -384,3 +384,27 @@ def test_the_companion_is_never_installed_or_updated_unasked(tmp_path):
     core, _ = make({"wow_path": str(newer)})
     core.poll()                                         # newer than this install's: never downgraded
     assert core.companion_status()["installed"] == "99.0.0"
+
+
+def test_in_a_key_buffs_not_seen_are_hidden_not_missing():
+    key = {"state": 1, "map": 503, "name": "Ara-Kara", "level": 12, "limit": 1800, "elapsed": 600}
+    core, _ = make({})
+    core._took(copy.deepcopy(SNAP) | {"buffs": [], "mplus": key})
+    checks = {c["id"]: c for c in game_view(core)["live"]["checks"]}
+    assert checks["intellect"]["hidden"] and checks["intellect"]["cast"] is None     # no Cast key on a guess
+    assert checks["flask"]["hidden"] and not checks["flask"]["ok"]
+    assert checks["weapon"]["ok"]                     # not an aura: the game shows it
+    core._took(copy.deepcopy(SNAP) | {"buffs": []})   # out of the key: missing again
+    checks = {c["id"]: c for c in game_view(core)["live"]["checks"]}
+    assert not checks["flask"]["hidden"] and checks["intellect"]["cast"] == "cast_intellect"
+
+
+def test_boss_names_lose_the_games_defeated():
+    key = {"state": 1, "map": 1, "name": "Den of Nalorakk", "level": 16, "limit": 1920, "elapsed": 1066, "bosses": [
+        {"name": "The Hoardmonger defeated", "done": True, "at": 501},
+        {"name": "Sentinel of Winter defea", "done": False},          # cut at 24 bytes by addon 2.5.0
+        {"name": "Nalorakk defeated", "done": False}, {"name": "Lord Dee", "done": False}]}
+    core, _ = make({})
+    core._took(copy.deepcopy(SNAP) | {"mplus": key})
+    assert [b["name"] for b in game_view(core)["live"]["mplus"]["bosses"]] == [
+        "The Hoardmonger", "Sentinel of Winter", "Nalorakk", "Lord Dee"]

@@ -342,7 +342,7 @@ for line in io.lines() do
         local verb, a, b, c = rest:match("^(%S+)%s*(%S*)%s*(%S*)%s*(%S*)$")
         if verb == "start" then
             mkey = { map = 503, level = tonumber(a), deaths = 0, criteria = {
-                { description = "Avanoxx", completed = false },
+                { description = "Avanoxx defeated", completed = false },   -- as the game names them
                 { description = "\226\156\147 Anub'zekt", completed = false },     -- Blizzard's check mark in front
                 { description = "Ki'katal the Harvester", completed = false },
                 { description = "Enemy Forces", isWeightedProgress = true, quantity = 0, totalQuantity = 460,

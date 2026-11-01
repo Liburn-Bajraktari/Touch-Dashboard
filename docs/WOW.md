@@ -2,7 +2,7 @@
 
 A page of the dashboard for playing WoW: your raid's note and its alerts as they come, pull and break timers, the ready check and who is not ready, your Mythic+ key against its chests, world markers, your buffs before the pull, gold, bags and keystones on every character, and keys for any command, the game's or an addon's. It talks to the game through the PC, with a small companion addon in WoW.
 
-![The WoW page on a tablet: the NSRT note, the buff check, the character, Raid & dungeons with a pull counting down and a ready check, the next encounter alert, the Mythic+ timer, world markers, the WoW Token and gold](images/wow/wow-page.png)
+![The WoW page on a tablet, a raid night: the NSRT note, the buff check, the character, Raid & dungeons with a pull counting down and a ready check, the next encounter alert, world markers, keystone and vault, the WoW Token and gold](images/wow/wow-page.png)
 
 <p align="center"><sub>Every picture on this page is rendered from the app with fictional data (<code>scripts/wow_demo.py</code>), at the tablet's size. Names, numbers and times are made up.</sub></p>
 
@@ -91,9 +91,9 @@ The eight markers in their colours, star first as players know them; each lands 
 
 ### Buff check
 
-<img src="images/wow/plate-buffs.png" alt="The buff check: Arcane Intellect 53 min, Power Word: Fortitude 48 min, Battle Shout missing, Mark of the Wild 55 min, Blessing of the Bronze missing, flask 58 min, Well Fed 40 min, the augment rune 28 min, weapon oil 59 min" width="420">
+<img src="images/wow/plate-buffs.png" alt="The buff check on a raid night: Arcane Intellect 53 min, Power Word: Fortitude 48 min, Battle Shout missing, Mark of the Wild 55 min, Blessing of the Bronze missing, flask 58 min, Well Fed 40 min, the augment rune 28 min, weapon oil 59 min" width="420"> <img src="images/wow/plate-buffs-key.png" alt="The same check in a Mythic+ key: every buff reads Hidden, weapon oil still shows 59 min" width="420">
 
-What you need before the pull, counting down: your food, flask, augment rune and weapon oil, and your own class's raid buff (with a key to cast it when it is missing). Another class's raid buff is asked for only when someone of that class is in your group. In combat the game hides buffs from addons, so the check is for before the pull.
+What you need before the pull, counting down: your food, flask, augment rune and weapon oil, and your own class's raid buff (with a key to cast it when it is missing). Another class's raid buff is asked for only when someone of that class is in your group. In combat and in a Mythic+ key the game hides buffs from addons: then a buff it cannot see reads **Hidden**, not missing (weapon oil still shows), so the check is for before the pull.
 
 ### NSRT note and its alerts
 

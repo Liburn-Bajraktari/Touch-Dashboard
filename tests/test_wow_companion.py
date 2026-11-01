@@ -620,7 +620,7 @@ def test_a_mythic_plus_run_comes_through(game, tmp_path):
     frames(core, 20)
     m = core.snapshot()["data"]["mplus"]
     assert (m["state"], m["running"], m["level"], m["name"], m["limit"]) == (1, False, 12, "Ara-Kara", 1800)
-    assert [b["name"] for b in m["bosses"]] == ["Avanoxx", "Anub'zekt", "Ki'katal the Harvester"]   # no check mark
+    assert [b["name"] for b in m["bosses"]] == ["Avanoxx", "Anub'zekt", "Ki'katal the Harvester"]   # no ✓, no "defeated"
     assert game_live(core)["mplus"]["chests"] == [1080, 1440, 1800]                                  # +3, +2, +1
     game.cmd("mplus go")
     frames(core, 125)
