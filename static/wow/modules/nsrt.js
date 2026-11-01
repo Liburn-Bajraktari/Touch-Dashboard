@@ -1,8 +1,12 @@
 /*
- * Northern Sky Raid Tools: the live note viewer (left), Group split and Test
- * alerts (action pad), NSRT hub, kick macro sync and the raid audit
- * (utilities). The note comes parsed from the server (wow_nsrt_update): from
- * NSRT's SavedVariables, or pasted from the PC's clipboard.
+ * Northern Sky Raid Tools: the live note viewer plate, and two plates for its
+ * encounter alerts as they come. NSRT's commands (Group split, Test alerts,
+ * the hub, kick macro sync, Captain Zeynith) are keys like any other, in the
+ * keys plates. The note comes parsed from the server (wow_nsrt_update): from
+ * NSRT's SavedVariables, or pasted from the PC's clipboard. The alerts come
+ * with the game's live state (wow_game_update): NSRT's schedule for the phase
+ * that runs, read by the companion addon when the phase starts. Their
+ * countdowns step once a second on this screen's clock.
  */
 (function () {
     'use strict';
@@ -121,43 +125,124 @@
         draw(api);
     }
 
-    const keys = [];     // the keys showing a command's text, kept current
+    // ── encounter alerts ─────────────────────────────────────────────────
+    const MARK = /\{(star|circle|diamond|triangle|moon|square|cross|skull)\}/g;
+    const MARK_GLYPH = { cross: 'x' };
+    const al = { list: null, next: null, where: null, data: null, at: 0, key: '', tick: 0 };
 
-    function commandKey(el, api, o) {
-        const key = api.key({ glyph: o.glyph, label: o.label, value: o.value || api.slash(o.command) });
-        key.addEventListener('click', () => (o.tap ? o.tap(key) : api.send(o.command, null, key)));
-        key.refresh = () => key.setValue(o.value || api.slash(o.command));
-        el.appendChild(key);
-        for (let i = keys.length - 1; i >= 0; i--) if (!keys[i].isConnected) keys.splice(i, 1);
-        keys.push(key);
+    function clock(s) {
+        s = Math.max(0, Math.ceil(s));
+        return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }
+
+    // {skull} and the like as the marker in its colour.
+    function alertHtml(api, text) {
+        return api.esc(text).replace(MARK, (_, m) => `<i data-lucide="${MARK_GLYPH[m] || m}" class="wow-alert-mark" data-mark="${m}"></i>`);
+    }
+
+    function syncAlerts(api) {
+        const g = api.view('game');
+        const live = g && g.live;
+        const key = live ? JSON.stringify([live.age, live.alerts]) : '';
+        if (key === al.key) return;
+        al.key = key;
+        al.at = performance.now();
+        al.data = live && live.alerts && live.age < 600
+            ? { ...live.alerts, link: live.link, list: live.alerts.list.map(a => ({ ...a, rem: a.rem - live.age })) } : null;
+    }
+
+    function upcoming() {
+        if (!al.data) return [];
+        const gone = (performance.now() - al.at) / 1000;
+        return al.data.list.map(a => ({ ...a, left: a.rem - gone })).filter(a => a.left > 0);
+    }
+
+    function where() {
+        const d = al.data;
+        if (!d) return '';
+        return d.test ? 'Test run' : [d.enc, d.phase ? `Phase ${d.phase}` : ''].filter(Boolean).join(' · ');
+    }
+
+    function idleText(api) {
+        const g = api.view('game');
+        if (!(g && g.live && g.live.link)) return 'Alerts come with the live link: the Touch Dashboard addon on, WoW running.';
+        return al.data ? 'No more alerts this phase.' : 'NSRT’s alerts show here once an encounter starts. Test runs phase 1 now.';
+    }
+
+    // The list: the next alert large, the rest below it smaller. Each plate is
+    // rebuilt when the alerts change (el.shape: what it shows); between, only
+    // the countdowns' text. A plate is drawn before the page places it.
+    function drawAlerts(api) {
+        syncAlerts(api);
+        const soon = upcoming();
+        const shape = JSON.stringify([where(), soon.map(a => a.text), idleText(api)]);
+        if (al.list) {
+            if (shape !== al.list.shape) {
+                al.list.shape = shape;
+                al.list.innerHTML = soon.length
+                    ? soon.map((a, i) => `<div class="wow-alert${i ? '' : ' is-next scribble'}"><span class="wow-alert-text">${alertHtml(api, a.text)}</span>`
+                        + `<span class="wow-alert-left num${i ? '' : ' live'}"><span class="live-v"></span></span></div>`).join('')
+                    : `<p class="wow-cell-note">${api.esc(idleText(api))}</p>`;
+                api.icons(al.list);
+            }
+            al.list.querySelectorAll('.wow-alert .live-v').forEach((el, i) => api.text(el, clock(soon[i].left)));
+            if (al.where) api.text(al.where, where());
+        }
+        if (al.next) {
+            const [a, b] = soon;
+            if (shape !== al.next.shape) {
+                al.next.shape = shape;
+                al.next.dataset.state = a ? 'on' : 'idle';
+                al.next.innerHTML = a
+                    ? `<span class="wow-alert-text">${alertHtml(api, a.text)}</span><span class="wow-alert-left live num"><span class="live-v"></span></span>`
+                        + `<span class="wow-alert-then">${b ? `Then ${alertHtml(api, b.text)} · <span class="num"></span>` : api.esc(where())}</span>`
+                    : `<span class="wow-cell-note">${api.esc(idleText(api))}</span>`;
+                api.icons(al.next);
+            }
+            if (a) api.text(al.next.querySelector('.live-v'), clock(a.left));
+            const then = al.next.querySelector('.wow-alert-then .num');
+            if (then && b) api.text(then, clock(b.left));
+        }
+        clearTimeout(al.tick);
+        if (soon.length) al.tick = setTimeout(() => drawAlerts(api), ((soon[0].left % 1) || 1) * 1000 + 15);
+    }
+
+    function testKey(head, api) {
+        head.insertAdjacentHTML('beforeend', '<button class="btn wow-head-key" type="button"><i data-lucide="bell-ring"></i>'
+            + '<span class="wow-head-label">Test</span><i data-lucide="alert-triangle" class="key-warn"></i></button>');
+        const b = head.lastElementChild;
+        b.setAttribute('aria-label', 'Run NSRT’s test of phase 1');
+        b.addEventListener('click', () => api.send('nsrt_test', null, b));
+        api.icons(head);
+    }
+
+    function renderAlerts(sec, api, head) {
+        testKey(head, api);
+        al.where = document.createElement('p');
+        al.where.className = 'wow-alerts-where';
+        al.list = document.createElement('div');
+        al.list.className = 'wow-alerts';
+        al.list.setAttribute('role', 'timer');
+        sec.append(al.where, al.list);
+        drawAlerts(api);
+    }
+
+    function renderNext(sec, api) {
+        al.next = document.createElement('div');
+        al.next.className = 'scribble wow-alert-next';
+        al.next.setAttribute('role', 'timer');
+        sec.appendChild(al.next);
+        drawAlerts(api);
     }
 
     AddonModules.register({
         id: 'nsrt',
         name: 'Northern Sky Raid Tools',
-        commands: ['open_nsrt', 'nkm_refresh', 'nsrt_test', 'nsrt_arrange', 'cz_check', 'cz_announce', 'nsrt_paste', 'nsrt_pick'],
-        columns: [
-            { column: 'left', order: 10, title: 'NSRT note', grow: true, render: renderViewer },
-            { slot: 'bottom', order: 10, render: (el, api) => commandKey(el, api, { command: 'nsrt_arrange', glyph: 'split', label: 'Group split' }) },
-            { slot: 'bottom', order: 20, render: (el, api) => commandKey(el, api, { command: 'nsrt_test', glyph: 'bell-ring', label: 'Test alerts' }) },
-            { slot: 'grid', order: 10, render: (el, api) => commandKey(el, api, { command: 'open_nsrt', glyph: 'layout-grid', label: 'NSRT hub' }) },
-            { slot: 'grid', order: 20, render: (el, api) => commandKey(el, api, { command: 'nkm_refresh', glyph: 'refresh-cw', label: 'Sync kick macro' }) },
-            {
-                // BigWigs' version check rides along when BigWigs is on.
-                slot: 'grid', order: 30, render: (el, api) => commandKey(el, api, {
-                    command: 'cz_check', glyph: 'shield-check', label: 'Raid audit',
-                    get value() { return [api.slash('cz_check'), api.enabled('bigwigs') ? api.slash('bw_version') : ''].filter(Boolean).join(' · '); },
-                    tap: (key) => {
-                        api.send('cz_check', null, key);
-                        if (api.enabled('bigwigs')) api.send('bw_version', null, key);
-                    },
-                }),
-            },
-        ],
+        widgets: { note: { render: renderViewer }, alerts: { render: renderAlerts }, next: { render: renderNext } },
         update(api) {
-            keys.forEach(k => k.refresh());
             api.onAck = (d) => (d.command === 'nsrt_paste' && d.reason === 'empty' ? "No note on the PC's clipboard" : null);
             draw(api);
+            drawAlerts(api);
         },
         onUpdate(data, api) {
             note = data;

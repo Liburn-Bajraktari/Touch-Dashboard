@@ -55,6 +55,9 @@ REQUEST_GAP_S = 60           # a refresh asked for from a screen, at most this o
 AFFIXES_S = 3 * 3600
 RAIDS_S = 24 * 3600
 SPELL_TTL_S = 30 * 24 * 3600
+TOKEN_S = 20 * 60            # Blizzard prices the WoW Token about every 20 minutes
+TOKEN_KEEP_S = 8 * 24 * 3600
+TOKEN_POINTS = 84           # a week at two hours a point
 SPELL_RETRY_S = 3600         # a spell Battle.net does not know
 SPELLS_PER_ROUND = 40
 # Images the page may show: Blizzard's and Raider.IO's own image hosts.
@@ -153,6 +156,9 @@ class Armory:
         self._wanted: set[int] = set()
         self._affixes: dict[str, tuple[float, dict]] = {}
         self._raids: dict[int, tuple[float, list]] = {}
+        self._token_hist: dict[str, list[list[int]]] = {}   # region → [[epoch s, gold], …], oldest first
+        self._token_at: dict[str, float] = {}
+        self._token_err: dict[str, str] = {}
         self.character: dict | None = None       # the last refresh, merged
         self.error: str | None = None            # why the last refresh failed
         self._refreshed: tuple | None = None     # (region, realm, name) of self.character
@@ -438,6 +444,59 @@ class Armory:
             hit = self._affixes.get(region)
             return hit[1] if hit else None
 
+    # ── the WoW Token ─────────────────────────────────────────────────────
+
+    def token_due(self, region: str) -> bool:
+        if region not in REGIONS or not self.has_key():
+            return False
+        with self._lock:
+            gap = RETRY_S if region in self._token_err else TOKEN_S
+            return self._clock() - self._token_at.get(region, -1e12) >= gap
+
+    def fetch_token(self, region: str) -> bool:
+        """Read the WoW Token's price in a region (Battle.net); whether the view changed."""
+        with self._lock:
+            self._token_at[region] = self._clock()
+        try:
+            d = self._bnet(region, "/data/wow/token/index", "dynamic")
+            price, stamp = d.get("price"), d.get("last_updated_timestamp")
+            if not isinstance(price, int) or isinstance(price, bool) or price <= 0:
+                raise ArmoryError("failed")
+        except ArmoryError as e:
+            with self._lock:
+                changed = self._token_err.get(region) != e.reason
+                self._token_err[region] = e.reason
+            return changed
+        at = int(stamp // 1000) if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) else int(self._clock())
+        with self._lock:
+            had_error = self._token_err.pop(region, None) is not None
+            hist = self._token_hist.setdefault(region, [])
+            if hist and hist[-1][0] >= at:
+                return had_error
+            hist.append([at, price // 10000])
+            del hist[:max(0, next((i for i, p in enumerate(hist) if p[0] >= at - TOKEN_KEEP_S), 0))]
+        self._save()
+        return True
+
+    def token(self, region: str) -> dict:
+        """The token's price in gold, its change over a day and its last week (points ≤ TOKEN_POINTS)."""
+        with self._lock:
+            hist = list(self._token_hist.get(region) or [])
+            err = self._token_err.get(region)
+        if not hist:
+            return {"state": "no_key" if not self.has_key() else ("error" if err else "loading"), "reason": err}
+        at, gold = hist[-1]
+        before = [g for t, g in hist if t <= at - 24 * 3600]
+        week = [p for p in hist if p[0] >= at - 7 * 24 * 3600]
+        step = 7 * 24 * 3600 / TOKEN_POINTS
+        buckets: dict[int, list[int]] = {}
+        for t, g in week:
+            buckets[int((t - week[0][0]) // step)] = [t, g]   # the newest in each bucket
+        return {"state": "ok", "price": gold, "updated": at, "reason": err,
+                "change": gold - before[-1] if before else None,
+                "low": min(g for _, g in week), "high": max(g for _, g in week),
+                "points": [buckets[k] for k in sorted(buckets)]}
+
     # ── the account: sign-in and the saved characters ─────────────────────
 
     def authorize_url(self, redirect_uri: str, state: str) -> str:
@@ -677,6 +736,11 @@ class Armory:
                 data = json.load(f)
         except (OSError, ValueError):
             return
+        for region, hist in (data.get("token") or {}).items() if isinstance(data.get("token"), dict) else ():
+            if region in REGIONS and isinstance(hist, list):
+                self._token_hist[region] = [[int(p[0]), int(p[1])] for p in hist
+                                            if isinstance(p, list) and len(p) == 2
+                                            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in p)]
         for sid, e in (data.get("spells") or {}).items():
             if (isinstance(e, dict) and str(sid).isdigit() and isinstance(e.get("at"), (int, float))
                     and (e.get("name") is None or isinstance(e.get("name"), str))):
@@ -686,7 +750,7 @@ class Armory:
         if not self._cache_file:
             return
         with self._lock:
-            data = {"spells": dict(self._spells)}
+            data = {"spells": dict(self._spells), "token": {r: list(h) for r, h in self._token_hist.items()}}
         tmp = self._cache_file + ".tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as f:

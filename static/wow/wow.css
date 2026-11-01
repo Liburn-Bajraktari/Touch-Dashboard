@@ -129,8 +129,11 @@
 }
 
 /* ── Columns ──────────────────────────────────────────────────────────── */
-/* The dashboard's own columns. A column with nothing left in it (every
-   module in it off) drops out and the others take its width. */
+/* The dashboard's own columns. Each is a grid of two tracks (core.js packs
+   it): a full plate takes a row, two half plates share one, and the rows
+   holding a growing plate share the spare height (grid-template-rows, set
+   per column). A column that does not fit scrolls by itself, in a plain
+   rectangular clip. A column with nothing in it drops out. */
 .wow-grid {
     flex: 1;
     display: flex;
@@ -139,81 +142,279 @@
 }
 
 .wow-col {
-    display: flex;
-    flex-direction: column;
+    --wow-grow-min: 14rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: auto;
+    align-content: start;
     gap: var(--gap);
     min-width: 0;
     min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
 }
 
-.wow-col[data-col="left"],
-.wow-col[data-col="right"] {
+.wow-col[data-col="0"],
+.wow-col[data-col="2"] {
     flex: 1.2 1 0;
 }
 
-.wow-col[data-col="center"] {
+.wow-col[data-col="1"] {
     flex: 1.3 1 0;
 }
 
 .wow-col[hidden],
-.wow-sec[hidden],
-.wow-row[hidden],
-.wow-item[hidden] {
+.wow-sec[hidden] {
     display: none;
+}
+
+/* A plate keeps its content's height (the column scrolls); a growing one
+   (a list) shrinks to its share and scrolls inside. Narrow plates (half
+   width) lay their parts out by their own width. */
+.wow-cell {
+    position: relative;
+    min-width: 0;
+    min-height: auto;       /* .panel sets 0: the plate would shrink under its content */
+    container-type: inline-size;
+}
+
+.wow-cell.is-grow {
+    min-height: 0;
+}
+
+/* Parts that fill their plate (flex: 1) count with their content in a plate
+   that does not grow: a basis of 0 left them out of its height. */
+.wow-cell:not(.is-grow) > * {
+    flex-basis: auto;
 }
 
 .wow-sec {
     gap: var(--gap-sm);
-    flex: 0 0 auto;
-}
-
-.wow-sec.is-grow {
-    flex: 1 1 0;
 }
 
 .wow-sec .panel-head {
     flex: 0 0 auto;
 }
 
-/* Rows of keys contributed by several modules: each present item is one
-   column of equal width, so a module switched off leaves no gap. */
-.wow-row {
+/* Two keys side by side in a plate (the combat log's). */
+.wow-pair {
     display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--gap-sm);
-    flex: 1 1 0;
-    min-height: 0;
+    flex: 1 1 auto;
+    min-height: 7.6rem;
 }
 
-.wow-row[data-slot="faders"] {
-    flex: 0 0 auto;
-    grid-auto-flow: row;
-    grid-auto-columns: auto;
-    grid-template-columns: minmax(0, 1fr);
+@container (max-width: 24rem) {
+    .wow-pair {
+        grid-template-columns: minmax(0, 1fr);
+        grid-auto-rows: minmax(8.4rem, auto);
+    }
+}
+
+/* Three (Pull, Break, Ready check). */
+.wow-trio {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--gap-sm);
+    flex: 1 1 auto;
+    min-height: 7.6rem;
+}
+
+.wow-faders {
+    display: grid;
     gap: 0.6rem;
 }
 
-/* The utilities: square keys, two by two. */
-.wow-row[data-slot="grid"] {
-    flex: 0 0 auto;
-    grid-auto-flow: row;
+.wow-faders[hidden] {
+    display: none;
+}
+
+.wow-cell-note {
+    margin: 0;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    line-height: 1.4;
+}
+
+/* ── Keys plates ──────────────────────────────────────────────────────── */
+/* Keys the player chose: square, as many to a row as fit, like the macro
+   matrix's. They keep their size: only lists grow into spare height. */
+.wow-keys {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8.4rem, 1fr));
+    grid-auto-rows: auto;
+    gap: var(--gap-sm);
+    flex: 1 1 auto;
+    min-height: 0;
+    align-content: start;
+}
+
+.wow-keys > .wow-key,
+.wow-keys > .wow-add-tile {
+    aspect-ratio: 1;
+    min-height: 0;
+    height: auto;
+}
+
+.wow-keys > .wow-cell-note {
+    grid-column: 1 / -1;
+}
+
+.wow-keys-sec[data-size="half"] .wow-keys {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.wow-row[data-slot="grid"] .wow-item {
-    aspect-ratio: 1;
+.wow-key.is-empty .key-screen {
+    background: transparent;
+    box-shadow: inset 0 0 0 var(--line-w) var(--line);
 }
 
-.wow-item {
-    display: flex;
+.wow-key.is-empty .key-label,
+.wow-key.is-off .key-label,
+.wow-key.is-off svg.lucide {
+    color: var(--text-3);
+}
+
+.wow-keys-title {
+    flex: 1;
     min-width: 0;
-    min-height: 0;
+    height: 3.4rem;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: var(--well);
+    box-shadow: var(--well-inset);
+    color: var(--well-ink);
+    font: inherit;
+    font-size: var(--fs-md);
+    font-weight: 600;
 }
 
-.wow-row[data-slot="faders"] .wow-item {
-    flex-direction: column;
+/* ── Arranging the page ───────────────────────────────────────────────── */
+/* Edit mode: each plate has a slim recessed tray (move, size, remove), its
+   content takes no taps (keys open their editor), blanks and "Add" tiles
+   show where another plate can go. */
+.wow-add-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     gap: 0.6rem;
+    min-height: 6rem;
+    padding: 1rem;
+    border: var(--line-w) dashed var(--line-strong);
+    border-radius: calc(var(--radius-panel) * var(--sq));
+    background: transparent;
+    color: var(--text-3);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+}
+
+.wow-add-tile svg.lucide {
+    width: 1.8rem;
+    height: 1.8rem;
+}
+
+.wow-add-tile:is(:active, .is-pressed) {
+    background: var(--surface-2);
+    color: var(--text-2);
+}
+
+.wow-key-add {
+    min-height: 0;
+    border-radius: calc(var(--radius-key) * var(--sq));
+}
+
+/* A blank (edit mode only): its tray above its tile, never over the words. */
+.wow-cell.is-blank {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.wow-cell.is-blank > .wow-cell-tools {
+    align-self: flex-end;
+}
+
+.wow-cell.is-blank > .wow-add-tile {
+    flex: 1 1 auto;
+}
+
+/* It fits the plate it sits on: in a half plate its keys narrow (no less
+   than 2.3rem each) instead of running past the edge. */
+.wow-cell-tools {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: auto;
+    gap: 0.15rem;
+    padding: 0.25rem;
+    border-radius: var(--radius-pill);
+    background: var(--well);
+    box-shadow: var(--well-inset);
+}
+
+.wow-cell-tools button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 1 3.4rem;
+    width: 3.4rem;
+    min-width: 2.3rem;
+    height: 3.4rem;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--well-ink-2);
+    cursor: pointer;
+}
+
+.wow-cell-tools button:disabled {
+    color: var(--text-3);
+    cursor: default;
+}
+
+.wow-cell-tools button:not(:disabled):is(:active, .is-pressed) {
+    background: var(--surface-3);
+    color: var(--well-ink);
+}
+
+.wow-cell-tools svg.lucide {
+    width: 1.6rem;
+    height: 1.6rem;
+}
+
+.wow-cell-shield {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+
+.wow-edit-acts {
+    display: none;
+    gap: 0.6rem;
+}
+
+#wow-view[data-editing="true"] .wow-edit-acts {
+    display: flex;
+}
+
+#wow-view[data-editing="true"] :is(.wow-last, .wow-head-keys) {
+    display: none;
+}
+
+#wow-view[data-editing="true"] .wow-cell .panel-head {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.wow-edit[hidden] {
+    display: none;
 }
 
 .wow-off {
@@ -444,6 +645,13 @@
     visibility: hidden;
 }
 
+/* A switch in the head (Raid & dungeons' Lengths): open, it sits sunk in a
+   well; nothing lights, it shows or hides a part. */
+.wow-head-toggle[aria-expanded="true"] {
+    background: var(--well);
+    color: var(--well-ink);
+}
+
 .wow-head-keys {
     display: flex;
     align-items: center;
@@ -645,6 +853,10 @@
 }
 
 .wow-char-id {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    text-align: left;
     flex: 1;
 }
 
@@ -697,6 +909,11 @@
     .wow-pick-row:hover {
         background: var(--surface-3);
     }
+}
+
+.wow-char-name,
+.wow-char-sub {
+    display: block;
 }
 
 .wow-char-name {
@@ -802,12 +1019,13 @@
     white-space: nowrap;
 }
 
-/* ── Buff check (EllesmereUI) ─────────────────────────────────────────── */
-/* A slim recessed tray of flat keys (no raised caps in a strip), each with
-   its LED: green ready, amber missing, and the word saying so. */
+/* ── Buff check (the companion addon) ────────────────────────────────── */
+/* A slim recessed tray of flat cells (no raised caps in a strip), each with
+   its LED: green ready, amber missing, and the word saying so; a missing
+   buff your class casts is a key that casts it. */
 .wow-buffs {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(7.6rem, 1fr));
     gap: 0.3rem;
     padding: 0.3rem;
     background: var(--well);
@@ -815,19 +1033,26 @@
     border-radius: calc(var(--radius-key) * var(--sq));
 }
 
-.btn.wow-buff {
+.wow-buff:not(.btn) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+}
+
+.wow-buff {
     flex-direction: column;
     gap: 0.3rem;
     min-height: 0;
-    height: 6.6rem;
-    padding: 0.5rem 0.3rem;
+    height: 5.8rem;
+    padding: 0.4rem 0.3rem;
     border-radius: calc((var(--radius-key) - 0.3rem) * var(--sq));
     background: transparent;
     box-shadow: none;
     color: var(--well-ink-2);
 }
 
-.btn.wow-buff svg.lucide {
+.wow-buff svg.lucide {
     width: 1.8rem;
     height: 1.8rem;
 }
@@ -877,14 +1102,14 @@
     color: var(--well-ink);
 }
 
-/* ── Timer (BigWigs) ──────────────────────────────────────────────────── */
+/* ── Raid & dungeons: the timer ───────────────────────────────────────── */
 /* The display fills its plate: the label, the countdown large, the bar. */
 .wow-timer {
     flex: 1 1 auto;
     align-items: stretch;
     justify-content: space-between;
-    gap: 0.55rem;
-    padding: 0.9rem 1.1rem 1rem;
+    gap: 0.4rem;
+    padding: 0.6rem 1.1rem 0.8rem;
 }
 
 .wow-timer-top {
@@ -907,7 +1132,7 @@
 }
 
 .wow-timer-fig {
-    --live-h: 4.6rem;
+    --live-h: 3.8rem;
     flex: none;
     width: 100%;
     text-align: center;
@@ -916,8 +1141,9 @@
     color: var(--well-ink);
 }
 
+/* Idle: one slim line; the big figure only while something counts down. */
 .wow-timer[data-kind="idle"] .wow-timer-fig {
-    color: var(--well-ink-2);
+    display: none;
 }
 
 /* Steps once a second with the figure, like the progress bar: nothing
@@ -1221,6 +1447,845 @@
     }
 }
 
+/* ── Raid & dungeons: the ready check ────────────────────────────────── */
+/* One line of figures, then who has not said ready, quietly. */
+.wow-rc {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.5rem 0.9rem 0.55rem;
+    border-radius: calc(var(--radius-key) * var(--sq));
+    background: var(--well);
+    box-shadow: var(--well-inset);
+}
+
+.wow-rc[hidden] {
+    display: none;
+}
+
+.wow-rc-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.8rem;
+    font-size: var(--fs-xs);
+    color: var(--well-ink-2);
+}
+
+.wow-rc-fig {
+    color: var(--well-ink);
+}
+
+.wow-rc[data-tone="warn"] .wow-rc-fig {
+    color: var(--warning-text);
+}
+
+.wow-rc-who {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-xs);
+    color: var(--well-ink-2);
+}
+
+.wow-rc-who:empty {
+    display: none;
+}
+
+/* ── Raid & dungeons: Mythic+ ─────────────────────────────────────────── */
+/* The timer in a display, its bar marked where +3 and +2 run out; forces and
+   deaths beside each other; each boss and when it fell. Everything steps
+   once a second with the figure. */
+.wow-mp {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.wow-mp-key {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.wow-mp-timer {
+    align-items: stretch;
+    gap: 0.45rem;
+    padding: 0.6rem 1.1rem 0.75rem;
+}
+
+.wow-mp-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.wow-mp-fig {
+    --live-h: 3.6rem;
+    flex: 1;
+    min-width: 0;
+    font-size: calc(var(--fs-xl) * 1.3);
+    font-weight: var(--weight-clock);
+    color: var(--well-ink);
+}
+
+.wow-mp-limit {
+    flex: none;
+    font-size: var(--fs-sm);
+    color: var(--well-ink-2);
+}
+
+.wow-mp-bar,
+.wow-mp-forces {
+    position: relative;
+    height: 0.5rem;
+    border-radius: var(--radius-pill);
+    background: var(--surface-3);
+    overflow: hidden;
+}
+
+.wow-mp-fill,
+.wow-mp-forces-fill {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transform-origin: left center;
+    transform: scaleX(0);
+}
+
+.wow-mp[data-over="true"] .wow-mp-fill {
+    background: var(--warning);
+}
+
+.wow-mp-forces-fill {
+    background: var(--positive);
+}
+
+.wow-mp-tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--well);
+}
+
+.wow-mp-chests {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-sm);
+    color: var(--well-ink-2);
+}
+
+.wow-mp-chests[data-tone="good"] {
+    color: var(--positive);
+}
+
+.wow-mp-chests[data-tone="warn"] {
+    color: var(--warning-text);
+}
+
+.wow-mp-stats {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--gap-sm);
+}
+
+.wow-mp-stat {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.3rem 0.8rem;
+    padding: 0.5rem 0.9rem 0.6rem;
+    border-radius: calc(var(--radius-key) * var(--sq));
+    background: var(--well);
+    box-shadow: var(--well-inset);
+    font-size: var(--fs-xs);
+    color: var(--well-ink-2);
+}
+
+.wow-mp-val {
+    font-size: var(--fs-md);
+    color: var(--well-ink);
+}
+
+.wow-mp-forces {
+    flex: 1 0 100%;
+    height: 0.4rem;
+}
+
+.wow-mp-bosses {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* A boss: a dot, lit once it is down, the name, when it fell. */
+.wow-mp-boss {
+    display: flex;
+    align-items: baseline;
+    gap: 0.7rem;
+    padding: 0.2rem 0.9rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.wow-mp-boss::before {
+    content: '';
+    flex: none;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 var(--line-w) var(--line-strong);
+}
+
+.wow-mp-boss[data-done]::before {
+    background: var(--positive);
+    box-shadow: none;
+}
+
+.wow-mp-boss[data-done] {
+    color: var(--text-3);
+}
+
+.wow-mp-boss-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── World markers ────────────────────────────────────────────────────── */
+/* The eight in their colours, five to a row (three in a half plate). A
+   marker's colour is its glyph's, wherever the key is (data-mark). */
+.wow-marks {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--gap-sm);
+    flex: 0 0 auto;
+}
+
+.wow-marks > .wow-mark {
+    min-height: 6.2rem;                 /* the glyph and its name, never cut */
+}
+
+.wow-marks > .wow-mark-clear {
+    grid-column: span 2;
+}
+
+.wow-mark .key-screen svg.lucide {
+    width: 2.4rem;
+    height: 2.4rem;
+}
+
+@container (max-width: 24rem) {
+    .wow-marks {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .wow-marks > .wow-mark-clear {
+        grid-column: auto;
+    }
+}
+
+[data-mark="star"] { --mark-c: var(--mark-star); }
+[data-mark="circle"] { --mark-c: var(--mark-circle); }
+[data-mark="diamond"] { --mark-c: var(--mark-diamond); }
+[data-mark="triangle"] { --mark-c: var(--mark-triangle); }
+[data-mark="moon"] { --mark-c: var(--mark-moon); }
+[data-mark="square"] { --mark-c: var(--mark-square); }
+[data-mark="cross"] { --mark-c: var(--mark-cross); }
+[data-mark="skull"] { --mark-c: var(--mark-skull); }
+
+.wow-key[data-mark] .key-glyph > svg.lucide:not(.key-warn),
+svg.wow-alert-mark {
+    color: var(--mark-c);
+    fill: var(--mark-c);
+    fill-opacity: 0.28;
+}
+
+/* ── NSRT's encounter alerts ──────────────────────────────────────────── */
+/* The list: the next alert large in a display, the rest below it smaller,
+   each with its countdown; the next one alone in the other plate. */
+.wow-alerts-where {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+}
+
+.wow-alerts-where:empty {
+    display: none;
+}
+
+.wow-alerts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.wow-alert {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.8rem;
+    padding: 0.3rem 0.9rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.wow-alert-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wow-alert-left {
+    flex: none;
+}
+
+svg.wow-alert-mark {
+    width: 1.15em;
+    height: 1.15em;
+    vertical-align: -0.2em;
+}
+
+.wow-alert.is-next {
+    align-items: center;
+    margin-bottom: 0.3rem;
+    padding: 0.7rem 1.1rem;
+    font-size: var(--fs-lg);
+    color: var(--well-ink);
+}
+
+.wow-alert.is-next .wow-alert-left,
+.wow-alert-next .wow-alert-left {
+    --live-h: 3.4rem;
+    width: 3.4em;
+    text-align: right;
+    font-size: calc(var(--fs-xl) * 1.1);
+    font-weight: var(--weight-clock);
+    color: var(--well-ink);
+}
+
+.wow-alert-next {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.2rem 1rem;
+    flex: 1 1 auto;
+    padding: 0.7rem 1.1rem;
+}
+
+.wow-alert-next[data-state="idle"] {
+    display: block;
+}
+
+.wow-alert-next .wow-alert-text {
+    font-size: var(--fs-lg);
+    color: var(--well-ink);
+}
+
+.wow-alert-then {
+    grid-column: 1 / -1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-xs);
+    color: var(--well-ink-2);
+}
+
+/* ── Boss mod bars (from the companion) ───────────────────────────────── */
+.wow-bars {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.wow-bars[hidden] {
+    display: none;
+}
+
+.wow-bar-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-pill);
+    background: var(--well);
+    color: var(--well-ink);
+    font-size: var(--fs-sm);
+}
+
+.wow-bar-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wow-bar-left {
+    flex: none;
+    font-family: var(--font-num);
+}
+
+/* ── Gold, bags, the token ────────────────────────────────────────────── */
+.wow-wallet,
+.wow-bags,
+.wow-token,
+.wow-keystone {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 0;
+}
+
+.wow-wallet .live,
+.wow-bags .live,
+.wow-token .live,
+.wow-keystone .live {
+    --live-h: 2.2rem;
+    width: 100%;
+    text-align: center;
+    font-size: var(--fs-lg);
+    color: var(--well-ink);
+}
+
+.wow-keystone .live {
+    font-size: var(--fs-md);
+}
+
+.wow-wallet .wow-gold-fig,
+.wow-token .wow-gold-fig {
+    --live-h: 3.2rem;
+    font-size: var(--fs-xl);
+}
+
+.wow-gold-lines {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.wow-gold-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.wow-gold-line .num {
+    color: var(--text);
+    font-family: var(--font-num);
+    white-space: nowrap;
+}
+
+.wow-token-trace {
+    width: 100%;
+    height: 4rem;
+}
+
+.wow-token-trace[hidden] {
+    display: none;
+}
+
+.wow-token-trace polyline {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 0.2rem;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.wow-bag-figs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+}
+
+.wow-bag-figs [data-tone="warn"] .live-v {
+    color: var(--warning-text);
+}
+
+.wow-bag-search {
+    height: 3.6rem;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: var(--well);
+    box-shadow: var(--well-inset);
+    color: var(--well-ink);
+    font: inherit;
+    font-size: var(--fs-sm);
+}
+
+.wow-bag-found {
+    display: grid;
+    gap: 0.3rem;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.wow-found {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 1rem;
+    padding: 0.4rem 0.2rem;
+    border-bottom: var(--line-w) solid var(--line);
+    font-size: var(--fs-sm);
+}
+
+.wow-found-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+}
+
+.wow-found-n {
+    font-family: var(--font-num);
+}
+
+.wow-found-where {
+    grid-column: 1 / -1;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}
+
+/* ── Keystone and vault ───────────────────────────────────────────────── */
+.wow-vault {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.wow-vault-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.wow-vault-pips {
+    display: flex;
+    gap: 0.3rem;
+}
+
+.wow-pip {
+    width: 1.6rem;
+    height: 0.6rem;
+    border-radius: var(--radius-pill);
+    background: var(--well);
+    box-shadow: var(--well-inset);
+}
+
+.wow-pip.is-on {
+    background: var(--positive);
+    box-shadow: none;
+}
+
+.wow-key-alts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1rem;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}
+
+/* ── Characters ───────────────────────────────────────────────────────── */
+.wow-alts {
+    display: grid;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.wow-alt {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr));
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.2rem;
+    border-bottom: var(--line-w) solid var(--line);
+    font-size: var(--fs-sm);
+}
+
+.wow-alt.is-head {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}
+
+.wow-alt.is-current .wow-alt-name {
+    color: var(--accent-text);
+}
+
+.wow-alt .num {
+    font-family: var(--font-num);
+    text-align: right;
+}
+
+.wow-alt-name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.wow-alt-sub {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}
+
+/* ── The key editor ───────────────────────────────────────────────────── */
+/* The key as it will look and its fields on one side, every command the
+   server knows on the other: categories, a search, the list. */
+.wow-keyed-card {
+    width: min(112rem, 96vw);
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.wow-keyed {
+    display: grid;
+    grid-template-columns: 30rem minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 2rem;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.wow-keyed > * {
+    min-height: 0;
+}
+
+.wow-keyed-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.wow-keyed-preview {
+    flex: none;
+    display: flex;
+    align-self: center;
+    width: 12rem;
+    height: 12rem;
+    pointer-events: none;
+}
+
+.wow-keyed-custom[hidden] {
+    display: none;
+}
+
+.wow-keyed-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    min-height: 0;
+}
+
+/* Kinds of command: slim flat chips in one recessed tray. */
+.wow-keyed-cats {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: calc(var(--radius-key) * var(--sq));
+    background: var(--well);
+    box-shadow: var(--well-inset);
+}
+
+.wow-cat {
+    height: 3rem;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--well-ink-2);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+}
+
+.wow-cat[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--accent-ink);
+}
+
+.wow-keyed-search {
+    flex: none;
+    height: 3.8rem;
+}
+
+.wow-keyed-list {
+    flex: 1;
+    min-height: 12rem;
+    overflow-y: auto;
+    border-radius: calc(var(--radius-key) * var(--sq));
+    background: var(--well);
+    box-shadow: var(--well-inset);
+}
+
+.wow-cmd-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+    padding: 0.7rem 1rem;
+    border: 0;
+    background: transparent;
+    color: var(--well-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.wow-cmd-row + .wow-cmd-row {
+    border-top: var(--line-w) solid var(--line);
+}
+
+.wow-cmd-row[aria-selected="true"] {
+    background: var(--surface-2);
+}
+
+.wow-cmd-row svg.lucide {
+    flex: none;
+    width: 1.8rem;
+    height: 1.8rem;
+    color: var(--well-ink-2);
+}
+
+.wow-cmd-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.wow-cmd-name {
+    font-size: var(--fs-sm);
+    font-weight: 500;
+}
+
+.wow-cmd-slash {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-num);
+    font-size: var(--fs-xs);
+    color: var(--well-ink-2);
+}
+
+.wow-cmd-badge {
+    flex: none;
+    padding: 0.1rem 0.6rem;
+    border-radius: var(--radius-pill);
+    box-shadow: inset 0 0 0 var(--line-w) var(--line-strong);
+    color: var(--warning-text);
+    font-size: var(--fs-xs);
+}
+
+.wow-glyphs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(3.8rem, 1fr));
+    gap: 0.25rem;
+    max-height: 17rem;
+    overflow-y: auto;
+    padding: 0.25rem;
+    border-radius: calc(var(--radius-key) * var(--sq));
+    background: var(--well);
+    box-shadow: var(--well-inset);
+}
+
+.wow-glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    border: 0;
+    border-radius: 0.6rem;
+    background: transparent;
+    color: var(--well-ink-2);
+    cursor: pointer;
+}
+
+.wow-glyph[aria-checked="true"] {
+    background: var(--accent);
+    color: var(--accent-ink);
+}
+
+.wow-glyph svg.lucide {
+    width: 1.8rem;
+    height: 1.8rem;
+}
+
+.wow-keyed-gap {
+    flex: 1;
+}
+
+.wow-keyed-remove[hidden] {
+    display: none;
+}
+
+.wow-pick-glyph {
+    flex: none;
+    color: var(--text-2);
+}
+
+.wow-pick-row.is-dim .wow-pick-name {
+    color: var(--text-3);
+}
+
+.wow-slot-name {
+    font-size: var(--fs-sm);
+}
+
+.wow-slot-free {
+    color: var(--text-3);
+}
+
+.btn.wow-slot-clear {
+    width: 3.4rem;
+    height: 3.4rem;
+    min-height: 0;
+    padding: 0;
+}
+
+.wow-custom {
+    display: grid;
+    gap: 0.6rem;
+    padding: 1rem 1.25rem;
+}
+
+.wow-custom + .wow-custom {
+    margin-top: 1rem;
+}
+
+.wow-custom textarea {
+    font-family: var(--font-num);
+}
+
 /* ── Phones ───────────────────────────────────────────────────────────── */
 /* PHONE_LAYOUT's query (templates/index.html): one column that scrolls, in
    reading order. */
@@ -1245,10 +2310,8 @@
 
     .wow-col[data-col] {
         flex: 0 0 auto;
-    }
-
-    .wow-sec.is-grow {
-        flex: 0 0 auto;
+        grid-template-rows: none !important;
+        overflow: visible;
     }
 
     /* A list (the NSRT note) gets room of its own; the page scrolls. */
@@ -1257,17 +2320,9 @@
         min-height: 24rem;
     }
 
-    .wow-row {
-        flex: 0 0 auto;
-        min-height: 11rem;
-    }
-
-    .wow-row[data-slot="grid"] {
-        grid-auto-rows: 11rem;
-    }
-
-    .wow-row[data-slot="grid"] .wow-item {
-        aspect-ratio: auto;
+    .wow-keyed {
+        grid-template-columns: minmax(0, 1fr);
+        overflow-y: auto;
     }
 
     #wow-settings-card {

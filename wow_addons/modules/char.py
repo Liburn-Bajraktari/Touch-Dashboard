@@ -13,7 +13,7 @@ guild. Blizzard updates a character when it logs out.
 """
 from __future__ import annotations
 
-from wow_addons import AddonModule, Arg, Command, CommandError, Context
+from wow_addons import AddonModule, Arg, Command, CommandError, Context, Widget
 from wow_addons.armory import character_id
 
 ALTS_MAX = 60
@@ -76,8 +76,10 @@ MODULE = AddonModule(
     description="Item level, Mythic+ score, raid progress and this week's affixes, from Raider.IO and Battle.net",
     order=5,
     commands=(
-        Command("char_refresh", "Refresh the character", run=_refresh),
+        Command("char_refresh", "Refresh the character", run=_refresh, glyph="refresh-cw"),
         Command("char_switch", "Switch character", args={"id": Arg("id")}, run=_switch),
     ),
     view=view,
+    widgets=(Widget("plate", "Character", "Your character, its score and raid progress, this week's affixes; "
+                    "tap the name to switch to another", sizes=("full", "half"), column=1, order=10),),
 )

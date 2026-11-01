@@ -129,7 +129,8 @@ def test_saved_variables_offer_every_note_and_the_active_one_first():
 
 def test_every_module_is_found_with_unique_commands():
     mods = wow_addons.discover()
-    assert {m.id for m in mods} == {"nsrt", "bigwigs", "ellesmere", "combatlog", "utility", "char"}
+    assert {m.id for m in mods} == {"nsrt", "bigwigs", "ellesmere", "combatlog", "utility", "char", "wowgame",
+                                    "addons", "game", "token", "raid", "markers"}
     ids = [c.id for m in mods for c in m.commands]
     assert len(ids) == len(set(ids))
 
@@ -141,18 +142,19 @@ def test_settings_are_cleaned_and_defaults_filled_in():
         "character": ' Magic"bane|\n ', "role": "ranged",
         "account": "../../etc", "wow_path": "~/Games/wow\0",
         "keybinds": {"F1": "open_nsrt", "F2": "open_nsrt", "F3": "bw_pull", "F13": "bw_version", "F4": "rm -rf"},
-        "slash": {"bw_pull": "/pull {seconds} now", "nsrt_test": "/ns test {x}", "open_nsrt": "ns", "cwm_clear": "/cwm\nclear"},
-        "bigwigs": {"pull_s": 99, "break_m": "3"},
+        "slash": {"bw_pull": "/pull {seconds} now", "nsrt_test": "/ns test {x}", "open_nsrt": "ns", "wow_cwm": "/cwm\nclear"},
+        "raid": {"pull_s": 99, "break_m": "3"},
         "ellesmere": {"profiles": ["Raid", "Raid", ' M"+ ', 5, ""]},
     })
     assert s["modules"] == {"nsrt": False, "bigwigs": True, "ellesmere": True, "combatlog": True, "utility": True,
-                            "char": True}
+                            "char": True, "wowgame": True, "addons": True, "game": True, "token": True,
+                            "raid": True, "markers": True}
     assert (s["character"], s["role"], s["account"], s["wow_path"]) == ("Magicbane", "ranged", "", "")
-    # One slot per command, only commands without arguments, only F1-F12.
-    assert s["keybinds"] == {"F1": "open_nsrt"}
+    # One slot per macro text (F2 types what F1 does), only commands that type something, only F1-F12.
+    assert s["keybinds"] == {"F1": {"cmd": "open_nsrt", "args": {}}, "F3": {"cmd": "bw_pull", "args": {}}}
     # A command's own text names only its arguments and starts with "/".
     assert s["slash"] == {"bw_pull": "/pull {seconds} now"}
-    assert s["bigwigs"] == {"pull_s": 60, "break_m": 3}
+    assert s["raid"] == {"pull_s": 25, "break_m": 3}
     assert s["ellesmere"] == {"profiles": ["Raid", "M+"]}
     assert s["combatlog"] == {"wcl_enabled": True, "wcl_key": "", "wcl_app": ""}
 
@@ -161,13 +163,41 @@ def test_settings_are_cleaned_and_defaults_filled_in():
 
 def test_a_command_is_typed_into_chat_and_the_clipboard_put_back():
     clip = FakeClip()
-    core, keys = make({"bigwigs": {"pull_s": 12}}, clip=clip)
-    assert core.run("bw_pull") == "bigwigs"
-    assert clip.history == ["/pull 12", "what the player had copied"]
+    core, keys = make({"raid": {"pull_s": 12}}, clip=clip)
+    assert core.run("raid_pull") == "raid"
+    assert clip.history == ["/countdown 12", "what the player had copied"]
     assert keys.pressed == CHAT
     keys.pressed.clear()
-    core.run("bw_pull", {"seconds": 99})       # clamped to the command's range
-    assert clip.history[-2] == "/pull 60"
+    core.run("raid_pull", {"seconds": 99})     # clamped to the command's range
+    assert clip.history[-2] == "/countdown 60"
+
+
+@pytest.mark.parametrize("installed, pull, brk", [
+    (("BigWigs", "DBM-Core"), "/pull 10", "/break 5"),
+    (("DBM-Core",), "/countdown 10", "/dbm break 5"),
+    (("NorthernSkyRaidTools",), "/countdown 10", "/ns break 5"),
+])
+def test_pull_and_break_go_through_the_boss_mod_there_is(tmp_path, installed, pull, brk):
+    for name in installed:
+        (tmp_path / "_retail_" / "Interface" / "AddOns" / name).mkdir(parents=True)
+    clip = FakeClip()
+    core, _ = make({"wow_path": str(tmp_path)}, clip=clip)
+    core.poll()
+    core.run("raid_pull", {"seconds": 10})
+    core.run("raid_break", {"minutes": 5})
+    assert clip.history[0::2] == [pull, brk]
+
+
+def test_a_break_needs_a_boss_mod(tmp_path):
+    (tmp_path / "_retail_" / "Interface" / "AddOns" / "Details").mkdir(parents=True)
+    clip = FakeClip()
+    core, keys = make({"wow_path": str(tmp_path)}, clip=clip)
+    core.poll()
+    with pytest.raises(CommandError, match="no_bossmod"):
+        core.run("raid_break", {"minutes": 5})
+    assert keys.pressed == []
+    core.run("raid_pull", {"seconds": 10})          # Blizzard's countdown needs none
+    assert clip.history[0] == "/countdown 10"
 
 
 def test_a_command_with_a_slot_presses_its_key():
@@ -189,12 +219,13 @@ def test_bad_commands_and_arguments_are_refused():
     core, keys = make({"modules": {"utility": False}, "ellesmere": {"profiles": ["Raid"]}})
     cases = [
         ("format_c", None, "unknown"), (None, None, "unknown"),
-        ("cwm_clear", None, "disabled"),
+        ("sim_quick", None, "disabled"),
+        ("c_mine", None, "unknown"),
         ("bw_pull", {"seconds": True}, "invalid"),
         ("bw_pull", {"seconds": 10, "extra": 1}, "invalid"),
         ("bw_pull", ["seconds"], "invalid"),
         ("eui_profile", {"name": "Not mine"}, "invalid"),
-        ("eui_buff", {"buff": "flask", "on": "yes"}, "invalid"),
+        ("wow_party", {"text": ""}, "invalid"),
         ("nsrt_pick", {"id": "../x"}, "invalid"),
     ]
     for command, args, reason in cases:
@@ -218,12 +249,15 @@ def test_no_keyboard_or_clipboard_is_reported():
 def test_timers_are_shared_with_the_seconds_left():
     now = [100.0]
     core, _ = make(clock=lambda: now[0])
-    core.run("bw_break", {"minutes": 2})
+    core.run("raid_break", {"minutes": 2})
     now[0] += 30
-    timer = core.state_msg(False)["data"]["state"]["bigwigs"]["timer"]
+    timer = core.state_msg(False)["data"]["state"]["raid"]["timer"]
     assert (timer["kind"], timer["duration"], timer["remaining"]) == ("break", 120, 90)
     now[0] += 91
-    assert core.state_msg(False)["data"]["state"]["bigwigs"]["timer"] is None
+    assert core.state_msg(False)["data"]["state"]["raid"]["timer"] is None
+    core.run("raid_pull", {"seconds": 10})
+    core.run("raid_pull", {"seconds": 0})            # 0 cancels it
+    assert core.state_msg(False)["data"]["state"]["raid"]["timer"] is None
 
 
 def test_going_live_turns_the_combat_log_on_first():
@@ -241,15 +275,13 @@ def test_going_live_turns_the_combat_log_on_first():
         core.run("wcl_live_stream")
 
 
-def test_buff_check_and_arcane_intellect():
+def test_blizzards_commands_are_typed_into_chat():
     clip = FakeClip()
-    core, _ = make(clip=clip)
-    core.run("eui_buff", {"buff": "flask", "on": True})
+    core, keys = make(clip=clip)
     core.run("cast_intellect")
-    assert clip.history[0] == "/cast Arcane Intellect"
-    assert core.module_state("ellesmere")["buffs"] == {"flask": True, "food": False, "oil": False, "intellect": True}
-    core.run("eui_buffs_clear")
-    assert not any(core.module_state("ellesmere")["buffs"].values())
+    core.run("wow_wm", {"marker": 12})               # clamped to the eight markers
+    assert clip.history[0] == "/cast Arcane Intellect" and clip.history[2] == "/wm [@cursor] 8"
+    assert keys.pressed == CHAT * 2
 
 
 def test_pasting_a_note_from_the_pc_clipboard():
@@ -315,7 +347,8 @@ import server  # noqa: E402
 
 @pytest.fixture
 def wow(app, monkeypatch):
-    """The server's plugin with a fake keyboard and clipboard."""
+    """The server's plugin with a fake keyboard and clipboard, and no view of
+    a WoW window (the test PC's own desktop must not decide)."""
     keys, clip = FakeKeys(), FakeClip()
     settings = copy.deepcopy(server.wow.settings())
     state = copy.deepcopy(server.wow._state)
@@ -323,6 +356,7 @@ def wow(app, monkeypatch):
     monkeypatch.setattr(server.wow, "keys_ready", lambda: True)
     monkeypatch.setattr(server.wow, "clipboard", clip)
     monkeypatch.setattr(server.wow, "sleep", lambda s: None)
+    monkeypatch.setattr(server.wow, "screen", wow_addons.screen.NoScreen())
     yield keys, clip
     server.wow.configure(settings)
     server.wow._state = state
@@ -332,12 +366,13 @@ def test_devices_may_send_commands_and_get_an_answer(app, wow):
     keys, clip = wow
     with _device(app, _paired_token()) as ws:
         assert _receive_until(ws, "wow_state")["data"]["modules"]
-        ws.send_json({"type": "wow_addon_action", "command": "bw_pull", "args": {"seconds": 15}})
-        assert _receive_until(ws, "wow_cmd_ack")["data"] == {"command": "bw_pull", "status": "sent"}
-        assert _receive_until(ws, "wow_state")["data"]["state"]["bigwigs"]["timer"]["duration"] == 15
+        ws.send_json({"type": "wow_addon_action", "command": "raid_pull", "args": {"seconds": 15}})
+        assert _receive_until(ws, "wow_cmd_ack")["data"] == {"command": "raid_pull", "status": "sent"}
+        # A command's result goes out without the catalog (wow_live).
+        assert _receive_until(ws, "wow_live")["data"]["state"]["raid"]["timer"]["duration"] == 15
         ws.send_json({"type": "wow_addon_action", "command": "rm", "args": {}})
         assert _receive_until(ws, "wow_cmd_ack")["data"] == {"command": "rm", "status": "error", "reason": "unknown"}
-    assert clip.history[0] == "/pull 15"
+    assert clip.history[0] == "/countdown 15"
 
 
 def test_only_the_pc_saves_wow_settings(app, wow):
@@ -360,8 +395,9 @@ def _page_files():
     return sorted(WOW_STATIC.rglob("*.css")) + sorted(WOW_STATIC.rglob("*.js"))
 
 
-def test_every_addon_has_a_page_side_and_back():
-    backend = {m.id for m in wow_addons.discover()}
+def test_every_addon_with_widgets_has_a_page_side_and_back():
+    mods = wow_addons.discover()
+    backend = {m.id for m in mods if m.widgets}
     page = {p.stem for p in (WOW_STATIC / "modules").glob("*.js")}
     assert backend == page
     for p in (WOW_STATIC / "modules").glob("*.js"):

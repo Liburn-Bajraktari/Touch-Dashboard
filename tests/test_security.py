@@ -45,6 +45,8 @@ def app(mock_hardware, tmp_path, monkeypatch):
     monkeypatch.setattr(server, "pairing", security.PairingRequests())
     monkeypatch.setattr(server, "pending_sockets", security.PendingSockets())
     monkeypatch.setattr(server, "global_sp_oauth", None)
+    monkeypatch.setitem(server.config, "spot_id", "")
+    monkeypatch.setitem(server.config, "spot_secret", "")
     server._oauth_states.clear()
     with patch("server.save_config"), TestClient(_app, base_url=BASE_URL, client=LOOPBACK) as client:
         yield client
@@ -319,6 +321,11 @@ ADMIN_ONLY_MESSAGES = [
     {"type": "action", "data": "disc_auth"},
     {"type": "wow_settings_save", "wow_addons": {"wow_path": "/home", "modules": {"nsrt": False}}},
     {"type": "bnet_lookup", "data": {"region": "eu", "realm": "Draenor", "name": "X", "client_secret": "s"}},
+    {"type": "bnet_use_character", "data": {"id": "c0123456789ab"}},
+    {"type": "bnet_remove_character", "data": {"id": "c0123456789ab"}},
+    {"type": "bnet_add_character", "data": {"region": "eu", "realm": "Draenor", "name": "X"}},
+    {"type": "bnet_sign_out"},
+    {"type": "wow_companion_install"},
 ]
 
 

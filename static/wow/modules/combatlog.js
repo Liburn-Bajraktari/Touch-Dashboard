@@ -1,5 +1,6 @@
 /*
- * Combat logging: Start logging and Live logging (action pad, bottom), each
+ * Combat logging: Start logging and Live logging (its own plate, or any keys
+ * plate through keyState), each
  * with an on-air tally lit while it runs (red, as on any broadcast) and its
  * legend saying so. Both follow the taps sent from here: /combatlog typed in
  * game itself leaves them showing the other state.
@@ -26,28 +27,36 @@
         }
     }
 
+    function keyState(command, args, api) {
+        const st = api.state();
+        if (command === 'combatlog') return { rec: st.combatlog, label: st.combatlog ? 'Logging' : 'Start logging' };
+        if (command === 'wcl_live_stream') {
+            const allowed = api.settings().wcl_enabled !== false;
+            return { rec: st.wcl_live, label: st.wcl_live ? 'Live' : 'Live logging',
+                     value: allowed ? 'Warcraft Logs' : 'Off in settings', disabled: !allowed && !st.wcl_live };
+        }
+        return null;
+    }
+
     AddonModules.register({
         id: 'combatlog',
         name: 'Combat logging',
-        commands: ['combatlog', 'wcl_live_stream'],
-        columns: [
-            {
-                slot: 'bottom', order: 30, render(el, api) {
+        widgets: {
+            log: {
+                render(sec, api) {
+                    const keys = document.createElement('div');
+                    keys.className = 'wow-pair';
                     logKey = api.key({ glyph: 'circle-dot', label: 'Start logging', value: api.slash('combatlog'), led: true });
                     logKey.addEventListener('click', () => api.send('combatlog', null, logKey));
-                    el.appendChild(logKey);
-                    draw(api);
-                },
-            },
-            {
-                slot: 'bottom', order: 40, render(el, api) {
                     liveKey = api.key({ glyph: 'radio', label: 'Live logging', value: '', led: true });
                     liveKey.addEventListener('click', () => api.send('wcl_live_stream', null, liveKey));
-                    el.appendChild(liveKey);
+                    keys.append(logKey, liveKey);
+                    sec.appendChild(keys);
                     draw(api);
                 },
             },
-        ],
+        },
+        keyState,
         update(api) {
             if (logKey) logKey.setValue(api.slash('combatlog'));
             draw(api);

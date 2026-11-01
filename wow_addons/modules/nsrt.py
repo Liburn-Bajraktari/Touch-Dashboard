@@ -1,5 +1,14 @@
 """
-Northern Sky Raid Tools (NSRT): the live note viewer and NSRT's commands.
+Northern Sky Raid Tools (NSRT): the live note viewer, its encounter alerts
+as they come, and NSRT's commands.
+
+The alerts (NSRT's encounter alerts and the note's reminders, as NSRT
+scheduled them for the phase that runs) come from the companion addon's live
+link, which reads them from NSRT when a phase starts (its NSRT_PHASE
+callback): the game module's view carries them, and the two alert plates
+(the list, the next one) count them down. "Test alerts" runs NSRT's own test
+of phase 1 through the companion (/tdc nstest): NSRT has no slash command
+for it.
 
 Notes are WoWUtils strings, one entry per line, fields separated by ";":
 
@@ -21,7 +30,7 @@ import hashlib
 import re
 from typing import Any
 
-from wow_addons import AddonModule, Arg, CommandError, Command, Context, Watch, chat_text
+from wow_addons import AddonModule, Arg, Command, CommandError, Context, KeyTemplate, Watch, Widget, chat_text
 
 NOTE_FILE = "NorthernSkyRaidTools.lua"
 MAX_ENTRIES = 400          # per list
@@ -240,12 +249,16 @@ MODULE = AddonModule(
     description="Live reminders from your NSRT note, and NSRT's tools",
     order=10,
     commands=(
-        Command("open_nsrt", "NSRT hub", ("/ns",)),
-        Command("nkm_refresh", "Sync kick macro", ("/nkm refresh",)),
-        Command("nsrt_test", "Test alerts", ("/ns test",), verified=False),
-        Command("nsrt_arrange", "Group split", ("/ns arrange",), verified=False),
-        Command("cz_check", "Captain Zeynith check", ("/cz check",)),
-        Command("cz_announce", "Captain Zeynith announce", ("/cz announce",)),
+        Command("open_nsrt", "NSRT hub", ("/ns",), glyph="layout-grid", key="tools", via="addon"),
+        Command("nkm_refresh", "Sync kick macro", ("/nkm refresh",), glyph="refresh-cw", key="tools", via="addon"),
+        Command("nsrt_test", "Test alerts", ("/tdc nstest",), glyph="bell-ring", via="addon", addon="TouchDashboard",
+                description="NSRT's own test of phase 1's alerts; the alert plates follow it"),
+        Command("nsrt_arrange", "Group split", ("/ns arrange",), glyph="split", via="addon",
+                description="Arranges the group as the active note says"),
+        Command("nsrt_break", "NSRT break", ("/ns break {minutes}",), glyph="coffee", via="addon",
+                args={"minutes": Arg("int", lo=0, hi=60, default=5, label="Minutes (0 cancels)")}),
+        Command("cz_check", "Captain Zeynith check", ("/cz check",), glyph="list-checks", via="addon"),
+        Command("cz_announce", "Captain Zeynith announce", ("/cz announce",), glyph="megaphone", via="addon"),
         Command("nsrt_paste", "Paste note", args={"text": Arg("note", optional=True)}, run=_paste),
         Command("nsrt_pick", "Show note", args={"id": Arg("id")}, run=_pick),
     ),
@@ -254,4 +267,16 @@ MODULE = AddonModule(
     public=lambda s, now: {"pick": s.get("pick"), "pasted": bool(s.get("pasted"))},
     watch=Watch(NOTE_FILE, load_saved_variables),
     view=view,
+    addon="NorthernSkyRaidTools",
+    widgets=(Widget("note", "NSRT note", "Your reminders from the raid's note, timed, yours first",
+                    grow=True, column=0, order=10),
+             Widget("alerts", "Encounter alerts", "NSRT's alerts for this phase as they come: the next one large, "
+                    "the rest below it, each with its countdown", grow=True),
+             Widget("next", "Next alert", "NSRT's next alert and its countdown, and the one after it",
+                    sizes=("half", "full"))),
+    templates=(
+        KeyTemplate("tools", "NSRT", "The hub, the kick macro, test alerts, group split, a break",
+                    glyph="layout-grid", keys=({"cmd": "open_nsrt"}, {"cmd": "nkm_refresh"}, {"cmd": "nsrt_test"},
+                                               {"cmd": "nsrt_arrange"}, {"cmd": "nsrt_break", "args": {"minutes": 5}})),
+    ),
 )

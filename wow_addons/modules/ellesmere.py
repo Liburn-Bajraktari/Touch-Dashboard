@@ -1,16 +1,14 @@
 """
-EllesmereUI: unlock mode, profile switching and the pre-pull buff check.
+EllesmereUI: unlock mode and profile switching.
 
-WoW gives the PC no live view of your buffs, so the buff strip is a checklist
-every screen shares: tap a buff once you have it. Arcane Intellect is cast
-from its pill. Unlock mode is a toggle in game; the key follows the taps sent
-from here, so unlocking in game itself leaves it showing the other state.
+Unlock mode is a toggle in game; the key follows the taps sent from here, so
+unlocking in game itself leaves it showing the other state. The buff check
+that was here is the companion's (game.py): real buffs instead of a checklist.
 """
 from __future__ import annotations
 
-from wow_addons import AddonModule, Arg, Command, Context, chat_text
+from wow_addons import AddonModule, Arg, Command, Context, Widget, chat_text
 
-BUFFS = ("flask", "food", "oil", "intellect")
 PROFILE_MAX = 12
 
 
@@ -22,19 +20,6 @@ def _unlock(ctx: Context, args: dict) -> None:
 def _profile(ctx: Context, args: dict) -> None:
     ctx.send()
     ctx.update(profile=args["name"])
-
-
-def _intellect(ctx: Context, args: dict) -> None:
-    ctx.send()
-    ctx.update(buffs={**ctx.state["buffs"], "intellect": True})
-
-
-def _buff(ctx: Context, args: dict) -> None:
-    ctx.update(buffs={**ctx.state["buffs"], args["buff"]: args["on"]})
-
-
-def _clear(ctx: Context, args: dict) -> None:
-    ctx.update(buffs=dict.fromkeys(BUFFS, False))
 
 
 def clean(raw: dict) -> dict:
@@ -49,18 +34,19 @@ def clean(raw: dict) -> dict:
 MODULE = AddonModule(
     id="ellesmere",
     name="EllesmereUI",
-    description="Unlock mode, profiles and the buff check",
+    description="Unlock mode and profiles",
     order=30,
     commands=(
-        Command("eui_unlock", "Unlock mode", ("/eui unlock",), run=_unlock),
+        Command("eui_unlock", "Unlock mode", ("/eui unlock",), run=_unlock, glyph="move", via="addon"),
         Command("eui_profile", "Profile", ("/eui profile {name}",),
-                args={"name": Arg("choice", setting="profiles")}, run=_profile),
-        Command("cast_intellect", "Arcane Intellect", ("/cast Arcane Intellect",), run=_intellect),
-        Command("eui_buff", "Mark a buff", args={"buff": Arg("choice", choices=BUFFS), "on": Arg("bool")},
-                run=_buff),
-        Command("eui_buffs_clear", "Clear the buff check", run=_clear),
+                args={"name": Arg("choice", setting="profiles", label="Profile")}, run=_profile,
+                glyph="user-cog", via="addon"),
+        Command("eui_options", "EllesmereUI options", ("/eui",), glyph="settings-2", via="addon"),
     ),
     defaults={"profiles": []},
     clean=clean,
-    state={"unlocked": False, "profile": None, "buffs": dict.fromkeys(BUFFS, False)},
+    state={"unlocked": False, "profile": None},
+    addon="EllesmereUI",
+    widgets=(Widget("profiles", "EllesmereUI profiles", "A key for each profile saved in its settings",
+                    sizes=("half", "full")),),
 )

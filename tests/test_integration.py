@@ -524,6 +524,7 @@ def test_update_check_says_when_it_could_not_check():
 def test_idle_screen_care_settings_are_checked_and_reach_tablets(client):
     import server
     original = dict(server.config)
+    server.config.update(idle_dim_min=5, idle_clock_min=15)
     with patch("server.save_config"):
         with _admin_ws(client) as websocket:
             sync = websocket.receive_json()["data"]["cfg"]

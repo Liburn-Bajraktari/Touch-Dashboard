@@ -322,7 +322,7 @@ DEFAULT_CONFIG: dict = {
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
 SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like",
-                   "media_result", "audio_apps", "sb_mic", "wow_addons", "bnet"]   # see _make_config_sync
+                   "media_result", "audio_apps", "sb_mic", "wow_addons", "bnet", "wow_layout"]   # see _make_config_sync
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
 APP_VERSION_RE = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,4}")   # the Android app's version, from auth
@@ -507,7 +507,8 @@ ARMORY_IDLE_S = 60
 # The WoW plugin page: its addon modules, their settings, commands and watched files.
 wow = wow_addons.WowAddons(
     wow_addons.discover(), send_keys=MacroSystem.send_keys, keys_ready=MacroSystem.available,
-    open_url=webbrowser.open, launch=AppEnumerator.launch_app, armory=armory)
+    open_url=webbrowser.open, launch=AppEnumerator.launch_app, armory=armory,
+    screen=wow_addons.screen.for_platform())
 wow.configure(config.get("wow_addons"))
 WOW_WATCH_INTERVAL = 5   # s between checks of the watched SavedVariables files
 
@@ -1640,6 +1641,21 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"WoW addon watch: {e}")
             await asyncio.sleep(WOW_WATCH_INTERVAL)
 
+    async def wow_link_loop():
+        # The companion's live link: read from WoW's window ten times a second
+        # while it shows, once a second while it does not; a change goes to
+        # every screen like a command's result.
+        while True:
+            try:
+                changed = await asyncio.to_thread(wow.read_link)
+                if changed:
+                    await _broadcast_wow_live(changed)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"WoW live link: {e}")
+            await asyncio.sleep(wow.link_interval())
+
     # Linux: create Dashboard-Soundboard virtual sink
     if get_os_target() == "linux":
         async def _run(cmd: list[str], timeout: int = 3) -> subprocess.CompletedProcess:
@@ -1759,6 +1775,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(hardware_loop(),  name="hardware_loop"),
         asyncio.create_task(fetch_weather(),  name="fetch_weather"),
         asyncio.create_task(wow_watch_loop(), name="wow_watch"),
+        asyncio.create_task(wow_link_loop(),  name="wow_link"),
         asyncio.create_task(armory_loop(),    name="armory"),
     ]
     if get_os_target() == "linux":
@@ -2984,6 +3001,14 @@ async def _broadcast_wow(module_ids: set[str] | None = None) -> None:
     _armory_kick()
 
 
+async def _broadcast_wow_live(module_ids: set[str]) -> None:
+    """After a command: the shared state and the views it changed, not the catalog."""
+    await ws_manager.broadcast(wow.live_msg())
+    for msg in wow.update_msgs(module_ids):
+        await ws_manager.broadcast(msg)
+    _armory_kick()
+
+
 async def _send_wow(client: Client) -> None:
     await client.ws.send_text(_dumps(_wow_state_by_role()[client.role]))
     for msg in wow.update_msgs():
@@ -2996,8 +3021,12 @@ def _armory_kick() -> None:
     another character, or one due."""
     if armory_event is None:
         return
-    if armory.wanted() or (_character_wanted() and armory.refresh_due(wow.who())):
+    if armory.wanted() or (_character_wanted() and armory.refresh_due(wow.who())) or _token_due():
         armory_event.set()
+
+
+def _token_due() -> bool:
+    return wow.enabled("token") and armory.token_due(wow.settings()["region"])
 
 
 def _character_wanted() -> bool:
@@ -3035,6 +3064,8 @@ async def armory_loop() -> None:
                 await asyncio.to_thread(armory.refresh, who)
                 await _follow_spec()
                 changed = True
+            if _token_due() and await asyncio.to_thread(armory.fetch_token, wow.settings()["region"]):
+                await _broadcast_wow_live({"token"})
             if changed:
                 await _broadcast_wow()
         except asyncio.CancelledError:
@@ -3173,19 +3204,23 @@ async def _ws_wow_addon_action(client: Client, msg: dict) -> None:
     command = msg.get("command")
     name = command[:48] if isinstance(command, str) else ""
     try:
-        module_id = await asyncio.to_thread(wow.run, command, msg.get("args"))
+        module_id, reply = await asyncio.to_thread(wow.run_ex, command, msg.get("args"))
     except wow_addons.CommandError as e:
         logger.info("WoW command %r from %s (%s): %s", name, client.ip, client.role, e.reason)
         await _send(client.ws, {"type": "wow_cmd_ack", "data": {"command": name, "status": "error",
                                                                 "reason": e.reason}})
+        await _broadcast_wow_live(wow.take_touched())   # a no_answer may still have read the game
         return
-    await _send(client.ws, {"type": "wow_cmd_ack", "data": {"command": name, "status": "sent"}})
+    ack = {"command": name, "status": "sent"}
+    if reply is not None:
+        ack["data"] = reply
+    await _send(client.ws, {"type": "wow_cmd_ack", "data": ack})
     if wow.take_dirty():   # a character switch: saved, and every screen gets the new state
         await _save_wow_settings()
         await ws_manager.broadcast(_bnet_account_msg(), admin_only=True)
         await _broadcast_wow()
         return
-    await _broadcast_wow({module_id})
+    await _broadcast_wow_live({module_id} | wow.take_touched())
 
 
 async def _apply_wow_settings(raw: dict) -> dict:
@@ -3205,6 +3240,27 @@ async def _ws_wow_settings_save(client: Client, msg: dict) -> None:
     if not isinstance(raw, dict):
         raise TypeError("wow_addons must be an object")
     await _apply_wow_settings(raw)
+
+
+async def _ws_wow_layout_save(client: Client, msg: dict) -> None:
+    """{layout}: the page's plates and keys, from any screen. Keys can name only
+    commands the server knows (custom ones are made on the PC); null goes back
+    to the first layout."""
+    layout = msg.get("layout")
+    if layout is not None and not isinstance(layout, dict):
+        raise TypeError("layout must be an object or null")
+    await _apply_wow_settings({"layout": layout})
+
+
+async def _ws_wow_companion_install(client: Client, msg: dict) -> None:
+    """Copy the companion addon into the game's Interface/AddOns (WoW settings)."""
+    try:
+        version = await asyncio.to_thread(wow.install_companion)
+        result = {"ok": True, "version": version}
+    except wow_addons.CommandError as e:
+        result = {"ok": False, "reason": e.reason}
+    await _send(client.ws, {"type": "wow_companion_result", "data": result})
+    await _broadcast_wow()
 
 
 WS_HANDLERS = {
@@ -3237,6 +3293,8 @@ WS_HANDLERS = {
     "unpair_self":        _ws_unpair_self,
     "wow_addon_action":   _ws_wow_addon_action,
     "wow_settings_save":  _ws_wow_settings_save,
+    "wow_layout_save":    _ws_wow_layout_save,
+    "wow_companion_install": _ws_wow_companion_install,
     "bnet_lookup":        _ws_bnet_lookup,
     "bnet_use_character": _ws_bnet_use_character,
     "bnet_remove_character": _ws_bnet_remove_character,
@@ -3259,7 +3317,7 @@ ADMIN_ACTIONS = frozenset({
     "save_config", "save_macros", "set_theme", "set_play_key", "req_local_sounds", "req_apps_list",
     "check_update", "run_update", "pair_decision", "rename_device", "revoke_device",
     "action:spot_clear_auth", "action:disc_auth", "action:disc_clear_auth", "wow_settings_save",
-    "bnet_lookup", "bnet_use_character", "bnet_remove_character", "bnet_add_character", "bnet_sign_out",
+    "wow_companion_install", "bnet_lookup", "bnet_use_character", "bnet_remove_character", "bnet_add_character", "bnet_sign_out",
 })
 # Paired devices may use these only while device_av_controls is on.
 DEVICE_AV_ACTIONS = frozenset({"action:disc_cam", "action:disc_screen"})

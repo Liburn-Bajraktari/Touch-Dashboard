@@ -1,46 +1,32 @@
 /*
- * EllesmereUI: Unlock mode and Profile keys (action pad, top) and the buff
- * check (left). WoW gives the PC no live view of buffs, so the strip is a
- * checklist every screen shares; Arcane Intellect is cast from its pill.
+ * EllesmereUI: a plate of profile keys (one for each profile saved in WoW
+ * settings, the one sent last lit), and the state of any Unlock mode key: lit
+ * and "Unlocked" while it is. Both follow the taps sent from here: unlocking
+ * in game itself leaves the key showing the other state.
  */
 (function () {
     'use strict';
 
-    const BUFFS = [
-        ['flask', 'Flask', 'flask-conical'],
-        ['food', 'Food', 'utensils'],
-        ['oil', 'Weapon oil', 'droplet'],
-        ['intellect', 'Arcane Intellect', 'sparkles'],
-    ];
-    let unlockKey = null, profileKey = null, strip = null;
-    let profilesEl = null, draft = [];
+    let profilesBox = null, profilesEl = null, draft = [];
 
-    function nextProfile(api) {
+    function drawProfiles(api) {
+        if (!profilesBox || !profilesBox.isConnected) return;
         const list = api.settings().profiles || [];
-        if (!list.length) return null;
-        const i = list.indexOf(api.state().profile);
-        return list[(i + 1) % list.length];
-    }
-
-    function draw(api) {
-        const st = api.state();
-        if (unlockKey) {
-            unlockKey.setOn(st.unlocked);
-            unlockKey.setValue(st.unlocked ? 'Unlocked' : 'Locked');
-        }
-        if (profileKey) {
-            const list = api.settings().profiles || [];
-            profileKey.disabled = !list.length;
-            profileKey.setValue(list.length ? (st.profile || `Next: ${nextProfile(api)}`) : 'No profiles');
-        }
-        if (strip) {
-            const buffs = st.buffs || {};
-            strip.querySelectorAll('.wow-buff').forEach(b => {
-                const on = !!buffs[b.dataset.buff];
-                b.dataset.state = on ? 'on' : 'off';
-                b.setAttribute('aria-pressed', String(on));
-                api.text(b.querySelector('.wow-buff-word'), on ? 'Ready' : 'Missing');
-            });
+        const current = api.state().profile;
+        const key = JSON.stringify([list, current]);
+        if (profilesBox.dataset.drawn !== key) {
+            profilesBox.dataset.drawn = key;
+            profilesBox.replaceChildren();
+            for (const name of list) {
+                const k = api.key({ glyph: 'user-cog', label: name, value: '' });
+                k.setValue(api.slash('eui_profile', { name }));
+                k.addEventListener('click', () => api.send('eui_profile', { name }, k));
+                k.setOn(name === current);
+                profilesBox.appendChild(k);
+            }
+            if (!list.length) {
+                profilesBox.innerHTML = `<p class="wow-cell-note">${api.admin() ? 'Add your profiles in WoW settings → Addons → EllesmereUI.' : 'Profiles are set in WoW settings on the PC.'}</p>`;
+            }
         }
     }
 
@@ -54,55 +40,23 @@
     AddonModules.register({
         id: 'ellesmere',
         name: 'EllesmereUI',
-        commands: ['eui_unlock', 'eui_profile', 'cast_intellect', 'eui_buff', 'eui_buffs_clear'],
-        columns: [
-            {
-                slot: 'top', order: 30, render(el, api) {
-                    unlockKey = api.key({ glyph: 'unlock', label: 'Unlock mode', value: 'Locked' });
-                    unlockKey.addEventListener('click', () => api.send('eui_unlock', null, unlockKey));
-                    el.appendChild(unlockKey);
-                    draw(api);
+        widgets: {
+            profiles: {
+                render(sec, api) {
+                    profilesBox = document.createElement('div');
+                    profilesBox.className = 'wow-keys wow-profile-keys';
+                    sec.appendChild(profilesBox);
+                    drawProfiles(api);
                 },
             },
-            {
-                slot: 'top', order: 40, render(el, api) {
-                    profileKey = api.key({ glyph: 'layers', label: 'Profile', value: '' });
-                    profileKey.addEventListener('click', () => {
-                        const name = nextProfile(api);
-                        if (name) api.send('eui_profile', { name }, profileKey);
-                    });
-                    el.appendChild(profileKey);
-                    draw(api);
-                },
-            },
-            {
-                column: 'left', order: 20, title: 'Buff check', render(sec, api, head) {
-                    head.innerHTML = '<button class="btn wow-head-key" type="button"><i data-lucide="eraser"></i>'
-                        + '<span class="wow-head-label">Clear</span><i data-lucide="alert-triangle" class="key-warn"></i></button>';
-                    const clear = head.firstElementChild;
-                    clear.setAttribute('aria-label', 'Clear the buff check');
-                    clear.addEventListener('click', () => api.send('eui_buffs_clear', null, clear));
-                    strip = document.createElement('div');
-                    strip.className = 'wow-buffs';
-                    strip.setAttribute('role', 'group');
-                    strip.setAttribute('aria-label', 'Buffs');
-                    strip.innerHTML = BUFFS.map(([id, name, glyph]) => `<button class="btn wow-buff" type="button" data-buff="${id}" data-state="off" aria-pressed="false">`
-                        + `<span class="key-glyph"><i data-lucide="${glyph}"></i>${KEY_WARN}</span><span class="wow-buff-name">${name}</span>`
-                        + '<span class="wow-buff-state"><span class="wow-buff-led" aria-hidden="true"></span><span class="wow-buff-word">Missing</span></span></button>').join('');
-                    strip.addEventListener('click', (e) => {
-                        const b = e.target.closest('.wow-buff');
-                        if (!b) return;
-                        const on = b.dataset.state === 'on';
-                        // A missing Arcane Intellect is cast; the rest are ticked off.
-                        if (b.dataset.buff === 'intellect' && !on) api.send('cast_intellect', null, b);
-                        else api.send('eui_buff', { buff: b.dataset.buff, on: !on }, b);
-                    });
-                    sec.appendChild(strip);
-                    draw(api);
-                },
-            },
-        ],
-        update: draw,
+        },
+        keyState(command, args, api) {
+            const st = api.state();
+            if (command === 'eui_unlock') return { on: st.unlocked, value: st.unlocked ? 'Unlocked' : 'Locked' };
+            if (command === 'eui_profile') return { on: !!args.name && st.profile === args.name };
+            return null;
+        },
+        update: drawProfiles,
         settings: {
             render(el, api) {
                 draft = [...(api.settings().profiles || [])];

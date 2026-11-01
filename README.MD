@@ -56,6 +56,7 @@
 | **Clock & weather** | Time, date and current weather from OpenWeatherMap. |
 | **Lock screen** | When the PC locks, the tablet shows a large clock with the weather; it shifts slightly every minute to protect OLED screens. |
 | **Themes** | Graphite, Daylight, Ember, Phosphor, Amethyst and Midnight. A choice applies to every connected screen. |
+| **World of Warcraft** | A page for playing WoW: your raid's NSRT note and its alerts as they come, pull and break timers, the ready check, your Mythic+ key against its chests, world markers, the buff check, gold, bags and keystones on every character, and keys for any command. A small companion addon in the game makes it live. See [World of Warcraft](#world-of-warcraft). |
 
 ---
 
@@ -196,6 +197,14 @@ If the Discord tab then shows **Vesktop detected**, its arRPC bridge cannot cont
 | **Go full screen (browser)** | Double-tap an empty area. |
 | **Unpair the tablet** | Tap the title at the top, then <kbd>Forget this PC</kbd>. |
 
+### World of Warcraft
+
+![The WoW page: the NSRT note, the buff check, the character, Raid & dungeons with a pull counting down and a ready check, the next encounter alert, the Mythic+ timer, world markers, the WoW Token and gold](docs/images/wow/wow-page.png)
+
+<p align="center"><sub>Rendered from the app with fictional data.</sub></p>
+
+Add a key of type **Plugin → World of Warcraft** to open it. Its plates (NSRT note and encounter alerts, Raid & dungeons, Mythic+, world markers, the buff check, your characters' gold, bags and keys, keys plates from templates) are arranged with the pencil, on any screen. With the **Touch Dashboard** companion addon, installed from the page's settings and kept up to date by the app, keys run without opening chat and the page follows the game live. Everything about it, with pictures of every plate: **[docs/WOW.md](docs/WOW.md)**.
+
 ---
 
 ## Updating
@@ -270,7 +279,7 @@ Arch users can build and install a local pacman package with `./scripts/build-ar
 python -m pytest tests -v
 ```
 
-The suite covers the HTTP and WebSocket API, Host and Origin checks, pairing, roles and command hardening (`tests/test_security.py`), the volume worker and output switching (`tests/test_audio.py`), media parsing, and every theme preset's completeness, contrast and colour balance. The tests start the real server lifespan, which on Linux calls `pactl`. To keep a run off your live audio session, point `HOME` at a scratch folder and put stub `pactl`, `wpctl`, `pw-*` and `playerctl` scripts that exit 1 first on your `PATH`.
+The suite covers the HTTP and WebSocket API, Host and Origin checks, pairing, roles and command hardening (`tests/test_security.py`), the volume worker and output switching (`tests/test_audio.py`), media parsing, every theme preset's completeness, contrast and colour balance, and the World of Warcraft page (the companion addon itself runs in Lua 5.1 against a stand-in of WoW's API in `tests/test_wow_companion.py`, which needs `lua5.1`). The tests start the real server lifespan, which on Linux calls `pactl`. To keep a run off your live audio session, point `HOME` at a scratch folder and put stub `pactl`, `wpctl`, `pw-*` and `playerctl` scripts that exit 1 first on your `PATH`.
 
 ### Project layout
 
@@ -283,7 +292,11 @@ The suite covers the HTTP and WebSocket API, Host and Origin checks, pairing, ro
 | `templates/index.html` | The whole dashboard: markup, styles and script |
 | `static/themes.js` | Every design token and the six theme presets |
 | `docs/DESIGN.md` | The design system: light model, materials, components, motion and how to add a theme |
-| `scripts/` | Installers (`setup.sh`, `install.ps1`), `release.sh`, `build-arch-package.sh` |
+| `docs/WOW.md` | The World of Warcraft page, with pictures of every plate |
+| `wow_addons/` | The World of Warcraft page's server side: its modules (one file per addon or part), the companion's live link and WoW's window |
+| `addon/TouchDashboard/` | The companion addon for WoW, copied into the game's `Interface/AddOns` |
+| `static/wow/` | The World of Warcraft page's page side |
+| `scripts/` | Installers (`setup.sh`, `install.ps1`), `release.sh`, `build-arch-package.sh`, the WoW page's demo with fictional data and its renders (`wow_demo.py`, `wow_docs_render.py`) |
 | `android/` | The Android app: manifest, resources and Java sources (WebView shell and self-updater) |
 | `tests/` | The test suite |
 
@@ -294,7 +307,7 @@ The suite covers the HTTP and WebSocket API, Host and Origin checks, pairing, ro
 ./scripts/release.sh v1.2.3 --apk    # also rebuild the Android app
 ```
 
-The script sets the version in `version.json`, commits everything in the working tree as `Release: <tag>`, tags and pushes, and creates the GitHub release with `install.ps1`, `setup.sh`, the source archives the installers download (`touch-dashboard-<tag>.tar.gz` and `.zip`, built from the tag with `git archive`), the APK (with `--apk`) and a `SHA256SUMS` file covering them all. Installers and the in-app update refuse a release without these files. The release is also mirrored to Codeberg, only so installs from before the move to GitHub keep finding updates. With `--apk` it first builds the Android app from `android/` with `scripts/build-android.sh` (the current `templates/` and `static/` bundled in, the version code taken from the tag, signed with the release key), so a failed build stops the release before anything is committed; it then uploads the APK and raises the required Android app version. Building needs the Android SDK and the release key: see [docs/android-signing.md](docs/android-signing.md).
+The script sets the version in `version.json`, commits everything in the working tree as `Release: <tag>`, tags and pushes, and creates the GitHub release with `install.ps1`, `setup.sh`, the source archives the installers download (`touch-dashboard-<tag>.tar.gz` and `.zip`, built from the tag with `git archive`), the WoW companion addon on its own (`TouchDashboard-addon-<version>.zip`), the APK (with `--apk`) and a `SHA256SUMS` file covering them all. Installers and the in-app update refuse a release without these files. The release is also mirrored to Codeberg, only so installs from before the move to GitHub keep finding updates. With `--apk` it first builds the Android app from `android/` with `scripts/build-android.sh` (the current `templates/` and `static/` bundled in, the version code taken from the tag, signed with the release key), so a failed build stops the release before anything is committed; it then uploads the APK and raises the required Android app version. Building needs the Android SDK and the release key: see [docs/android-signing.md](docs/android-signing.md).
 
 ### References
 

@@ -1,8 +1,10 @@
 /*
- * Character (centre, above the action pad): the character the PC read from
- * Raider.IO and Battle.net (wow_character_update): avatar, spec, item level,
- * Mythic+ score, progress in the raids open now, and this week's affixes.
- * Set in Settings → Battle.net on the PC; Refresh asks the PC to read it again.
+ * Character: the character the PC read from Raider.IO and Battle.net
+ * (wow_char_update): avatar, spec, item level, Mythic+ score, progress in the
+ * raids open now, and this week's affixes. Its name is the switcher: tapped,
+ * it lists every character of the Battle.net account (and those added by
+ * name) and switches to the one picked, on every screen. Refresh asks the PC
+ * to read it again.
  */
 (function () {
     'use strict';
@@ -24,9 +26,10 @@
         refresh.addEventListener('click', () => api.send('char_refresh', null, refresh));
         const body = document.createElement('div');
         body.className = 'wow-char';
-        body.innerHTML = '<div class="wow-char-top">'
+        body.innerHTML = '<button class="wow-char-top" type="button" aria-haspopup="dialog">'
             + '<span class="wow-char-pic"><img alt="" referrerpolicy="no-referrer" hidden><i data-lucide="user"></i></span>'
-            + '<div class="wow-char-id"><div class="wow-char-name">No character</div><div class="wow-char-sub"></div><div class="wow-char-sub"></div></div></div>'
+            + '<span class="wow-char-id"><span class="wow-char-name">No character</span><span class="wow-char-sub"></span><span class="wow-char-sub"></span></span>'
+            + '<i data-lucide="chevrons-up-down" class="wow-char-swap"></i></button>'
             + '<div class="wow-char-stats">'
             + '<div class="scribble"><span class="ch-name">Item level</span><span class="live num wow-char-fig"><span class="live-v">—</span></span></div>'
             + '<div class="scribble"><span class="ch-name">M+ score</span><span class="live num wow-char-fig"><span class="live-v">—</span></span></div>'
@@ -35,6 +38,8 @@
             + '<p class="wow-char-msg" hidden></p>'
             + '<div class="wow-affixes"><span class="wow-affix-label">This week</span><div class="wow-affix-list"></div></div>';
         sec.appendChild(body);
+        const who = body.querySelector('.wow-char-top');
+        who.addEventListener('click', () => switcher(api, who));
         const subs = body.querySelectorAll('.wow-char-sub');
         const cells = body.querySelectorAll('.wow-char-stats .scribble');
         ui = {
@@ -46,6 +51,23 @@
         ui.img.addEventListener('error', () => { ui.img.hidden = true; });
         drawnAffixes = '';
         draw(api);
+    }
+
+    // Every character the PC knows: the account's (Battle.net sign-in) and those
+    // added by name, the ones played lately first.
+    function switcher(api, who) {
+        const alts = (data && data.alts) || [];
+        api.pick({
+            title: 'Switch character',
+            items: alts.map(a => ({
+                id: a.id, label: a.name, current: a.current, glyph: 'user',
+                sub: [a.level ? `Level ${a.level}` : '', a.class, a.realm, (a.region || '').toUpperCase()].filter(Boolean).join(' · '),
+            })),
+            empty: api.admin()
+                ? 'Sign in with Battle.net in Settings → Battle.net to list your characters, or add them by name there.'
+                : 'Sign in with Battle.net on the PC (Settings → Battle.net) to list your characters here.',
+            onPick: (id) => api.send('char_switch', { id }, who),
+        });
     }
 
     function setMsg(api, text, warn) {
@@ -98,10 +120,10 @@
     AddonModules.register({
         id: 'char',
         name: 'Character',
-        commands: ['char_refresh'],
-        columns: [{ column: 'center', order: 40, title: 'Character', render }],
+        widgets: { plate: { render } },
         update(api) {
-            api.onAck = (d) => (d.command === 'char_refresh' && d.reason === 'empty' ? 'No character set: Settings → Battle.net' : null);
+            api.onAck = (d) => (d.command === 'char_refresh' && d.reason === 'empty' ? 'No character set: Settings → Battle.net'
+                : d.command === 'char_switch' && d.status !== 'sent' ? 'Not switched: that character is not on the list any more' : null);
             draw(api);
         },
         onUpdate(d, api) {

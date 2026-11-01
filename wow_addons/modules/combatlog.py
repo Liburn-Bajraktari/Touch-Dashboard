@@ -10,7 +10,7 @@ the stream key is kept on the PC (never sent to tablets) for the uploader.
 """
 from __future__ import annotations
 
-from wow_addons import AddonModule, Command, CommandError, Context, chat_text
+from wow_addons import AddonModule, Command, CommandError, Context, Widget, chat_text
 
 APP_MAX = 1024
 
@@ -51,11 +51,13 @@ MODULE = AddonModule(
     description="The combat log and Warcraft Logs live logging",
     order=40,
     commands=(
-        Command("combatlog", "Combat log", ("/combatlog",), run=_combatlog),
-        Command("wcl_live_stream", "Live logging", run=_live),
+        Command("combatlog", "Combat log", ("/combatlog",), run=_combatlog, glyph="scroll-text", via="game"),
+        Command("wcl_live_stream", "Live logging", run=_live, glyph="radio"),
     ),
     defaults={"wcl_enabled": True, "wcl_key": "", "wcl_app": ""},
     clean=clean,
     private=frozenset({"wcl_key", "wcl_app"}),
     state={"combatlog": False, "wcl_live": False},
+    widgets=(Widget("log", "Combat log", "The combat log and Warcraft Logs live logging",
+                    sizes=("full", "half"), column=2, order=20),),
 )
