@@ -1310,10 +1310,11 @@ class WowAddons:
         addons_dir = None
         if base:
             # The game folder, its _retail_, or a SavedVariables folder 4 levels under _retail_.
-            roots = [os.path.expanduser(base).rstrip("/\\")]
-            roots.insert(1, os.path.join(roots[0], "_retail_"))
+            up = os.path.expanduser(base).rstrip("/\\")
+            roots = [up, os.path.join(up, "_retail_")]
             for _ in range(4):
-                roots.append(os.path.dirname(roots[-1]))
+                up = os.path.dirname(up)
+                roots.append(up)
             addons_dir = next((os.path.join(r, "Interface", "AddOns") for r in roots
                                if os.path.isdir(os.path.join(r, "Interface", "AddOns"))), None)
         names: frozenset[str] = frozenset()

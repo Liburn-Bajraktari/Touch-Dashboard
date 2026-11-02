@@ -16,6 +16,9 @@
 --   nsrt phase <n> <encounter id> | nsrt test | nsrt delay <s> | nsrt hide: NSRT starting a phase
 --                (its schedule below), its test run, a boss's cast moving the phase, the encounter's end
 --   combat 0|1 | secret 0|1 | proc 0|1 | rune 0|1 | bigwigs <label> <seconds> | timers | db | calls
+--   restrict 0|1: the game hides auras out of combat too (a key, an encounter: C_Secrets)
+--   rcstatus <unit> <ready|notready|waiting>: what GetReadyCheckStatus says of a unit
+--   an event argument SECRET is a secret value (the game's numbers in a dungeon or raid)
 --   actions | said | printed | beacon | focused | link [frames]: run the strip's OnUpdate
 --   (a frame each, 1/60 s apart) and answer its cells in physical pixels
 
@@ -54,7 +57,7 @@ end
 -- ── the game ─────────────────────────────────────────────────────────────
 local clock, timers = 1000, {}
 local combat, secretOn, chatOpen, chatText, clipboard = false, false, false, "", ""
-local procOn, runeOn = false, false
+local procOn, runeOn, restricted, rcStatus = false, false, false, {}
 local bindings, calls, registered, bwHandlers = {}, {}, {}, {}
 -- The player's own bindings: Bloodlust on Ctrl+C, an ability on C.
 local gameBindings = { ["CTRL-C"] = "BLOODLUST", C = "ACTIONBUTTON9", HOME = "PREVVIEW", ENTER = "OPENCHAT" }
@@ -160,6 +163,8 @@ C_Scenario = { GetStepInfo = function() if mkey then return "Ara-Kara", "", #mke
 C_ScenarioInfo = { GetCriteriaInfo = function(i) return mkey and mkey.criteria[i] end }
 C_WeeklyRewards = { GetActivities = function() return { { type = 1, index = 1, progress = 3, threshold = 1, level = 12 } } end }
 C_ChatInfo = { InChatMessagingLockdown = function() return false end }
+C_Secrets = { ShouldAurasBeSecret = function() return combat or restricted end }
+function GetReadyCheckStatus(unit) return rcStatus[unit] end
 C_UnitAuras = { GetAuraDataByIndex = function(_, i)
     local list = { { spellId = 1459, name = "Arcane Intellect", expirationTime = clock + 3000, duration = 3600 },
                    { spellId = secretOn and SECRET or 2, name = secretOn and SECRET or "Well Fed",
@@ -324,6 +329,7 @@ for line in io.lines() do
         for w in rest:gmatch("%S+") do
             if e then
                 if w == "true" then args[#args + 1] = true
+                elseif w == "SECRET" then args[#args + 1] = SECRET
                 elseif w == "false" then args[#args + 1] = false
                 else args[#args + 1] = tonumber(w) or w end
             else
@@ -393,6 +399,11 @@ for line in io.lines() do
         runeOn = rest == "1"
     elseif cmd == "secret" then
         secretOn = rest == "1"
+    elseif cmd == "restrict" then
+        restricted = rest == "1"
+    elseif cmd == "rcstatus" then
+        local unit, status = rest:match("^(%S+)%s+(%S+)$")
+        rcStatus[unit] = status
     elseif cmd == "bigwigs" then
         local label, secs = rest:match("^(.-)%s+(%d+)$")
         bwHandlers.BigWigs_StartBar("BigWigs_StartBar", {}, "key", label, tonumber(secs))

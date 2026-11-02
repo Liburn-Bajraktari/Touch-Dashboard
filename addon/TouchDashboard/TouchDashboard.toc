@@ -2,7 +2,7 @@
 ## Title: Touch Dashboard
 ## Notes: Runs Touch Dashboard's addon commands without opening chat, holds its key slots, and shows it your gold, bags, buffs and keystone.
 ## Author: Touch Dashboard
-## Version: 2.5.0
+## Version: 2.6.0
 ## SavedVariables: TouchDashboardDB
 ## OptionalDeps: BigWigs, DBM-Core, NorthernSkyRaidTools
 

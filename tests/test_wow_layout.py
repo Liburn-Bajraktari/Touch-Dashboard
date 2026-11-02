@@ -399,6 +399,19 @@ def test_in_a_key_buffs_not_seen_are_hidden_not_missing():
     assert not checks["flask"]["hidden"] and checks["intellect"]["cast"] == "cast_intellect"
 
 
+
+def test_the_companions_word_on_hidden_auras_wins_over_the_guess():
+    key = {"state": 1, "map": 503, "name": "Ara-Kara", "level": 12, "limit": 1800, "elapsed": 600}
+    core, _ = make({})
+    core._took(copy.deepcopy(SNAP) | {"buffs": [], "mplus": key, "aura_secret": False})   # the game says: readable
+    checks = {c["id"]: c for c in game_view(core)["live"]["checks"]}
+    assert not checks["flask"]["hidden"] and checks["intellect"]["cast"] == "cast_intellect"
+    core._took(copy.deepcopy(SNAP) | {"buffs": [], "aura_secret": True, "pull_hidden": True})   # an encounter
+    live = game_view(core)["live"]
+    checks = {c["id"]: c for c in live["checks"]}
+    assert checks["flask"]["hidden"] and checks["intellect"]["cast"] is None
+    assert live["pull_hidden"] is True
+
 def test_boss_names_lose_the_games_defeated():
     key = {"state": 1, "map": 1, "name": "Den of Nalorakk", "level": 16, "limit": 1920, "elapsed": 1066, "bosses": [
         {"name": "The Hoardmonger defeated", "done": True, "at": 501},
@@ -408,3 +421,27 @@ def test_boss_names_lose_the_games_defeated():
     core._took(copy.deepcopy(SNAP) | {"mplus": key})
     assert [b["name"] for b in game_view(core)["live"]["mplus"]["bosses"]] == [
         "The Hoardmonger", "Sentinel of Winter", "Nalorakk", "Lord Dee"]
+
+
+@pytest.mark.parametrize("where", ["World of Warcraft", "World of Warcraft/_retail_",
+                                   "World of Warcraft/_retail_/WTF/Account/ACC/SavedVariables", "~"])
+def test_the_addons_folder_is_found_from_the_folder_set_in_settings(tmp_path, monkeypatch, where):
+    # Nothing is assumed about where WoW lives: the game folder, its _retail_ or a
+    # SavedVariables folder under it, as set in WoW settings ("~" for the home folder).
+    retail = tmp_path / "World of Warcraft" / "_retail_"
+    (retail / "Interface" / "AddOns" / "BigWigs").mkdir(parents=True)
+    (retail / "WTF" / "Account" / "ACC" / "SavedVariables").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    path = "~/World of Warcraft/_retail_" if where == "~" else str(tmp_path / where)
+    core, _ = make({"wow_path": path})
+    core.poll()
+    assert core.has_addon("BigWigs") is True and core.has_addon("DBM-Core") is False
+
+
+def test_without_a_game_folder_no_addon_is_known(tmp_path):
+    core, _ = make({})
+    core.poll()
+    assert core.has_addon("BigWigs") is None          # unknown, not missing
+    core, _ = make({"wow_path": str(tmp_path)})       # a folder with no Interface/AddOns in or above it
+    core.poll()
+    assert core.has_addon("BigWigs") is None

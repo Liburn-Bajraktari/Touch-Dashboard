@@ -5,7 +5,9 @@
  * the defaults in WoW settings, and remembers whether they are open); the
  * timer display; who is not ready; and the boss mod bars the companion addon
  * sees. While its live link shows, the game decides: a pull or break bar
- * (yours, or the raid leader's) is the big timer, and none means none.
+ * (yours, or the raid leader's) is the big timer, and none means none; a
+ * countdown whose numbers the game hides (a dungeon or raid) is the pull sent
+ * from here, or "Pull started" with no figure (hiddenPull).
  * Without it, the last pull or break sent from here, and the bars from the
  * addon's last answer. Counted down on this screen's clock from the seconds
  * the PC said were left; it steps once a second with its figure, like the
@@ -85,6 +87,11 @@
             api.text(timerEl.querySelector('.wow-timer-label'), 'No timer');
             api.text(timerEl.querySelector('.live-v'), '—');
             timerEl.querySelector('.wow-timer-fill').style.transform = 'scaleX(0)';
+        } else if (timer.hidden) {                 // someone's pull, its length hidden by the game
+            timerEl.dataset.kind = timer.kind;
+            api.text(timerEl.querySelector('.wow-timer-label'), timer.label);
+            api.text(timerEl.querySelector('.live-v'), '—');
+            timerEl.querySelector('.wow-timer-fill').style.transform = 'scaleX(0)';
         } else {
             timerEl.dataset.kind = timer.kind;
             api.text(timerEl.querySelector('.wow-timer-label'), timer.label);
@@ -132,10 +139,22 @@
             rest && (live ? `Waiting for ${rest}` : `No answer: ${rest}`)].filter(Boolean).join(' · '));
     }
 
+    // A countdown whose numbers the game hides (in a dungeon or raid, an
+    // encounter, a key): a pull sent from here keeps counting on the PC's
+    // clock; anyone else's shows as started, with no figure.
+    function hiddenPull(api) {
+        const t = api.state().timer;
+        if (t && t.kind === 'pull') {
+            return { kind: 'pull', label: t.label, duration: t.duration, endAt: performance.now() + t.remaining * 1000, fromGame: true };
+        }
+        return { kind: 'pull', label: 'Pull started', duration: 0, endAt: Infinity, hidden: true, fromGame: true };
+    }
+
     function syncLive(api) {
         const g = api.view('game');
         const live = g && g.live;
-        const key = live ? JSON.stringify([live.age, live.bars, live.rc]) : '';
+        const t = api.state().timer;
+        const key = live ? JSON.stringify([live.age, live.bars, live.rc, live.pull_hidden, t && t.remaining]) : '';
         if (key === barsKey) return;
         barsKey = key;
         const fresh = live && live.age < 600;
@@ -146,7 +165,8 @@
         rc = fresh && live.rc ? { ...live.rc, rem: (live.rc.rem || 0) - live.age } : null;
         if (live && live.link) {
             timer = big ? { kind: /^pull/i.test(big.label) ? 'pull' : 'break', label: big.label,
-                            duration: big.dur || big.rem, endAt: barsAt + big.rem * 1000, fromGame: true } : null;
+                            duration: big.dur || big.rem, endAt: barsAt + big.rem * 1000, fromGame: true }
+                : live.pull_hidden ? hiddenPull(api) : null;
         } else if (timer && timer.fromGame) {
             timer = null;
         }

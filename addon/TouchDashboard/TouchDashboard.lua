@@ -266,19 +266,42 @@ end
 
 -- Blizzard's own countdown: the pull timer anyone in the group starts, from
 -- the raid frames, /countdown or a boss mod (BigWigs and DBM start theirs
--- through it in Midnight), with or without a boss mod here.
-local PULL = "Pull"
+-- through it in Midnight), with or without a boss mod here. In a dungeon or
+-- raid, an encounter, a key or a PvP match its numbers are secret
+-- (SecretInChatMessagingLockdown): then only that one runs is known, until
+-- it is cancelled, combat starts or a minute has passed.
+local PULL, PULL_HIDDEN_S = "Pull", 60
+local pullHidden = nil                  -- GetTime() when a countdown with secret numbers started
 local countdown = CreateFrame("Frame")
 countdown:SetScript("OnEvent", function(_, event, _, seconds)
     if event == "START_PLAYER_COUNTDOWN" then
+        pullHidden = issecret(seconds) and GetTime() or nil
         addBar(PULL, seconds)
+    elseif event == "CANCEL_PLAYER_COUNTDOWN" then
+        bars[PULL], barLen[PULL], pullHidden = nil, nil, nil
+    elseif pullHidden then              -- combat or the encounter began: that was the pull
+        pullHidden = nil
     else
-        bars[PULL], barLen[PULL] = nil, nil
-        linkDirty()
+        return
     end
+    linkDirty()
 end)
-pcall(countdown.RegisterEvent, countdown, "START_PLAYER_COUNTDOWN")
-pcall(countdown.RegisterEvent, countdown, "CANCEL_PLAYER_COUNTDOWN")
+for _, e in ipairs({ "START_PLAYER_COUNTDOWN", "CANCEL_PLAYER_COUNTDOWN", "PLAYER_REGEN_DISABLED", "ENCOUNTER_START" }) do
+    pcall(countdown.RegisterEvent, countdown, e)
+end
+local function pullHiddenNow(now)
+    if pullHidden and now - pullHidden > PULL_HIDDEN_S then pullHidden = nil end
+    return pullHidden ~= nil
+end
+
+-- Whether the game hides aura data from addons now (combat, an encounter, a
+-- key, a PvP match; a spell flagged never secret still reads), as Blizzard's
+-- C_Secrets says. nil from a client without it: the PC then guesses.
+local function aurasSecret()
+    if not (C_Secrets and C_Secrets.ShouldAurasBeSecret) then return nil end
+    local v = plain(try(C_Secrets.ShouldAurasBeSecret))
+    if type(v) == "boolean" then return v end
+end
 
 -- The units of the group, you first.
 local function groupUnits()
@@ -294,7 +317,10 @@ local function groupUnits()
 end
 
 -- The last ready check: who answered what (1 ready, 2 not ready, 3 no
--- answer when it ended). Its result stays for five minutes.
+-- answer when it ended). Its result stays for five minutes. In a dungeon or
+-- raid READY_CHECK's asker and time left are secret: the asker is then the
+-- one the game already counts as ready (GetReadyCheckStatus, as Blizzard's
+-- raid frames read it), and the time Blizzard's default.
 local readyCheck = { state = 0, ends = 0, answers = {} }    -- state: 0 none, 1 running, 2 over
 local rcEvents = CreateFrame("Frame")
 rcEvents:SetScript("OnEvent", function(_, event, a1, a2)
@@ -303,6 +329,10 @@ rcEvents:SetScript("OnEvent", function(_, event, a1, a2)
         rc.state, rc.ends, rc.answers = 1, now + (plain(a2) or 35), {}
         local who = plain(a1)
         if type(who) == "string" then rc.answers[who] = 1 end        -- who asked is ready
+        for _, unit in ipairs(GetReadyCheckStatus and groupUnits() or {}) do
+            local name = plain(UnitName(unit))
+            if type(name) == "string" and plain(try(GetReadyCheckStatus, unit)) == "ready" then rc.answers[name] = 1 end
+        end
     elseif event == "READY_CHECK_CONFIRM" then
         local name = plain(UnitName(a1 or ""))
         if type(name) == "string" and rc.state == 1 then rc.answers[name] = plain(a2) and 1 or 2 end
@@ -535,6 +565,7 @@ local function snapshot(full, result)
     local s = { v = 1, ver = VERSION, t = time(), sh = slotsHash, result = result,
                 combat = InCombatLockdown() and true or false }
     s.lockdown = (C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and try(C_ChatInfo.InChatMessagingLockdown)) or false
+    s.aura_secret, s.pull_hidden = aurasSecret(), pullHiddenNow(GetTime())
     local name, realm = UnitFullName("player")
     local _, class = UnitClass("player")
     local spec = GetSpecialization and try(GetSpecialization)
@@ -647,7 +678,9 @@ end
 local function build()
     local s, out, now = snapshot(false), {}, GetTime()
     local c, bags, dur, key = s.char or {}, s.bags or {}, s.dur, s.key
-    u8(out, (s.combat and 1 or 0) + (s.lockdown and 2 or 0) + (s.group.raid and 4 or 0))
+    -- flags: 1 combat, 2 chat lockdown, 4 raid, 8 auras secret (16: the game said whether), 32 a hidden pull runs
+    u8(out, (s.combat and 1 or 0) + (s.lockdown and 2 or 0) + (s.group.raid and 4 or 0) + (s.aura_secret and 8 or 0)
+        + (s.aura_secret ~= nil and 16 or 0) + (s.pull_hidden and 32 or 0))
     u8(out, s.group.n)
     local mask = 0
     for _, id in pairs(try(groupClasses) or {}) do
@@ -834,7 +867,8 @@ end)
 for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_MONEY",
                      "BAG_UPDATE_DELAYED", "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED",
                      "GROUP_ROSTER_UPDATE", "ZONE_CHANGED_NEW_AREA", "PLAYER_SPECIALIZATION_CHANGED",
-                     "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED" }) do
+                     "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED",
+                     "ADDON_RESTRICTION_STATE_CHANGED" }) do
     pcall(linkEvents.RegisterEvent, linkEvents, e)
 end
 pcall(linkEvents.RegisterUnitEvent, linkEvents, "UNIT_AURA", "player")

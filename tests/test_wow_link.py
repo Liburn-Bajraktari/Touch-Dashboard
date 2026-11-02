@@ -104,12 +104,14 @@ def test_a_ready_check_and_nsrts_alerts_are_read():
         {"text": "Soak {skull}", "rem": 10.0, "spell": 370597}, {"text": "Spread", "rem": 25.0, "spell": None}]}
 
 
+# A +12 Ara-Kara: its timer started at 100 s, 2 deaths (30 s), 72.4 % forces, the first boss down at 5:12
+RUN = (bytes([1]) + (503).to_bytes(2, "big") + text("Ara-Kara") + bytes([12]) + (1800).to_bytes(2, "big")
+       + (1000).to_bytes(4, "big") + bytes([0, 2]) + (30).to_bytes(2, "big") + (724).to_bytes(2, "big")
+       + bytes([2]) + text("Avanoxx") + bytes([1]) + (312).to_bytes(2, "big") + text("Anub'zekt") + bytes([0, 0, 0]))
+
+
 def test_a_mythic_plus_run_is_read():
-    run = bytes([1]) + (503).to_bytes(2, "big") + text("Ara-Kara") + bytes([12]) + (1800).to_bytes(2, "big")
-    run += (1000).to_bytes(4, "big")                                   # its timer started at 100 s
-    run += bytes([0, 2]) + (30).to_bytes(2, "big") + (724).to_bytes(2, "big")   # 2 deaths, 30 s; 72.4 %
-    run += bytes([2]) + text("Avanoxx") + bytes([1]) + (312).to_bytes(2, "big") + text("Anub'zekt") + bytes([0, 0, 0])
-    m = parse(payload(mplus=run), 1520.5)["mplus"]                     # WoW's clock: 23:40 into the key
+    m = parse(payload(mplus=RUN), 1520.5)["mplus"]                     # WoW's clock: 23:40 into the key
     assert m == {"state": 1, "map": 503, "name": "Ara-Kara", "level": 12, "limit": 1800, "elapsed": 1420.5,
                  "running": True, "onTime": False, "upgrades": 0, "deaths": 2, "lost": 30, "forces": 72.4,
                  "bosses": [{"name": "Avanoxx", "done": True, "at": 312}, {"name": "Anub'zekt", "done": False, "at": None}]}
@@ -117,3 +119,18 @@ def test_a_mythic_plus_run_is_read():
     over += (15000).to_bytes(4, "big") + bytes([1 | 2 << 1, 0]) + bytes(4) + bytes([0])   # 25:00, timed, +2
     m = parse(payload(mplus=over), 9999.0)["mplus"]
     assert (m["state"], m["elapsed"], m["onTime"], m["upgrades"], m["running"]) == (2, 1500.0, True, 2, False)
+
+
+def test_a_key_leaves_the_frames_flags_and_the_character_be():
+    # Up to v0.16.0 the run's result, its last boss and its level overwrote the frame's
+    # flags (combat read as "timed"), the character's name and level.
+    snap = parse(payload(1 | 2 | 8 | 16 | 32, mplus=RUN), 1520.5)
+    assert (snap["combat"], snap["lockdown"], snap["aura_secret"], snap["pull_hidden"]) == (True, True, True, True)
+    assert snap["char"]["name"] is None and snap["char"]["level"] == 80 and snap["mplus"]["level"] == 12
+    assert snap["mplus"]["onTime"] is False
+
+
+def test_whether_the_game_hides_auras_is_read_only_when_it_said():
+    assert parse(payload(1), 0.0)["aura_secret"] is None              # an addon before 2.6.0: the PC guesses
+    assert parse(payload(16), 0.0)["aura_secret"] is False
+    assert parse(payload(8 | 16), 0.0)["aura_secret"] is True

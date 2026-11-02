@@ -13,7 +13,7 @@ A page of the dashboard for playing WoW: your raid's note and its alerts as they
 ## Getting started
 
 1. **Add the page's key to the dashboard.** On the PC, add a key (or hold one to edit it), choose **Plugin → World of Warcraft**. Tapping it opens the page; the arrow at the top left goes back.
-2. **Tell it where the game is.** On the PC, open the page's settings (the gear) → **General** → the game folder (the one with `_retail_` in it).
+2. **Tell it where the game is.** On the PC, open the page's settings (the gear) → **General** → the game folder (the one with `_retail_` in it; `_retail_` itself, or a `SavedVariables` folder under it, works too, and `~` stands for your home folder). Nothing is assumed about where WoW is installed.
 3. **Install the companion addon.** Same place: **Install**. It copies the addon into the game's `Interface/AddOns`. In WoW, `/reload` (or log in) and check it is on in the AddOns list. `/tdc` in game says it is running.
 4. **Optionally, Battle.net.** Main settings → **Battle.net**: sign in for your characters, or add a client key for the character plate, spell names and the WoW Token's price. Raider.IO needs nothing.
 
@@ -49,7 +49,7 @@ Every macro is limited to 255 characters, as WoW's own are.
 
 The **Touch Dashboard** addon (`addon/TouchDashboard`) is what lets the page run commands without chat and see the game. It never runs anything on its own, and no key is ever pressed because of what it shows.
 
-**The live link.** The addon draws a one-pixel line of coloured dots along the top edge of the game window, from a fifth of the way across to four fifths (the corners are where overlays such as Steam's FPS counter draw). The PC reads that line from the game's window ten times a second, so the page follows the game as it changes, with no keys pressed and in combat too. It carries your character, gold, bags, durability, weapon oil, keystone and group; your buffs of ten minutes or more and your consumables; boss mod bars and the pull countdown; the last ready check's answers; NSRT's alerts for the phase; and your Mythic+ run. Only what the game lets addons see: in combat, encounters and Mythic+ the game hides buffs from addons, and the addon leaves them out. The line works on Linux (WoW through Wine or Proton under X11 or XWayland); elsewhere the page reads the game when a command goes through the box, or with the buff check's **Read** key.
+**The live link.** The addon draws a one-pixel line of coloured dots along the top edge of the game window, from a fifth of the way across to four fifths (the corners are where overlays such as Steam's FPS counter draw). The PC reads that line from the game's window ten times a second, so the page follows the game as it changes, with no keys pressed and in combat too. It carries your character, gold, bags, durability, weapon oil, keystone and group; your buffs of ten minutes or more and your consumables; boss mod bars and the pull countdown; the last ready check's answers; NSRT's alerts for the phase; and your Mythic+ run. Only what the game lets addons see: in combat, encounters and Mythic+ the game hides buffs from addons, and the addon leaves them out; in a dungeon or raid it also hides who started a pull countdown or a ready check and how long it runs. The line works on Linux (WoW through Wine or Proton under X11 or XWayland); elsewhere the page reads the game when a command goes through the box, or with the buff check's **Read** key.
 
 **In game:**
 
@@ -75,7 +75,7 @@ A plate is one part of the page. Three columns of them, arranged as you like ([A
 - **Break** starts a break timer through BigWigs, DBM or NSRT, whichever you have.
 - **Ready check** starts one; under the timer, how many are ready, who is not, and who has not answered.
 - **Lengths** (top right) shows the pull and break faders; most people send the same every time, so they stay folded away. Each screen remembers its own lengths, starting from the defaults in settings.
-- The big timer follows the game: anyone's pull or break bar, from any boss mod. Boss mod bars are listed below it.
+- The big timer follows the game: anyone's pull or break bar, from any boss mod. Boss mod bars are listed below it. In a dungeon or raid the game hides a pull countdown's length from addons: a pull sent from the page still counts down, while someone else's reads **Pull started** with no figure.
 
 ### Mythic+
 
@@ -93,7 +93,7 @@ The eight markers in their colours, star first as players know them; each lands 
 
 <img src="images/wow/plate-buffs.png" alt="The buff check on a raid night: Arcane Intellect 53 min, Power Word: Fortitude 48 min, Battle Shout missing, Mark of the Wild 55 min, Blessing of the Bronze missing, flask 58 min, Well Fed 40 min, the augment rune 28 min, weapon oil 59 min" width="420"> <img src="images/wow/plate-buffs-key.png" alt="The same check in a Mythic+ key: every buff reads Hidden, weapon oil still shows 59 min" width="420">
 
-What you need before the pull, counting down: your food, flask, augment rune and weapon oil, and your own class's raid buff (with a key to cast it when it is missing). Another class's raid buff is asked for only when someone of that class is in your group. In combat and in a Mythic+ key the game hides buffs from addons: then a buff it cannot see reads **Hidden**, not missing (weapon oil still shows), so the check is for before the pull.
+What you need before the pull, counting down: your food, flask, augment rune and weapon oil, and your own class's raid buff (with a key to cast it when it is missing). Another class's raid buff is asked for only when someone of that class is in your group. In combat, during a boss fight and for a whole Mythic+ key the game hides buffs from addons: then a buff it cannot see reads **Hidden**, not missing (weapon oil still shows), so the check is for before the pull. In a raid between pulls it reads as usual. The addon asks the game whether buffs are hidden at that moment, so the check never guesses.
 
 ### NSRT note and its alerts
 
@@ -163,11 +163,11 @@ Themes apply here too:
 
 ## What it cannot do
 
-- **Nothing secret.** In combat, encounters and Mythic+ the game hides buffs and cooldowns from addons (Midnight's rules), so the buff check is for before the pull, and nothing the game hides reaches the page.
+- **Nothing secret.** In combat, encounters and Mythic+ the game hides buffs and cooldowns from addons (Midnight's rules), so the buff check is for before the pull, and nothing the game hides reaches the page. In a dungeon or raid the game also hides the numbers of anyone's pull countdown and who started a ready check: the page shows that a pull started, not its length, and finds the ready check's asker from who the game already counts as ready.
 - **No automation.** The PC presses a key only when you tap one; nothing is ever pressed because of what the page shows.
 - **WoW in front.** Keys go to the window in front, so WoW must be it. The page checks, and presses nothing otherwise.
 - **The live link is Linux-only** (WoW through Wine or Proton under X11 or XWayland). On Windows the page reads the game through the addon's box when a command runs, or with **Read**.
-- **Not yet tried in a real raid or key:** NSRT's alerts during an encounter, the ready check's answers, and the Mythic+ plate's figures against the game's own.
+- **Not yet tried in a real raid:** NSRT's alerts during an encounter, the ready check's answers, and a pull countdown started by someone else.
 
 ---
 

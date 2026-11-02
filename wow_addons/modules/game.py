@@ -123,7 +123,12 @@ def _live_key(snap: dict) -> str | None:
 
 
 def _buffs_hidden(snap: dict) -> bool:
-    """The game keeps auras from addons now: in combat, chat lockdown or a Mythic+ key."""
+    """The game keeps auras from addons now, as the companion says (Blizzard's
+    C_Secrets, since 2.6.0: combat, an encounter, a key, a PvP match); from an
+    older one, guessed: in combat, chat lockdown or a Mythic+ key."""
+    said = snap.get("aura_secret")
+    if isinstance(said, bool):
+        return said
     return snap.get("combat") is True or snap.get("lockdown") is True or table(snap.get("mplus")).get("state") == 1
 
 
@@ -253,6 +258,7 @@ def view(ctx: Context) -> dict:
         out["live"] = {
             "age": round(live["age"]), "link": bool(live.get("link")),
             "combat": snap.get("combat") is True, "lockdown": snap.get("lockdown") is True,
+            "pull_hidden": snap.get("pull_hidden") is True,
             "name": _text(c.get("name"), 48), "class": _text(c.get("class"), 16), "spec": _text(c.get("spec"), 32),
             "zone": _text(snap.get("zone")), "gold": int(_num(snap.get("gold")) or 0) // 10000,
             "bags": next((x["bags"] for x in chars if x.get("current")), None),

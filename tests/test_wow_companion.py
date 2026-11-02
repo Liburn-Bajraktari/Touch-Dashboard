@@ -158,7 +158,7 @@ def make(game, tmp_path, settings=None, *, loaded=True, window=True):
     core = WowAddons(wow_addons.discover(), send_keys=keys, clipboard=clip, sleep=lambda s: None,
                      screen=win, clock=lambda: 5000 + (win.frames / 60 if win else 0))
     core.configure({"wow_path": str(root), **(settings or {})})
-    assert core.install_companion() == wow_addons.bundled_version() == "2.5.0"
+    assert core.install_companion() == wow_addons.bundled_version() == "2.6.0"
     return core, pressed, clip
 
 
@@ -654,3 +654,58 @@ def test_wow_is_told_once_when_a_newer_addon_is_installed(game, tmp_path):
     core.run("bw_version")
     told = [p for p in json.loads(game.cmd("printed")) if "/reload" in p]
     assert len(told) == 1 and f"{wow_addons.bundled_version()} is installed (this is 2.0.0)" in told[0]
+
+
+def test_a_pull_whose_numbers_the_game_hides_is_still_seen(game, tmp_path):
+    core, pressed, _ = make(game, tmp_path)
+    frames(core, 2)
+    game.cmd("event START_PLAYER_COUNTDOWN Player-1-0A SECRET SECRET")   # in a raid: the leader's pull, numbers secret
+    frames(core, 20)
+    snap = core.snapshot()["data"]
+    assert snap["pull_hidden"] is True and snap["bars"] == []
+    assert game_live(core)["pull_hidden"] is True
+    game.cmd("event PLAYER_REGEN_DISABLED")             # combat began: that was the pull
+    frames(core, 20)
+    assert core.snapshot()["data"]["pull_hidden"] is False
+    game.cmd("event START_PLAYER_COUNTDOWN Player-1-0A SECRET SECRET")
+    game.cmd("event CANCEL_PLAYER_COUNTDOWN Player-1-0A")
+    frames(core, 20)
+    assert core.snapshot()["data"]["pull_hidden"] is False
+    game.cmd("event START_PLAYER_COUNTDOWN Player-1-0A SECRET SECRET")
+    frames(core, 20)
+    game.cmd("timers 61")                               # nobody pulled: a minute on, it is forgotten
+    frames(core, 20)
+    assert core.snapshot()["data"]["pull_hidden"] is False
+    assert pressed == []
+
+
+def test_a_ready_check_whose_asker_the_game_hides(game, tmp_path):
+    core, pressed, _ = make(game, tmp_path)
+    frames(core, 2)
+    game.cmd("rcstatus party1 ready")                   # the Priest asked: the game counts them ready
+    game.cmd("event READY_CHECK SECRET SECRET")         # in a dungeon or raid: who and how long are secret
+    game.cmd("event READY_CHECK_CONFIRM party2 true")
+    frames(core, 20)
+    rc = core.snapshot()["data"]["rc"]
+    assert (rc["state"], rc["total"], rc["ready"]) == (1, 5, 2) and 30 < rc["rem"] <= 35   # Blizzard's 35 s
+    game.cmd("event READY_CHECK_FINISHED false")
+    frames(core, 20)
+    live = game_live(core)["rc"]
+    assert [(m["name"], m["a"]) for m in live["missing"]] == [("Thrall", 3), ("Druid", 3), ("Evoker", 3)]
+    assert pressed == []
+
+
+def test_the_game_says_when_it_hides_auras(game, tmp_path):
+    core, _, _ = make(game, tmp_path)
+    frames(core, 2)
+    assert core.snapshot()["data"]["aura_secret"] is False
+    checks = {c["id"]: c for c in game_live(core)["checks"]}
+    assert not checks["flask"]["hidden"]                # out of a key: missing is missing
+    game.cmd("restrict 1")                              # a key started: auras secret out of combat too
+    game.cmd("secret 1")                                # Well Fed now reads as secret; Arcane Intellect does not
+    game.cmd("event ADDON_RESTRICTION_STATE_CHANGED 2 2")
+    frames(core, 20)
+    assert core.snapshot()["data"]["aura_secret"] is True
+    checks = {c["id"]: c for c in game_live(core)["checks"]}
+    assert checks["food"]["hidden"] and checks["flask"]["hidden"]
+    assert checks["intellect"]["ok"]                    # a buff the game still lets through shows as it is

@@ -253,20 +253,23 @@ def parse(payload: bytes, wow_now: float) -> dict:
     mplus = None
     run_state = r.uint(1)
     if run_state:
-        map_id, dungeon, level, limit, when = r.uint(2), r.text(), r.uint(1), r.uint(2), r.uint(4)
-        flags, deaths, lost, forces = r.uint(1), r.uint(1), r.uint(2), r.uint(2) / 10
+        map_id, dungeon, run_level, limit, when = r.uint(2), r.text(), r.uint(1), r.uint(2), r.uint(4)
+        result, deaths, lost, forces = r.uint(1), r.uint(1), r.uint(2), r.uint(2) / 10
         bosses = []
         for _ in range(r.uint(1)):
-            name, done, at = r.text(), r.uint(1), r.uint(2)
-            bosses.append({"name": name, "done": bool(done), "at": at if done and at else None})
+            boss, done, at = r.text(), r.uint(1), r.uint(2)
+            bosses.append({"name": boss, "done": bool(done), "at": at if done and at else None})
         elapsed = when / 10 if run_state == 2 else (round(wow_now - when / 10, 1) if when else 0)
-        mplus = {"state": run_state, "map": map_id, "name": dungeon or None, "level": level, "limit": limit,
+        mplus = {"state": run_state, "map": map_id, "name": dungeon or None, "level": run_level, "limit": limit,
                  "elapsed": max(0, elapsed), "running": run_state == 1 and when > 0,
-                 "onTime": bool(flags & 1), "upgrades": flags >> 1, "deaths": deaths, "lost": lost,
+                 "onTime": bool(result & 1), "upgrades": result >> 1, "deaths": deaths, "lost": lost,
                  "forces": forces, "bosses": bosses}
     return {
         "v": 1, "ver": version, "sh": slots_hash, "link": True,
         "combat": bool(flags & 1), "lockdown": bool(flags & 2),
+        # Since addon 2.6.0: whether the game hides auras now (None: it did not say), and a
+        # countdown running whose numbers the game hides (a dungeon or raid, an encounter, a key).
+        "aura_secret": bool(flags & 8) if flags & 16 else None, "pull_hidden": bool(flags & 32),
         "char": {"name": name or None, "realm": realm or None, "class": cls or None, "spec": spec or None,
                  "level": level or None, "ilvl": ilvl or None},
         "gold": gold,
