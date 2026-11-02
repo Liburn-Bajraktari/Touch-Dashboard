@@ -1099,6 +1099,16 @@ local function newerInstalled(version)
     print(("|cff5db8a6Touch Dashboard|r %s is installed (this is %s): type /reload to use it."):format(version, VERSION))
 end
 
+-- A newer version of this addon is out, with a newer Touch Dashboard: the
+-- dashboard updates itself, then this addon in the AddOns folder (flag
+-- "u<version>", from the dashboard's own check for updates). Once a session.
+local toldReleased = false
+local function newerReleased(version)
+    if toldReleased or version == VERSION then return end
+    toldReleased = true
+    print(("|cff5db8a6Touch Dashboard|r addon %s is out (this is %s): update Touch Dashboard on your PC, and it updates this addon."):format(version, VERSION))
+end
+
 local function tdc(msg)
     local verb, rest = msg:match("^(%S*)%s*(.-)$")
     if verb == "slots" then return applySlots(rest) end
@@ -1129,6 +1139,8 @@ box:SetScript("OnEnterPressed", function(self)
     payload = unpct(payload)
     local newer = flags:match("n([%d%.]+)")
     if newer then newerInstalled(newer) end
+    local released = flags:match("u([%d%.]+)")
+    if released then newerReleased(released) end
     local result = "ok"
     if flags:find("b", 1, true) then            -- for the run button, not run here
         result = loadRun(payload)

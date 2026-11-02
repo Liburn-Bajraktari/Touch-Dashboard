@@ -445,3 +445,26 @@ def test_without_a_game_folder_no_addon_is_known(tmp_path):
     core, _ = make({"wow_path": str(tmp_path)})       # a folder with no Interface/AddOns in or above it
     core.poll()
     assert core.has_addon("BigWigs") is None
+
+
+def test_the_newest_released_companion_is_read_from_githubs_release_list():
+    def rel(tag, *assets, **kw):
+        return {"tag_name": tag, "assets": [{"name": a} for a in assets], **kw}
+    releases = [rel("v0.18.0", "TouchDashboard-addon-2.10.0.zip", prerelease=True),   # never offered
+                rel("v0.17.0", "TouchDashboard-addon-2.7.0.zip", draft=True),
+                rel("v0.16.1", "touch-dashboard-v0.16.1.zip", "TouchDashboard-addon-2.6.0.zip", "SHA256SUMS"),
+                rel("v0.16.0", "TouchDashboard-addon-2.5.0.zip"), rel("v0.11.0", "TouchDashboard-v0.11.0.apk")]
+    assert wow_addons.latest_companion(releases) == "2.6.0"
+    assert wow_addons.latest_companion([rel("v0.11.0", "TouchDashboard-v0.11.0.apk")]) is None
+    assert wow_addons.latest_companion({"message": "API rate limit exceeded"}) is None
+
+
+def test_a_newer_released_companion_is_reported_until_this_install_has_it(tmp_path):
+    core, _ = make({})
+    assert core.companion_status()["release"] is None
+    core.set_latest_companion(wow_addons.bundled_version())       # this install brings it already
+    assert core.companion_status()["release"] is None
+    core.set_latest_companion("99.0.0")                            # the dashboard's own update brings it
+    assert core.companion_status()["release"] == "99.0.0"
+    core.set_latest_companion("99.0.0; rm -rf ~")                  # anything else is no version
+    assert core.companion_status()["release"] is None

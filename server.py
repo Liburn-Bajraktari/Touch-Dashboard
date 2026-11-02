@@ -1562,6 +1562,9 @@ async def check_for_updates() -> dict:
         releases = await asyncio.to_thread(fetch_releases)
         if releases and isinstance(releases, list):
             checked = True
+            # The WoW companion tells the player in game when a newer one is out
+            # (it comes with this app's update, which then copies it into the game).
+            wow.set_latest_companion(wow_addons.latest_companion(releases))
             desktop_checked = False
             apk_url_found = False
             prev_available = update_available

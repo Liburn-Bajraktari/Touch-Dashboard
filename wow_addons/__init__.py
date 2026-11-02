@@ -73,6 +73,8 @@ ACCOUNT_RE = re.compile(r"[A-Za-z0-9#_. -]{0,64}")
 GLYPH_RE = re.compile(r"[a-z][a-z0-9-]{0,39}")
 PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 VERSION_RE = re.compile(r"^##\s*Version:\s*([0-9][0-9A-Za-z.\-]{0,15})\s*$", re.M)
+# The companion on its own in each GitHub release (release.sh): its version is in the name.
+ADDON_ASSET_RE = re.compile(r"^TouchDashboard-addon-(\d+(?:\.\d+){1,3})\.zip$")
 
 SLOTS = tuple(f"F{n}" for n in range(1, 13))
 SLOT_MODIFIERS = ("KEY_LEFTCTRL", "KEY_LEFTALT", "KEY_LEFTSHIFT")
@@ -387,6 +389,21 @@ def _version(v: Any) -> tuple[int, ...]:
     return tuple(int(p) for p in parts[:4]) or (0,)
 
 
+def latest_companion(releases: Any) -> str | None:
+    """The newest companion in GitHub's release list (the server's update check
+    reads it anyway): from its own asset's name, stable releases only."""
+    found = []
+    for release in releases if isinstance(releases, list) else []:
+        if not isinstance(release, dict) or release.get("draft") or release.get("prerelease") \
+                or release.get("tag_name") in (None, "", "pre-release"):
+            continue
+        for asset in release.get("assets") or []:
+            m = ADDON_ASSET_RE.match(asset.get("name", "") if isinstance(asset, dict) else "")
+            if m:
+                found.append(m.group(1))
+    return max(found, key=_version, default=None)
+
+
 def bundled_version() -> str | None:
     """The companion addon's version in this install (addon/TouchDashboard)."""
     try:
@@ -573,6 +590,7 @@ class WowAddons:
         self._addons_dir: str | None = None
         self._installed: frozenset[str] | None = None
         self._update_failed: str | None = None   # a bundled version that could not be copied in
+        self._released: str | None = None        # the newest companion on GitHub (set_latest_companion)
         self._companion_version: str | None = None
 
     # ── settings ──────────────────────────────────────────────────────────
@@ -1161,7 +1179,9 @@ class WowAddons:
                     return None
                 self._took(before)
             newer = self._newer_installed()      # the companion says so in game, once a session
-            flags = ("r" if want_result else "") + ("b" if load else "") + (f"n{newer}" if newer else "") or "-"
+            released = self._newer_released()    # likewise: a newer one comes with the dashboard's update
+            flags = ("r" if want_result else "") + ("b" if load else "") + (f"n{newer}" if newer else "") \
+                + (f"u{released}" if released else "") or "-"
             envelope = f"{ENVELOPE_TAG} {nonce} {flags} {_pct(chr(10).join(lines))}"
             if not self.clipboard.set_text(envelope):
                 raise CommandError("no_clipboard")
@@ -1252,6 +1272,7 @@ class WowAddons:
                    "answered": None if self._snapshot_at is None else round(self.clock() - self._snapshot_at)}
             if admin:
                 out["dir"] = self._addons_dir
+        out["release"] = self._release_ahead()          # a newer one comes with the dashboard's update
         return out
 
     def _update_companion(self) -> None:
@@ -1271,6 +1292,30 @@ class WowAddons:
             self._update_failed = new
             return
         logger.info("Updated the WoW companion addon in the game folder from %s to %s", have, got)
+
+    def set_latest_companion(self, version: Any) -> None:
+        """The newest companion released (the server's update check, from GitHub)."""
+        ok = isinstance(version, str) and re.fullmatch(r"\d+(?:\.\d+){1,3}", version)
+        with self._lock:
+            self._released = version if ok else None
+
+    def _release_ahead(self) -> str | None:
+        """The newest companion released, when this install is too old to bring it:
+        updating the dashboard does (its own update brings it, `_update_companion`
+        copies it in)."""
+        with self._lock:
+            released = self._released
+        new = bundled_version()
+        return released if released and _version(released) > _version(new or "0") else None
+
+    def _newer_released(self) -> str | None:
+        """The newest companion released, when neither this install nor WoW has it."""
+        released = self._release_ahead()
+        with self._lock:
+            running = (self._snapshot or {}).get("ver")
+        if released and isinstance(running, str) and _version(running) < _version(released):
+            return released
+        return None
 
     def _newer_installed(self) -> str | None:
         """The version in the game folder when WoW still runs an older one (the

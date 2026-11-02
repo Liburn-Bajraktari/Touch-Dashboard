@@ -1278,7 +1278,8 @@
                 : `It last answered ${cs.answered < 90 ? `${cs.answered} s` : `${Math.round(cs.answered / 60)} min`} ago; its live link is not showing (/tdc link on in WoW).`;
         // The dashboard keeps it up to date in the game folder; WoW loads a new one at /reload.
         const reload = cs.running && cs.running !== cs.installed ? ` WoW still runs ${cs.running}: /reload in WoW to use it.` : '';
-        return `Version ${cs.installed} installed${old ? ` (this PC has ${cs.bundled}: install it)` : ''}.${reload} ${seen}`;
+        const release = cs.release ? ` Version ${cs.release} is out: it comes with the next Touch Dashboard update.` : '';
+        return `Version ${cs.installed} installed${old ? ` (this PC has ${cs.bundled}: install it)` : ''}.${reload}${release} ${seen}`;
     }
 
     function renderSettings() {

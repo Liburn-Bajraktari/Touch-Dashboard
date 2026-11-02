@@ -59,7 +59,7 @@ The **Touch Dashboard** addon (`addon/TouchDashboard`) is what lets the page run
 | `/tdc link off` / `/tdc link on` | Hides or shows the live link's line (the page then reads the game only through the box) |
 | `/tdc nstest` | Runs NSRT's own test of phase 1's alerts; the alert plates follow it |
 
-**Updates.** Once installed, the dashboard keeps the addon up to date in the game folder: a dashboard update brings a newer addon, and the PC copies it in. WoW loads it at the next `/reload` or login, and until then the addon tells you in chat, once, the next time the page uses it. It is never installed where you did not install it, and never replaced by an older one. Each release on GitHub also carries the addon on its own, `TouchDashboard-addon-<version>.zip`, to unzip into `Interface/AddOns` by hand.
+**Updates.** Once installed, the dashboard keeps the addon up to date in the game folder: a dashboard update brings a newer addon, and the PC copies it in. WoW loads it at the next `/reload` or login, and until then the addon tells you in chat, once, the next time the page uses it. When a newer addon is out with a newer dashboard (the dashboard checks GitHub for its own updates), the addon says that too, once, and the settings' status line names it: update the dashboard, and it updates the addon. It is never installed where you did not install it, and never replaced by an older one. Each release on GitHub also carries the addon on its own, `TouchDashboard-addon-<version>.zip`, to unzip into `Interface/AddOns` by hand.
 
 ---
 

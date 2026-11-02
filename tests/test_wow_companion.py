@@ -656,6 +656,19 @@ def test_wow_is_told_once_when_a_newer_addon_is_installed(game, tmp_path):
     assert len(told) == 1 and f"{wow_addons.bundled_version()} is installed (this is 2.0.0)" in told[0]
 
 
+
+def test_wow_is_told_once_when_a_newer_addon_is_out_with_a_dashboard_update(game, tmp_path):
+    core, _, _ = make(game, tmp_path)                 # WoW runs "2.0.0"
+    frames(core, 2)
+    core.set_latest_companion(wow_addons.bundled_version())    # this install has the newest: /reload only
+    core.run("bw_version")
+    assert not [p for p in json.loads(game.cmd("printed")) if " is out " in p]
+    core.set_latest_companion("99.0.0")              # GitHub has a newer one, with a newer dashboard
+    core.run("bw_version")
+    core.run("bw_version")
+    told = [p for p in json.loads(game.cmd("printed")) if " is out " in p]
+    assert len(told) == 1 and "addon 99.0.0 is out (this is 2.0.0): update Touch Dashboard on your PC" in told[0]
+
 def test_a_pull_whose_numbers_the_game_hides_is_still_seen(game, tmp_path):
     core, pressed, _ = make(game, tmp_path)
     frames(core, 2)
