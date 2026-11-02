@@ -99,11 +99,11 @@ What you need before the pull, counting down: your food, flask, augment rune and
 
 <img src="images/wow/plate-note.png" alt="The NSRT note: Dimensius, Mythic, your two reminders with their times and phases" width="420"> <img src="images/wow/plate-alerts.png" alt="Encounter alerts: the next one large with its countdown, the rest of the phase below it" width="300">
 
-<img src="images/wow/plate-next.png" alt="Next alert: Ice Block the soak in 0:06, then Spread" width="420">
+<img src="images/wow/plate-next.png" alt="Next alert in a raid: Ice Block the soak in 0:06, then Spread" width="420"> <img src="images/wow/plate-next-key.png" alt="Next alert in a key: Boss ability in 0:06, then another at 0:21" width="380">
 
 - **NSRT note**: your raid's Northern Sky Raid Tools note, your reminders first (tagged with your character or role), then the shared cooldowns and the notes. It comes from NSRT's saved data, or from the PC's clipboard with **Paste note**.
 - **Encounter alerts**: NSRT's alerts for the phase that runs, as NSRT scheduled them, the next one large with its countdown and the rest below it. Raid marks show in their colours. **Test** runs NSRT's own test of phase 1.
-- **Next alert**: only the next one and the one after it, for a small space.
+- **Next alert** (a Raid & dungeons plate, so it works with NSRT off too): whatever comes first, your boss mod's next ability or NSRT's next alert, large with its countdown, and the one after it. In raids NSRT's reminders and BigWigs' or DBM's bars mix; in dungeons NSRT runs no reminders, so it is the boss mod's: BigWigs takes them from the game's own encounter timeline, and with LittleWigs installed most of them have their names. A bar whose name the game keeps secret (a boss no module knows) reads **Boss ability**, with its true countdown.
 
 ### Character
 

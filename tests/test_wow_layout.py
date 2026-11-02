@@ -37,6 +37,13 @@ def test_a_saved_pull_and_break_plate_is_raid_and_dungeons_now():
     assert s["layout"]["columns"][1] == [{"w": "raid.timers", "size": "full"}]     # once
 
 
+def test_a_saved_next_alert_plate_is_raid_and_dungeons_now():
+    # NSRT's until v0.16.2; it shows the boss mods' bars too, so it lives on with NSRT off.
+    core, _ = make({"modules": {"nsrt": False}})
+    s = core.configure({"layout": {"columns": [[{"w": "nsrt.next", "size": "half"}], [], []]}})
+    assert s["layout"]["columns"][0] == [{"w": "raid.next", "size": "half"}]
+
+
 def test_templates_start_a_keys_plate():
     core, _ = make()
     tpl = {t["id"]: t for t in core.state_msg(False)["data"]["templates"]}

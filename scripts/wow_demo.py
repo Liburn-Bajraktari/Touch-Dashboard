@@ -96,7 +96,7 @@ with open(os.path.join(data_dir, "wow_spells.json"), "w") as f:
 # The plates as the renders show them first (WoW settings → the pencil arranges them).
 LAYOUT = {"columns": [
     [{"w": "nsrt.note", "size": "full"}, {"w": "game.buffs", "size": "full"}],
-    [{"w": "char.plate", "size": "full"}, {"w": "raid.timers", "size": "full"}, {"w": "nsrt.next", "size": "full"}],
+    [{"w": "char.plate", "size": "full"}, {"w": "raid.timers", "size": "full"}, {"w": "raid.next", "size": "full"}],
     [{"w": "markers.world", "size": "full"}, {"w": "game.keystone", "size": "full"},
      {"w": "token.price", "size": "half"}, {"w": "game.wallet", "size": "half"}],
 ]}
@@ -157,7 +157,10 @@ SNAP = {"v": 1, "ver": server.wow_addons.bundled_version(), "combat": False, "lo
             {"text": "Bloodlust", "rem": 95.0, "spell": None}]}}
 
 # A Mythic+ key: a party of five, the timer running; the game hides buffs from addons.
-KEY = dict(SNAP, buffs=[], bars=[], rc={"state": 0}, alerts={"phase": 0, "list": []}, zone="Ara-Kara, City of Echoes",
+# In a key the boss's bars come from Blizzard's timeline through BigWigs, their names
+# secret (no label); NSRT runs no reminders in dungeons.
+KEY = dict(SNAP, buffs=[], bars=[{"label": None, "rem": 9.0, "dur": 20.0}, {"label": None, "rem": 24.0, "dur": 30.0}],
+           rc={"state": 0}, alerts={"phase": 0, "list": []}, zone="Ara-Kara, City of Echoes",
            group={"n": 5, "raid": False, "classes": ["MAGE", "PRIEST", "DRUID", "WARRIOR", "EVOKER"]},
            mplus={"state": 1, "map": 503, "name": "Ara-Kara, City of Echoes", "level": 12, "limit": 1800,
                   "elapsed": 1045.0, "running": True, "deaths": 3, "lost": 45, "forces": 72.4,

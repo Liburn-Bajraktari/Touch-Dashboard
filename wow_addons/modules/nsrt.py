@@ -271,9 +271,7 @@ MODULE = AddonModule(
     widgets=(Widget("note", "NSRT note", "Your reminders from the raid's note, timed, yours first",
                     grow=True, column=0, order=10),
              Widget("alerts", "Encounter alerts", "NSRT's alerts for this phase as they come: the next one large, "
-                    "the rest below it, each with its countdown", grow=True),
-             Widget("next", "Next alert", "NSRT's next alert and its countdown, and the one after it",
-                    sizes=("half", "full"))),
+                    "the rest below it, each with its countdown", grow=True)),
     templates=(
         KeyTemplate("tools", "NSRT", "The hub, the kick macro, test alerts, group split, a break",
                     glyph="layout-grid", keys=({"cmd": "open_nsrt"}, {"cmd": "nkm_refresh"}, {"cmd": "nsrt_test"},

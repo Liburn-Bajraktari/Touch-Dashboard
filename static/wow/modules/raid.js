@@ -24,6 +24,9 @@
 
     const PULL = [5, 25], BREAK = [2, 15];
     const BIG_BAR = /^(pull|break)\b/i;      // BigWigs' and DBM's pull and break bars, and the companion's countdown
+    // A boss mod bar whose name the game keeps secret (BigWigs' Timeline plugin:
+    // Blizzard's encounter timeline for a boss with no module of its own).
+    const UNNAMED = 'Boss ability';
     const OPEN_KEY = 'td_wow_raid_lengths';
     let pull = null, brk = null;             // chosen lengths; null: follow the default
     let pullKey = null, breakKey = null, rcKey = null, pullFader = null, breakFader = null;
@@ -113,7 +116,7 @@
         const live = bars.map(b => ({ label: b.label, left: b.rem - gone })).filter(b => b.left > 0);
         if (!live.length) bars = [];
         barsEl.hidden = !live.length;
-        barsEl.innerHTML = live.slice(0, 6).map(b => `<div class="wow-bar-row"><span class="wow-bar-name">${api.esc(b.label)}</span>`
+        barsEl.innerHTML = live.slice(0, 6).map(b => `<div class="wow-bar-row"><span class="wow-bar-name">${api.esc(b.label || UNNAMED)}</span>`
             + `<span class="wow-bar-left num">${clock(b.left)}</span></div>`).join('');
     }
 
@@ -344,10 +347,82 @@
         drawRun(api);
     }
 
+    // ── the next alert ───────────────────────────────────────────────────
+    // Whatever comes first in the encounter: a boss mod's bar (BigWigs, DBM,
+    // or Blizzard's timeline through BigWigs, unnamed when the game keeps the
+    // name secret) or one of NSRT's alerts for the phase, large with its
+    // countdown, and the one after it. Up to v0.16.2 NSRT's alone: NSRT runs
+    // reminders in raids only, so in a key the plate never showed anything.
+    const MARK = /\{(star|circle|diamond|triangle|moon|square|cross|skull)\}/g;
+    const MARK_GLYPH = { cross: 'x' };
+    const nx = { el: null, items: [], where: '', at: 0, key: '', tick: 0 };
+
+    function marked(api, text) {
+        return api.esc(text).replace(MARK, (_, m) => `<i data-lucide="${MARK_GLYPH[m] || m}" class="wow-alert-mark" data-mark="${m}"></i>`);
+    }
+
+    function syncNext(api) {
+        const g = api.view('game');
+        const live = g && g.live;
+        const key = live ? JSON.stringify([live.age, live.alerts, live.bars]) : '';
+        if (key === nx.key) return;
+        nx.key = key;
+        nx.at = performance.now();
+        nx.items = [];
+        nx.where = '';
+        if (!live || live.age >= 600) return;
+        const al = live.alerts;
+        for (const a of (al && al.list) || []) nx.items.push({ text: a.text, rem: a.rem - live.age, nsrt: true });
+        for (const b of live.bars || []) {
+            if (!BIG_BAR.test(b.label || '')) nx.items.push({ text: b.label || UNNAMED, rem: b.rem - live.age });
+        }
+        nx.items.sort((a, b) => a.rem - b.rem);
+        if (al) nx.where = al.test ? 'NSRT test run' : [al.enc, al.phase ? `Phase ${al.phase}` : ''].filter(Boolean).join(' · ');
+    }
+
+    function nextIdle(api) {
+        const g = api.view('game');
+        if (!(g && g.live && g.live.link)) return 'Alerts come with the live link: the Touch Dashboard addon on, WoW running.';
+        return 'Your boss mod’s next ability and NSRT’s alerts show here during an encounter.';
+    }
+
+    // Rebuilt when what it shows changes (el.shape); between, only the countdowns.
+    function drawNext(api) {
+        if (!nx.el || !nx.el.isConnected) return;
+        syncNext(api);
+        const gone = (performance.now() - nx.at) / 1000;
+        const soon = nx.items.map(x => ({ ...x, left: x.rem - gone })).filter(x => x.left > 0);
+        const [a, b] = soon;
+        const shape = JSON.stringify([a && a.text, b && b.text, nx.where, a ? '' : nextIdle(api)]);
+        if (shape !== nx.el.shape) {
+            nx.el.shape = shape;
+            nx.el.dataset.state = a ? 'on' : 'idle';
+            nx.el.innerHTML = a
+                ? `<span class="wow-alert-text">${marked(api, a.text)}</span><span class="wow-alert-left live num"><span class="live-v"></span></span>`
+                    + `<span class="wow-alert-then">${b ? `Then ${marked(api, b.text)} · <span class="num"></span>` : api.esc(a.nsrt ? nx.where : '')}</span>`
+                : `<span class="wow-cell-note">${api.esc(nextIdle(api))}</span>`;
+            api.icons(nx.el);
+        }
+        if (a) api.text(nx.el.querySelector('.live-v'), clock(a.left));
+        const then = nx.el.querySelector('.wow-alert-then .num');
+        if (then && b) api.text(then, clock(b.left));
+        clearTimeout(nx.tick);
+        if (a) nx.tick = setTimeout(() => drawNext(api), ((a.left % 1) || 1) * 1000 + 15);
+    }
+
+    function renderNext(sec, api) {
+        nx.el = document.createElement('div');
+        nx.el.className = 'scribble wow-alert-next';
+        nx.el.setAttribute('role', 'timer');
+        sec.appendChild(nx.el);
+        nx.key = '';
+        drawNext(api);
+    }
+
     AddonModules.register({
         id: 'raid',
         name: 'Raid & dungeons',
-        widgets: { timers: { render }, mplus: { render: renderRun } },
+        widgets: { timers: { render }, mplus: { render: renderRun }, next: { render: renderNext } },
         keyState(command, args, api) {
             if (command === 'raid_pull' || command === 'bw_pull') return { on: running('pull') };
             if (command === 'raid_break' || command === 'bw_break') return { on: running('break') };
@@ -357,6 +432,7 @@
         update(api) {
             syncTimer(api);
             drawRun(api);
+            drawNext(api);
         },
         settings: {
             render(el, api) {

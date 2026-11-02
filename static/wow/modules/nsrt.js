@@ -128,7 +128,7 @@
     // ── encounter alerts ─────────────────────────────────────────────────
     const MARK = /\{(star|circle|diamond|triangle|moon|square|cross|skull)\}/g;
     const MARK_GLYPH = { cross: 'x' };
-    const al = { list: null, next: null, where: null, data: null, at: 0, key: '', tick: 0 };
+    const al = { list: null, where: null, data: null, at: 0, key: '', tick: 0 };
 
     function clock(s) {
         s = Math.max(0, Math.ceil(s));
@@ -169,9 +169,10 @@
         return al.data ? 'No more alerts this phase.' : 'NSRT’s alerts show here once an encounter starts. Test runs phase 1 now.';
     }
 
-    // The list: the next alert large, the rest below it smaller. Each plate is
-    // rebuilt when the alerts change (el.shape: what it shows); between, only
-    // the countdowns' text. A plate is drawn before the page places it.
+    // The list: the next alert large, the rest below it smaller, rebuilt when
+    // the alerts change (el.shape: what it shows); between, only the
+    // countdowns' text. A plate is drawn before the page places it. (The Next
+    // alert plate is Raid & dungeons' now: raid.js, with the boss mods' bars.)
     function drawAlerts(api) {
         syncAlerts(api);
         const soon = upcoming();
@@ -187,21 +188,6 @@
             }
             al.list.querySelectorAll('.wow-alert .live-v').forEach((el, i) => api.text(el, clock(soon[i].left)));
             if (al.where) api.text(al.where, where());
-        }
-        if (al.next) {
-            const [a, b] = soon;
-            if (shape !== al.next.shape) {
-                al.next.shape = shape;
-                al.next.dataset.state = a ? 'on' : 'idle';
-                al.next.innerHTML = a
-                    ? `<span class="wow-alert-text">${alertHtml(api, a.text)}</span><span class="wow-alert-left live num"><span class="live-v"></span></span>`
-                        + `<span class="wow-alert-then">${b ? `Then ${alertHtml(api, b.text)} · <span class="num"></span>` : api.esc(where())}</span>`
-                    : `<span class="wow-cell-note">${api.esc(idleText(api))}</span>`;
-                api.icons(al.next);
-            }
-            if (a) api.text(al.next.querySelector('.live-v'), clock(a.left));
-            const then = al.next.querySelector('.wow-alert-then .num');
-            if (then && b) api.text(then, clock(b.left));
         }
         clearTimeout(al.tick);
         if (soon.length) al.tick = setTimeout(() => drawAlerts(api), ((soon[0].left % 1) || 1) * 1000 + 15);
@@ -227,18 +213,10 @@
         drawAlerts(api);
     }
 
-    function renderNext(sec, api) {
-        al.next = document.createElement('div');
-        al.next.className = 'scribble wow-alert-next';
-        al.next.setAttribute('role', 'timer');
-        sec.appendChild(al.next);
-        drawAlerts(api);
-    }
-
     AddonModules.register({
         id: 'nsrt',
         name: 'Northern Sky Raid Tools',
-        widgets: { note: { render: renderViewer }, alerts: { render: renderAlerts }, next: { render: renderNext } },
+        widgets: { note: { render: renderViewer }, alerts: { render: renderAlerts } },
         update(api) {
             api.onAck = (d) => (d.command === 'nsrt_paste' && d.reason === 'empty' ? "No note on the PC's clipboard" : null);
             draw(api);

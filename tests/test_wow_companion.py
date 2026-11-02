@@ -158,7 +158,7 @@ def make(game, tmp_path, settings=None, *, loaded=True, window=True):
     core = WowAddons(wow_addons.discover(), send_keys=keys, clipboard=clip, sleep=lambda s: None,
                      screen=win, clock=lambda: 5000 + (win.frames / 60 if win else 0))
     core.configure({"wow_path": str(root), **(settings or {})})
-    assert core.install_companion() == wow_addons.bundled_version() == "2.6.0"
+    assert core.install_companion() == wow_addons.bundled_version() == "2.7.0"
     return core, pressed, clip
 
 
@@ -722,3 +722,39 @@ def test_the_game_says_when_it_hides_auras(game, tmp_path):
     checks = {c["id"]: c for c in game_live(core)["checks"]}
     assert checks["food"]["hidden"] and checks["flask"]["hidden"]
     assert checks["intellect"]["ok"]                    # a buff the game still lets through shows as it is
+
+
+def test_a_bar_whose_name_the_game_hides_is_kept_unnamed(game, tmp_path):
+    core, pressed, _ = make(game, tmp_path)
+    frames(core, 2)
+    game.cmd("timeline add 7 12")                      # a dungeon's boss: BigWigs' Timeline plugin, the name secret
+    game.cmd("bigwigs Cosmic Collapse 30")             # a raid boss's own module: named
+    frames(core, 20)
+    snap = core.snapshot()
+    assert [(b["label"], b["dur"]) for b in snap["data"]["bars"]] == [("", 12), ("Cosmic Collapse", 30)]
+    assert [b["label"] for b in game_live(core)["bars"]] == [None, "Cosmic Collapse"]
+    game.cmd("timeline pause 7")                       # an intermission: its time stands still
+    frames(core, 60)
+    assert [b["label"] for b in core.snapshot()["data"]["bars"]] == ["Cosmic Collapse"]
+    game.cmd("timeline resume 7")
+    frames(core, 20)
+    snap = core.snapshot()
+    (unnamed,) = [b for b in snap["data"]["bars"] if b["label"] == ""]
+    assert unnamed["rem"] - snap["age"] == pytest.approx(12 - 40 / 60, abs=0.15)   # the paused second not counted
+    game.cmd("timeline stop 7")
+    frames(core, 20)
+    assert [b["label"] for b in core.snapshot()["data"]["bars"]] == ["Cosmic Collapse"]
+    assert pressed == []
+
+
+def test_a_later_phase_counts_from_when_it_starts(game, tmp_path):
+    core, _, _ = make(game, tmp_path)
+    frames(core, 70)
+    game.cmd("event ENCOUNTER_START 3306 Dimensius 16 20")
+    game.cmd("nsrt phase 1 3306")
+    frames(core, 600)                                  # ten seconds into phase 1
+    game.cmd("nsrt phase 2 3306")                      # NSRT stamps the phase's start only after telling us
+    frames(core, 20)
+    snap = core.snapshot()
+    (stack,) = snap["data"]["alerts"]["list"]          # up to v0.16.2: counted from phase 1's start, 5 s ago
+    assert stack["text"] == "Stack" and stack["rem"] - snap["age"] == pytest.approx(5 - 20 / 60, abs=0.2)

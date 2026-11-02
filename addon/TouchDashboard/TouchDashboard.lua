@@ -214,23 +214,49 @@ local function scanItems(kind)
     return out
 end
 
--- Boss mods' bars: what they started and have not stopped. Their text and
--- length are taken only when they are not secret.
-local bars, barLen, dbmIds = {}, {}, {}
+-- Boss mods' bars: what they started and have not stopped, by name. Their
+-- length is taken only when it is not secret, and so is their name; a bar
+-- whose name is secret but whose time is not (BigWigs' Timeline plugin in
+-- Midnight: Blizzard's encounter timeline for every boss with no module of
+-- its own, e.g. a dungeon's) is kept unnamed, by its timeline event id.
+-- A paused bar (an intermission) keeps its time left until it resumes.
+local bars, barLen, barName, barPaused, dbmIds = {}, {}, {}, {}, {}
 local linkDirty = function() end          -- the live link's, once it exists
-local function addBar(label, seconds)
-    label, seconds = plain(label), plain(seconds)
-    if type(label) ~= "string" or type(seconds) ~= "number" or seconds <= 0 then return end
-    bars[label], barLen[label] = GetTime() + seconds, seconds
+local function barKey(label, eventId)
+    label, eventId = plain(label), plain(eventId)
+    if type(label) == "string" and label ~= "" then return label, label end
+    if type(eventId) == "number" or type(eventId) == "string" then return "\1" .. eventId, nil end
+end
+local function addBar(label, seconds, eventId)
+    seconds = plain(seconds)
+    local key, name = barKey(label, eventId)
+    if not key or type(seconds) ~= "number" or seconds <= 0 then return end
+    bars[key], barLen[key], barName[key], barPaused[key] = GetTime() + seconds, seconds, name, nil
+    linkDirty()
+end
+local function stopBar(key)
+    if not key then return end
+    bars[key], barLen[key], barName[key], barPaused[key] = nil, nil, nil, nil
+    linkDirty()
+end
+local function pauseBar(key, on)
+    local now = GetTime()
+    if on and key and bars[key] then
+        barPaused[key], bars[key] = bars[key] - now, nil
+    elseif not on and key and barPaused[key] then
+        bars[key], barPaused[key] = now + barPaused[key], nil
+    else
+        return
+    end
     linkDirty()
 end
 local function barList()
     local out, now = {}, GetTime()
-    for label, exp in pairs(bars) do
+    for key, exp in pairs(bars) do
         if exp > now then
-            out[#out + 1] = { label = label, rem = math.floor((exp - now) * 10) / 10 }
+            out[#out + 1] = { label = barName[key] or "", rem = math.floor((exp - now) * 10) / 10 }
         else
-            bars[label] = nil
+            bars[key], barLen[key], barName[key] = nil, nil, nil
         end
     end
     table.sort(out, function(a, b) return a.rem < b.rem end)
@@ -240,13 +266,17 @@ end
 local function hookBossMods()
     if BigWigsLoader and BigWigsLoader.RegisterMessage then
         local owner = {}
-        BigWigsLoader.RegisterMessage(owner, "BigWigs_StartBar", function(_, _, _, text, time) addBar(text, time) end)
-        BigWigsLoader.RegisterMessage(owner, "BigWigs_StopBar", function(_, _, text)
-            text = plain(text)
-            if text then bars[text] = nil end
-            linkDirty()
+        -- (module, key, text, time, icon, maxQueueDuration, maxTime, eventId)
+        BigWigsLoader.RegisterMessage(owner, "BigWigs_StartBar", function(_, _, _, text, time, _, _, _, eventId)
+            addBar(text, time, eventId)
         end)
-        BigWigsLoader.RegisterMessage(owner, "BigWigs_StopBars", function() wipe(bars); linkDirty() end)
+        -- (module, text[, eventId]): a boss module stops a bar by its text, the Timeline plugin by its event
+        BigWigsLoader.RegisterMessage(owner, "BigWigs_StopBar", function(_, _, text, eventId) stopBar((barKey(text, eventId))) end)
+        BigWigsLoader.RegisterMessage(owner, "BigWigs_PauseBar", function(_, _, text, eventId) pauseBar((barKey(text, eventId)), true) end)
+        BigWigsLoader.RegisterMessage(owner, "BigWigs_ResumeBar", function(_, _, text, eventId) pauseBar((barKey(text, eventId)), false) end)
+        BigWigsLoader.RegisterMessage(owner, "BigWigs_StopBars", function()
+            wipe(bars); wipe(barLen); wipe(barName); wipe(barPaused); linkDirty()
+        end)
     end
     if DBM and DBM.RegisterCallback then
         local function start(_, id, msg, timer)
@@ -258,7 +288,7 @@ local function hookBossMods()
         DBM:RegisterCallback("DBM_TimerBegin", start)
         DBM:RegisterCallback("DBM_TimerStop", function(_, id)
             id = plain(id)
-            if id and dbmIds[id] then bars[dbmIds[id]] = nil; dbmIds[id] = nil end
+            if id and dbmIds[id] then stopBar(dbmIds[id]); dbmIds[id] = nil end
             linkDirty()
         end)
     end
@@ -278,7 +308,8 @@ countdown:SetScript("OnEvent", function(_, event, _, seconds)
         pullHidden = issecret(seconds) and GetTime() or nil
         addBar(PULL, seconds)
     elseif event == "CANCEL_PLAYER_COUNTDOWN" then
-        bars[PULL], barLen[PULL], pullHidden = nil, nil, nil
+        stopBar(PULL)
+        pullHidden = nil
     elseif pullHidden then              -- combat or the encounter began: that was the pull
         pullHidden = nil
     else
@@ -402,7 +433,10 @@ local function hookNsrt()
     local owner = {}
     NSAPI.RegisterCallback(owner, "NSRT_PHASE", function(_, phase, encID, test)
         phase, encID = plain(phase), plain(encID)
-        local from = (not test and type(ns.PhaseSwapTime) == "number") and ns.PhaseSwapTime or GetTime()
+        -- The phase begins now: NSRT fires this before it stamps a later
+        -- phase's PhaseSwapTime (its encounter alerts call StartReminders
+        -- first), so that one would still be the last phase's start.
+        local from = GetTime()
         alertsFor = { enc = encID, phase = phase, test = test and true or false, from = from }
         readAlerts()
     end)
@@ -716,12 +750,12 @@ local function build()
     for label, exp in pairs(bars) do
         if exp > now then running[#running + 1] = label end
     end
-    table.sort(running, function(a, b) return bars[a] < bars[b] end)
+    table.sort(running, function(a, b) return bars[a] < bars[b] end)   -- keys: a name, or an unnamed bar's event
     local n = math.min(#running, 8)
     u8(out, n)
     for i = 1, n do
         local label = running[i]
-        str(out, label); uint(out, tenths(bars[label]), 4); uint(out, (barLen[label] or 0) * 10 + 0.5, 2)
+        str(out, barName[label] or ""); uint(out, tenths(bars[label]), 4); uint(out, (barLen[label] or 0) * 10 + 0.5, 2)
     end
     -- The last ready check: running or how it ended, and who is not ready
     local rc = readyCheckNow(now)

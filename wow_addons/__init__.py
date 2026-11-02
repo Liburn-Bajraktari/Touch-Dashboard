@@ -107,7 +107,7 @@ SIZES = ("half", "full")
 COLUMNS = 3
 KEYS_WIDGET = "keys"             # the core's own widget: a grid of keys the player fills
 # Widgets that moved to another module: a saved layout keeps its plate.
-WIDGET_ALIASES = {"bigwigs.timers": "raid.timers"}
+WIDGET_ALIASES = {"bigwigs.timers": "raid.timers", "nsrt.next": "raid.next"}
 
 COMPANION = "TouchDashboard"     # its folder in Interface/AddOns
 COMPANION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "addon", COMPANION)

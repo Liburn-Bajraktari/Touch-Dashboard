@@ -266,9 +266,10 @@ def view(ctx: Context) -> dict:
             "buffs": [{"id": _num(b.get("id")), "name": _text(b.get("name")), "rem": _num(b.get("rem"))}
                       for b in (table(x) for x in items(snap.get("buffs"))[:BUFFS_MAX])],
             "checks": _checks(snap, _text(c.get("class"), 16)),
+            # A bar with no label: one whose name the game keeps secret (BigWigs' Timeline plugin)
             "bars": [{"label": _text(table(b).get("label")), "rem": _num(table(b).get("rem")),
                       "dur": _num(table(b).get("dur"))}
-                     for b in items(snap.get("bars"))[:20] if _text(table(b).get("label"))],
+                     for b in items(snap.get("bars"))[:20] if _num(table(b).get("rem")) is not None],
             "version": _text(snap.get("ver"), 16),
             "rc": _ready_check(snap.get("rc")),
             "alerts": _alerts(snap.get("alerts")),

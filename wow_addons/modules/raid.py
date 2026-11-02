@@ -15,7 +15,8 @@ gets its remaining seconds at the moment the state is sent and runs the
 countdown on its own clock (a tablet's clock need not match the PC's). While
 the companion's live link shows, the game's own pull or break bar decides,
 whoever started it. The ready check's answers come from the live link too,
-and so does the Mythic+ plate's run (the game module's view: `mplus`).
+and so does the Mythic+ plate's run (the game module's view: `mplus`) and the
+Next alert plate's boss mod bars and NSRT alerts.
 """
 from __future__ import annotations
 
@@ -103,7 +104,11 @@ MODULE = AddonModule(
     widgets=(Widget("timers", "Raid & dungeons", "Pull, break and ready check keys, the countdown, the boss "
                     "mods' bars and who is not ready", column=1, order=20),
              Widget("mplus", "Mythic+", "The key's timer against its chests, deaths and the time they cost, enemy "
-                    "forces and each boss, from the companion's live link", sizes=("full", "half"))),
+                    "forces and each boss, from the companion's live link", sizes=("full", "half")),
+             # NSRT's until v0.16.2 (WIDGET_ALIASES keeps its place in saved layouts)
+             Widget("next", "Next alert", "Whatever comes first: your boss mod's next ability (BigWigs, DBM, the "
+                    "game's own timeline) or NSRT's next alert, with its countdown and the one after it",
+                    sizes=("half", "full"))),
     templates=(
         KeyTemplate("lead", "Raid lead", "Ready check, pull, break, role check, clear the markers",
                     glyph="crown", keys=({"cmd": "wow_readycheck"}, {"cmd": "raid_pull", "args": {"seconds": 10}},

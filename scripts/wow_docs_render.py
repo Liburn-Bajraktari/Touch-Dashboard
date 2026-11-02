@@ -40,11 +40,11 @@ W, H, ZOOM = 1138, 711, 2
 # other plates; one for the Mythic+ moment.
 MAIN = {"columns": [
     [{"w": "nsrt.note", "size": "full"}, {"w": "game.buffs", "size": "full"}],
-    [{"w": "char.plate", "size": "full"}, {"w": "raid.timers", "size": "full"}, {"w": "nsrt.next", "size": "full"}],
+    [{"w": "char.plate", "size": "full"}, {"w": "raid.timers", "size": "full"}, {"w": "raid.next", "size": "full"}],
     [{"w": "markers.world", "size": "full"}, {"w": "game.keystone", "size": "full"},
      {"w": "token.price", "size": "half"}, {"w": "game.wallet", "size": "half"}],
 ]}
-KEY = {"columns": [[{"w": "raid.mplus", "size": "full"}], [{"w": "game.buffs", "size": "full"}], []]}
+KEY = {"columns": [[{"w": "raid.mplus", "size": "full"}], [{"w": "game.buffs", "size": "full"}], [{"w": "raid.next", "size": "full"}]]}
 
 
 def callout(text, label, glyph):
@@ -117,6 +117,7 @@ SHOTS = {
     "plate-mplus": (KEY, "graphite", False, "crop = plate('Mythic+');", 1.0),
     "plate-buffs-key": (KEY, "graphite", False, "crop = plate('Buff check');", 1.0),
     "plate-next": (MAIN, "graphite", False, "crop = plate('Next alert');", 1.0),
+    "plate-next-key": (KEY, "graphite", False, "crop = plate('Next alert');", 1.0),
     "plate-token": (MAIN, "graphite", False, "crop = plate('WoW Token');", 1.0),
     "plate-gold": (MAIN, "graphite", False, "crop = plate('Gold');", 1.0),
     "plate-raid-lengths": (MORE, "graphite", True, "crop = plate('Raid & dungeons');", 1.0),
@@ -129,7 +130,7 @@ SHOTS = {
 }
 
 # The demo's moment each shot shows (wow_demo.py): a raid night unless named here.
-MOMENTS = {"plate-mplus": "key", "plate-buffs-key": "key"}
+MOMENTS = {"plate-mplus": "key", "plate-buffs-key": "key", "plate-next-key": "key"}
 
 parser = argparse.ArgumentParser(description="Renders of the WoW page for the docs")
 parser.add_argument("--url", default="http://127.0.0.1:8899")

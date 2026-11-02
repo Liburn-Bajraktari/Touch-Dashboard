@@ -13,12 +13,15 @@
 --   early 0|1: the first moments of a login, no realm yet | stray: a "Thrall-" left in the saved data
 --   mplus start <level> | mplus go | mplus kill <n> | mplus forces <count> | mplus death |
 --   mplus done <ms> <on time 0|1> <chests> | mplus reset: a Mythic+ key, from the keystone to its result
---   nsrt phase <n> <encounter id> | nsrt test | nsrt delay <s> | nsrt hide: NSRT starting a phase
+--   nsrt phase <n> <encounter id> | nsrt test | nsrt delay <s> | nsrt hide: NSRT starting a phase (a later one
+--                stamped after its callback, as NSRT does)
 --                (its schedule below), its test run, a boss's cast moving the phase, the encounter's end
 --   combat 0|1 | secret 0|1 | proc 0|1 | rune 0|1 | bigwigs <label> <seconds> | timers | db | calls
 --   restrict 0|1: the game hides auras out of combat too (a key, an encounter: C_Secrets)
 --   rcstatus <unit> <ready|notready|waiting>: what GetReadyCheckStatus says of a unit
 --   an event argument SECRET is a secret value (the game's numbers in a dungeon or raid)
+--   timeline add|stop|pause|resume <event id> [seconds]: a bar from BigWigs' Timeline plugin (Blizzard's
+--                encounter timeline, its spell's name secret), started, stopped, paused or resumed by event id
 --   actions | said | printed | beacon | focused | link [frames]: run the strip's OnUpdate
 --   (a frame each, 1/60 s apart) and answer its cells in physical pixels
 
@@ -112,10 +115,14 @@ NorthernSkyRaidTools = {
                    [2] = { { time = 5, dur = 5, text = "Stack" } } },
         [3307] = { [1] = { { time = 7, dur = 5, text = "Other boss" } } },
     },
+    -- As NSRT 12.1 does: at ENCOUNTER_START it stamps PhaseSwapTime first; a
+    -- later phase (its encounter alerts) calls StartReminders, then stamps it.
     StartReminders = function(self, phase, test)
         self.Phase = phase
-        if not test then self.PhaseSwapTime = clock end
+        local first = phase == 1
+        if first and not test then self.PhaseSwapTime = clock end
         if nsCallbacks.NSRT_PHASE then nsCallbacks.NSRT_PHASE("NSRT_PHASE", phase, self.EncounterID, test) end
+        if not first and not test then self.PhaseSwapTime = clock end
     end,
     DelayAllReminders = function(self, delay)
         for _, info in ipairs(self.ProcessedReminder[self.EncounterID][self.Phase]) do info.time = info.time + delay end
@@ -404,6 +411,15 @@ for line in io.lines() do
     elseif cmd == "rcstatus" then
         local unit, status = rest:match("^(%S+)%s+(%S+)$")
         rcStatus[unit] = status
+    elseif cmd == "timeline" then
+        local verb, id, secs = rest:match("^(%S+)%s+(%S+)%s*(%S*)$")
+        id = tonumber(id) or id
+        if verb == "add" then
+            bwHandlers.BigWigs_StartBar("BigWigs_StartBar", nil, nil, SECRET, tonumber(secs), SECRET, nil, nil, id, id)
+        else
+            bwHandlers[({ stop = "BigWigs_StopBar", pause = "BigWigs_PauseBar", resume = "BigWigs_ResumeBar" })[verb]](
+                "BigWigs_" .. verb, nil, nil, id)
+        end
     elseif cmd == "bigwigs" then
         local label, secs = rest:match("^(.-)%s+(%d+)$")
         bwHandlers.BigWigs_StartBar("BigWigs_StartBar", {}, "key", label, tonumber(secs))
