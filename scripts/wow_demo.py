@@ -147,8 +147,11 @@ SNAP = {"v": 1, "ver": server.wow_addons.bundled_version(), "combat": False, "lo
                   {"id": 1264426, "name": "Void-Touched", "rem": 1700}],
         "bars": [{"label": "Pull", "rem": 8.4, "dur": 10.0}, {"label": "Cosmic Collapse", "rem": 31.0, "dur": 45.0}],
         "group": {"n": 20, "raid": True, "classes": ["MAGE", "PRIEST", "DRUID", "WARRIOR", "EVOKER"]},
-        "rc": {"state": 1, "rem": 24.0, "total": 20, "ready": 17,
-               "missing": [{"name": "Steelhide", "a": 0}, {"name": "Leafwhisper", "a": 2}, {"name": "Brannoc", "a": 0}]},
+        # More than 8 still to answer: the plate names every one (up to v0.16.3 the first 8, on one cut line)
+        "rc": {"state": 1, "rem": 24.0, "total": 20, "ready": 11,
+               "missing": [{"name": n, "a": 2 if n in ("Leafwhisper", "Kethrin") else 0}
+                           for n in ("Steelhide", "Leafwhisper", "Brannoc", "Mirelle", "Tovan", "Quillara",
+                                     "Ashgrove", "Kethrin", "Vorlan")]},
         "alerts": {"phase": 1, "enc": "Dimensius", "list": [
             {"text": "Ice Block the {skull} soak", "rem": 9.0, "spell": None},
             {"text": "Spread {star} {circle}", "rem": 24.0, "spell": None},

@@ -136,10 +136,12 @@
         api.text(rcEl.querySelector('.wow-rc-fig'), all ? 'Everyone is ready' : `${rc.ready} of ${rc.total} ready`);
         rcEl.dataset.tone = !live && !all ? 'warn' : '';
         // Over (or run out before the game said so): no answer yet is no answer.
+        // A line each, wrapping: up to v0.16.3 one line cut with an ellipsis,
+        // so a raid's list lost most of its names.
         const names = (pick) => rc.missing.filter(pick).map(m => m.name).join(', ');
         const no = names(m => m.a === 2), rest = names(m => m.a !== 2);
-        api.text(rcEl.querySelector('.wow-rc-who'), [no && `Not ready: ${no}`,
-            rest && (live ? `Waiting for ${rest}` : `No answer: ${rest}`)].filter(Boolean).join(' · '));
+        api.text(rcEl.querySelector('.wow-rc-no'), no && `Not ready: ${no}`);
+        api.text(rcEl.querySelector('.wow-rc-wait'), rest && (live ? `Waiting for ${rest}` : `No answer: ${rest}`));
     }
 
     // A countdown whose numbers the game hides (in a dungeon or raid, an
@@ -235,7 +237,7 @@
         rcEl.hidden = true;
         rcEl.setAttribute('aria-live', 'polite');
         rcEl.innerHTML = '<div class="wow-rc-top"><span class="wow-rc-head"></span><span class="wow-rc-fig num"></span></div>'
-            + '<p class="wow-rc-who"></p>';
+            + '<p class="wow-rc-who wow-rc-no"></p><p class="wow-rc-who wow-rc-wait"></p>';
         barsEl = document.createElement('div');
         barsEl.className = 'wow-bars';
         barsEl.hidden = true;

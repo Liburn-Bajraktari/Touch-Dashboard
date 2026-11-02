@@ -158,7 +158,7 @@ def make(game, tmp_path, settings=None, *, loaded=True, window=True):
     core = WowAddons(wow_addons.discover(), send_keys=keys, clipboard=clip, sleep=lambda s: None,
                      screen=win, clock=lambda: 5000 + (win.frames / 60 if win else 0))
     core.configure({"wow_path": str(root), **(settings or {})})
-    assert core.install_companion() == wow_addons.bundled_version() == "2.7.0"
+    assert core.install_companion() == wow_addons.bundled_version() == "2.7.1"
     return core, pressed, clip
 
 
@@ -758,3 +758,19 @@ def test_a_later_phase_counts_from_when_it_starts(game, tmp_path):
     snap = core.snapshot()
     (stack,) = snap["data"]["alerts"]["list"]          # up to v0.16.2: counted from phase 1's start, 5 s ago
     assert stack["text"] == "Stack" and stack["rem"] - snap["age"] == pytest.approx(5 - 20 / 60, abs=0.2)
+
+
+def test_a_raids_ready_check_names_everyone_not_ready(game, tmp_path):
+    core, _, _ = make(game, tmp_path)
+    others = ["PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "MONK", "DRUID",
+              "DEMONHUNTER", "EVOKER"]
+    game.cmd("group raid " + " ".join(others))
+    frames(core, 2)
+    game.cmd("event READY_CHECK Thrall 35")            # you asked; nobody else has answered
+    game.cmd("event READY_CHECK_CONFIRM raid3 false")  # the Hunter is not ready
+    frames(core, 20)
+    rc = game_live(core)["rc"]
+    assert (rc["total"], rc["ready"]) == (13, 1)
+    # Every one of them, through the live link: up to 2.7.0 the first 8 only
+    assert [(m["name"], m["a"]) for m in rc["missing"]] == [
+        (c.capitalize(), 2 if c == "HUNTER" else 0) for c in others]

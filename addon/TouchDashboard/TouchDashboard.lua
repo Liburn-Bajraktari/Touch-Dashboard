@@ -449,6 +449,9 @@ local function hookNsrt()
 end
 
 -- What the two sections below say, for the snapshot and the live link alike.
+-- Everyone not ready, up to a 40-player raid: up to 2.7.0 the first 8 only,
+-- so a raid's ready check named some of them.
+local RC_NAMES = 40
 local function readyCheckNow(now)
     local rc = readyCheck
     if rc.state == 2 and now - rc.ends > 300 then rc.state = 0 end
@@ -460,7 +463,7 @@ local function readyCheckNow(now)
             out.total = out.total + 1
             local a = rc.answers[name] or 0              -- 0: not answered yet
             if a == 1 then out.ready = out.ready + 1
-            elseif #out.missing < 8 then out.missing[#out.missing + 1] = { name = name, a = a } end
+            elseif #out.missing < RC_NAMES then out.missing[#out.missing + 1] = { name = name, a = a } end
         end
     end
     return out
@@ -761,7 +764,7 @@ local function build()
     local rc = readyCheckNow(now)
     u8(out, rc.state); uint(out, tenths(rc.ends), 4)
     u8(out, rc.total); u8(out, rc.ready); u8(out, #rc.missing)
-    for _, m in ipairs(rc.missing) do u8(out, m.a); str(out, m.name, 16) end
+    for _, m in ipairs(rc.missing) do u8(out, m.a); str(out, m.name, 24) end      -- 12 characters, 2 bytes each at most
     -- NSRT's alerts still to come in this phase, the next eight
     local soon, phase, enc = alertsNow(now)
     alertsUntil = soon[1] and soon[1].at or nil

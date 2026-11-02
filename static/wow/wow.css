@@ -1505,13 +1505,17 @@
     color: var(--warning-text);
 }
 
+/* Not ready, then waiting for: a line each, wrapping, so every name shows. */
 .wow-rc-who {
     margin: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
     font-size: var(--fs-xs);
+    line-height: 1.4;
     color: var(--well-ink-2);
+}
+
+.wow-rc-no {
+    color: var(--well-ink);
 }
 
 .wow-rc-who:empty {

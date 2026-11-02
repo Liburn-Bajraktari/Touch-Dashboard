@@ -69,11 +69,11 @@ A plate is one part of the page. Three columns of them, arranged as you like ([A
 
 ### Raid & dungeons
 
-<img src="images/wow/plate-raid.png" alt="Raid & dungeons: Pull lit with Cancel, Break, Ready check lit with 17 of 20, a pull counting down from 10 seconds, the ready check's line, a boss mod bar" width="420"> <img src="images/wow/plate-raid-lengths.png" alt="The same plate with Lengths open: the pull and break faders" width="420">
+<img src="images/wow/plate-raid.png" alt="Raid & dungeons: Pull lit with Cancel, Break, Ready check lit with 11 of 20, a pull counting down from 10 seconds, who is not ready and the seven still to answer, each on its own line, a boss mod bar" width="420"> <img src="images/wow/plate-raid-lengths.png" alt="The same plate with Lengths open: the pull and break faders" width="420">
 
 - **Pull** starts the group's pull countdown: Blizzard's own, which BigWigs and DBM show as their pull bar (with BigWigs it goes through its `/pull`, without opening chat). While one runs, the key reads **Cancel**.
 - **Break** starts a break timer through BigWigs, DBM or NSRT, whichever you have.
-- **Ready check** starts one; under the timer, how many are ready, who is not, and who has not answered.
+- **Ready check** starts one; under the timer, how many are ready, then who is not and who has not answered, a line each, every name (a full raid wraps onto more lines).
 - **Lengths** (top right) shows the pull and break faders; most people send the same every time, so they stay folded away. Each screen remembers its own lengths, starting from the defaults in settings.
 - The big timer follows the game: anyone's pull or break bar, from any boss mod. Boss mod bars are listed below it. In a dungeon or raid the game hides a pull countdown's length from addons: a pull sent from the page still counts down, while someone else's reads **Pull started** with no figure.
 

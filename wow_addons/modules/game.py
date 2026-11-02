@@ -49,6 +49,7 @@ CONSUMABLES = (
     ("rune", "Augment rune", ("Augment",), (1264426,)),
 )
 ALERTS_MAX = 8
+RC_NAMES = 40           # a ready check's not ready / not answered, up to a 40-player raid
 _DEFEATED = re.compile(r"\s+defeated$", re.I)
 _DEFEATED_CUT = re.compile(r"\s+d(?:e(?:f(?:e(?:a(?:t(?:e(?:d)?)?)?)?)?)?)?$", re.I)   # cut short at 24 bytes
 CHESTS = (0.6, 0.8, 1.0)       # +3, +2, +1: the share of the key's time each needs (EllesmereUI's timer, Midnight)
@@ -173,7 +174,7 @@ def _ready_check(raw: Any) -> dict | None:
     if state not in (1, 2):
         return None
     missing = [{"name": _text(table(m).get("name"), 24), "a": _num(table(m).get("a"))}
-               for m in items(rc.get("missing"))[:8] if _text(table(m).get("name"))]
+               for m in items(rc.get("missing"))[:RC_NAMES] if _text(table(m).get("name"))]
     return {"state": "running" if state == 1 else "over", "rem": _num(rc.get("rem")),
             "total": _num(rc.get("total")) or 0, "ready": _num(rc.get("ready")) or 0, "missing": missing}
 
