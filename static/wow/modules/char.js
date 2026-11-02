@@ -88,7 +88,10 @@
             api.text(ui.figs[0], c.ilvl != null ? String(Math.round(c.ilvl)) : '—');
             api.text(ui.figs[1], c.score != null ? String(c.score) : '—');
             const raid = (c.raids || [])[0];
-            api.text(ui.raidName, raid ? raid.name : 'Raid');
+            // A readout's label is one line: the raid without its leading "The"
+            // ("Unbinding of Kith'ix" fits where "The Unbinding of Kit…" did not); in full on hover.
+            api.text(ui.raidName, raid ? raid.name.replace(/^The\s+/i, '') : 'Raid');
+            ui.raidName.title = raid ? raid.name : '';
             api.text(ui.figs[2], raid && raid.summary ? raid.summary : '—');
             if (c.avatar && ui.img.getAttribute('src') !== c.avatar) { ui.img.hidden = false; ui.img.src = c.avatar; }
             if (!c.avatar) ui.img.hidden = true;

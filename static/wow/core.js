@@ -332,6 +332,7 @@
             + (it.glyph ? `<i data-lucide="${esc(it.glyph)}" class="wow-pick-glyph"></i>` : '')
             + `<span class="wow-pick-text"><span class="wow-pick-name">${esc(it.label)}</span><span class="wow-pick-sub">${esc(it.sub || '')}</span></span>`
             + (it.current ? '<i data-lucide="check"></i>' : '') + '</button>').join('');
+        pickerEl.querySelector('.wow-picker-list').scrollTop = 0;   // one dialog for every picker: not where the last one was left
         const empty = pickerEl.querySelector('.wow-picker-empty');
         empty.hidden = items.length > 0;
         text(empty, o.empty || '');
@@ -918,6 +919,11 @@
         renderIcons(kedEl);
         kedEl.classList.add('active');
         q('.wow-keyed-search').focus({ preventScroll: true });
+        // The command the key sends now, in view: it was often far down the
+        // list (a raid warning under Chat), so nothing showed it chosen.
+        const list = q('.wow-keyed-list');
+        const row = list.querySelector('.wow-cmd-row[aria-selected="true"]');
+        if (row) list.scrollTop = Math.max(0, row.offsetTop - list.offsetTop - list.clientHeight / 3);
     }
 
     // A new key left empty is not kept.
@@ -1271,7 +1277,7 @@
     }
 
     function companionText(cs) {
-        if (!cs.installed) return server.settings.wow_path ? 'Not installed in this game folder.' : 'Set the game folder below first.';
+        if (!cs.installed) return server.settings.wow_path ? 'Not installed in this game folder.' : 'Set the game folder above first.';
         const old = cs.bundled && cs.installed !== cs.bundled;
         const seen = cs.link ? 'Its live link is on: this page shows the game as it changes.'
             : cs.answered == null ? 'It has not answered yet: /reload in WoW, and check it is on in the AddOns list.'
@@ -1285,13 +1291,13 @@
     function renderSettings() {
         const s = server.settings;
         const cs = server.companion || {};
-        setPanes.general.innerHTML = '<h3 class="settings-h">How keys reach the game</h3>'
-            + '<div class="notice"><i data-lucide="lightbulb"></i><p>WoW lets no addon talk to the PC, so the PC presses keys: WoW must be the window in front. '
-            + 'A key with a key slot is one key press (Ctrl+Alt+Shift+F1–F12), in combat too. With the Touch Dashboard addon, everything else goes through it without opening chat: an addon’s command it runs itself, Blizzard’s it loads into its run button (Ctrl+Alt+Shift+End). '
-            + 'In combat, or without the addon, Blizzard’s commands are typed into chat: Enter, Ctrl+V, Enter, and your clipboard is put back.</p></div>'
+        setPanes.general.innerHTML = '<h3 class="settings-h">Game folder</h3>'
+            + '<p class="settings-sub">The World of Warcraft folder, its _retail_ folder, or a SavedVariables folder. Checked every 5 seconds; WoW writes SavedVariables on /reload, logout and exit.</p>'
+            + `<div class="form-group"><label for="wow-set-path">Folder</label><input type="text" id="wow-set-path" maxlength="1024" autocomplete="off" spellcheck="false" placeholder="~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_retail_" value="${esc(s.wow_path)}"></div>`
+            + `<div class="form-group"><label for="wow-set-account">Account folder (optional)</label><input type="text" id="wow-set-account" maxlength="64" autocomplete="off" spellcheck="false" placeholder="The newest file wins" value="${esc(s.account)}"></div>`
+            + '<div class="wow-set-files"></div>'
             + '<h3 class="settings-h">Touch Dashboard addon</h3>'
-            + '<p class="settings-sub">Runs addon commands without chat, holds the key slots’ commands (no macros to make), runs Blizzard’s commands out of combat without chat, and shows this page your buffs, gold, bags, keystone and boss mod timers as they change: '
-            + 'a one-pixel line of coloured dots along the top edge of the game carries them, read from the game’s window (Linux; /tdc link off in WoW hides it). Once installed, this PC keeps it up to date in the game folder, and it tells you in game when a /reload would load a newer one. It reads only what the game lets addons see: nothing secret in combat, and no key is ever pressed because of what it reads.</p>'
+            + '<p class="settings-sub">Runs addon commands and Blizzard’s without opening chat, holds the key slots’ commands, and shows this page the game as it changes (Linux; /tdc link off in WoW hides its line of dots). This PC keeps it up to date, and it reads only what the game lets addons see.</p>'
             + '<div class="setting-group">'
             + settingRow('Use the addon', 'When it is installed', switchHtml('id="wow-set-companion"', s.companion !== false))
             + `<div class="setting-row"><div><label class="title">Status</label><label class="desc wow-comp-status">${esc(companionText(cs))}</label></div>`
@@ -1310,12 +1316,23 @@
             + ['eu', 'us', 'kr', 'tw'].map(r => `<option value="${r}"${s.region === r ? ' selected' : ''}>${r.toUpperCase()}</option>`).join('')
             + '</select></div>'
             + '</div>'
-            + '<h3 class="settings-h">Game folder</h3>'
-            + '<p class="settings-sub">The World of Warcraft folder, its _retail_ folder, or a SavedVariables folder. Checked every 5 seconds; WoW writes SavedVariables on /reload, logout and exit.</p>'
-            + `<div class="form-group"><label for="wow-set-path">Folder</label><input type="text" id="wow-set-path" maxlength="1024" autocomplete="off" spellcheck="false" placeholder="~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_retail_" value="${esc(s.wow_path)}"></div>`
-            + `<div class="form-group"><label for="wow-set-account">Account folder (optional)</label><input type="text" id="wow-set-account" maxlength="64" autocomplete="off" spellcheck="false" placeholder="The newest file wins" value="${esc(s.account)}"></div>`
-            + '<div class="wow-set-files"></div>';
-        setPanes.general.querySelector('[data-act="install"]').addEventListener('click', () => sendMessage({ type: 'wow_companion_install' }));
+            + '<h3 class="settings-h">How keys reach the game</h3>'
+            + '<div class="notice"><i data-lucide="lightbulb"></i><p>WoW lets no addon talk to the PC, so the PC presses keys: WoW must be the window in front. '
+            + 'A key with a key slot is one key press (Ctrl+Alt+Shift+F1–F12), in combat too. With the Touch Dashboard addon, everything else goes through it without opening chat: an addon’s command it runs itself, Blizzard’s it loads into its run button (Ctrl+Alt+Shift+End). '
+            + 'In combat, or without the addon, Blizzard’s commands are typed into chat: Enter, Ctrl+V, Enter, and your clipboard is put back.</p></div>';
+        // Install works from a folder typed but not saved yet: it is saved first
+        // (the server takes messages in order), so a first setup needs no
+        // round trip through Save.
+        const install = setPanes.general.querySelector('[data-act="install"]');
+        const pathIn = setPanes.general.querySelector('#wow-set-path');
+        pathIn.addEventListener('input', () => { install.disabled = !pathIn.value.trim(); });
+        install.addEventListener('click', () => {
+            const folder = { wow_path: pathIn.value.trim(), account: setPanes.general.querySelector('#wow-set-account').value.trim() };
+            if (folder.wow_path !== server.settings.wow_path || folder.account !== server.settings.account) {
+                sendMessage({ type: 'wow_settings_save', wow_addons: folder });
+            }
+            sendMessage({ type: 'wow_companion_install' });
+        });
         renderFiles();
 
         // Addons: one group each, its switch first.

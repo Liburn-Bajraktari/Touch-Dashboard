@@ -370,12 +370,15 @@
     border: 0;
     border-radius: var(--radius-pill);
     background: transparent;
-    color: var(--well-ink-2);
+    color: var(--well-ink);
     cursor: pointer;
 }
 
+/* A move that cannot happen (the first column's ←, the top plate's ↑) is
+   unlit, well under the keys that act: up to v0.16.1 it was --text-3, as
+   bright as they were (--well-ink-2), so every arrow looked usable. */
 .wow-cell-tools button:disabled {
-    color: var(--text-3);
+    color: var(--line-strong);
     cursor: default;
 }
 
@@ -1025,7 +1028,7 @@
    buff your class casts is a key that casts it. */
 .wow-buffs {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(7.6rem, 1fr));
+    grid-template-columns: repeat(var(--cols, auto-fill), minmax(7.6rem, 1fr));
     gap: 0.3rem;
     padding: 0.3rem;
     background: var(--well);
@@ -1271,6 +1274,10 @@
     max-height: min(44rem, 88vh);
 }
 
+.wow-picker-search {
+    flex: none;
+}
+
 .wow-picker-list {
     display: flex;
     flex-direction: column;
@@ -1287,8 +1294,11 @@
     display: none;
 }
 
+/* Rows keep their height in the scrolling list (flex items shrink by
+   default: two-line descriptions ran into the next row). */
 .wow-pick-row {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 1rem;
     min-height: 5rem;
@@ -1327,9 +1337,10 @@
 }
 
 .wow-pick-sub {
+    display: -webkit-box;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     font-size: var(--fs-sm);
     color: var(--text-2);
 }
@@ -1338,7 +1349,16 @@
     flex: none;
     width: 1.6rem;
     height: 1.6rem;
-    color: var(--positive);
+    color: var(--text-2);
+}
+
+/* The row that is chosen now (the character played) */
+.wow-pick-row[aria-selected="true"] svg.lucide {
+    color: var(--accent);
+}
+
+.wow-pick-row[aria-selected="true"] .wow-pick-name {
+    font-weight: var(--weight-strong);
 }
 
 .wow-picker-empty {
@@ -1894,6 +1914,13 @@ svg.wow-alert-mark {
     color: var(--text-2);
 }
 
+.wow-gold-line > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .wow-gold-line .num {
     color: var(--text);
     font-family: var(--font-num);
@@ -2008,8 +2035,12 @@ svg.wow-alert-mark {
     display: flex;
     flex-wrap: wrap;
     gap: 0.3rem 1rem;
-    color: var(--text-3);
+    color: var(--text-2);
     font-size: var(--fs-xs);
+}
+
+.wow-key-alts-h {
+    color: var(--text-3);
 }
 
 /* ── Characters ───────────────────────────────────────────────────────── */
@@ -2088,6 +2119,7 @@ svg.wow-alert-mark {
     gap: 0.8rem;
     min-height: 0;
     overflow-y: auto;
+    padding: 0.2rem 1rem 0.2rem 0.2rem;
 }
 
 .wow-keyed-preview {
@@ -2154,6 +2186,7 @@ svg.wow-alert-mark {
 }
 
 .wow-cmd-row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 1rem;
@@ -2169,6 +2202,22 @@ svg.wow-alert-mark {
 
 .wow-cmd-row + .wow-cmd-row {
     border-top: var(--line-w) solid var(--line);
+}
+
+/* The command the key sends: a lit edge (by visibility, so choosing one
+   changes no shadow) on a raised tint. */
+.wow-cmd-row::before {
+    content: "";
+    position: absolute;
+    inset: 0.6rem auto 0.6rem 0;
+    width: 0.3rem;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    visibility: hidden;
+}
+
+.wow-cmd-row[aria-selected="true"]::before {
+    visibility: visible;
 }
 
 .wow-cmd-row[aria-selected="true"] {
@@ -2301,12 +2350,33 @@ svg.wow-alert-mark {
     }
 
     .wow-bar {
-        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        row-gap: var(--gap-sm);
         flex: 0 0 auto;
     }
 
+    /* The bar's end gives its children to the bar: back, title, edit and
+       settings on the first row; what the last command did on the second,
+       full width (on a phone too a refused key says why). */
+    .wow-bar-end {
+        display: contents;
+    }
+
+    .wow-edit {
+        grid-area: 1 / 3;
+    }
+
+    .wow-gear {
+        grid-area: 1 / 4;
+    }
+
+    .wow-edit-acts {
+        grid-area: 1 / 3 / 2 / 5;
+    }
+
     .wow-last {
-        display: none;
+        grid-area: 2 / 1 / 3 / -1;
+        max-width: none;
     }
 
     .wow-grid {
@@ -2320,10 +2390,13 @@ svg.wow-alert-mark {
         overflow: visible;
     }
 
-    /* A list (the NSRT note) gets room of its own; the page scrolls. */
+    /* A list (the NSRT note) is as tall as what it holds, up to about a
+       screenful, then scrolls inside; the page scrolls. Up to v0.16.1 it
+       kept 24rem: two reminders sat over an empty well. */
     .wow-well {
         flex: 0 0 auto;
-        min-height: 24rem;
+        min-height: 6rem;
+        max-height: 48rem;
     }
 
     .wow-keyed {

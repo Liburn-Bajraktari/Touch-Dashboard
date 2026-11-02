@@ -91,9 +91,9 @@ The eight markers in their colours, star first as players know them; each lands 
 
 ### Buff check
 
-<img src="images/wow/plate-buffs.png" alt="The buff check on a raid night: Arcane Intellect 53 min, Power Word: Fortitude 48 min, Battle Shout missing, Mark of the Wild 55 min, Blessing of the Bronze missing, flask 58 min, Well Fed 40 min, the augment rune 28 min, weapon oil 59 min" width="420"> <img src="images/wow/plate-buffs-key.png" alt="The same check in a Mythic+ key: every buff reads Hidden, weapon oil still shows 59 min" width="420">
+<img src="images/wow/plate-buffs.png" alt="The buff check on a raid night, three rows of three: Intellect 53 min, Fortitude 48 min, Battle Shout missing, Mark of the Wild 55 min, Bronze missing, Flask 58 min, Food 40 min, Augment rune 28 min, Weapon oil 59 min" width="420"> <img src="images/wow/plate-buffs-key.png" alt="The same check in a Mythic+ key: every buff reads Hidden, weapon oil still shows 59 min" width="420">
 
-What you need before the pull, counting down: your food, flask, augment rune and weapon oil, and your own class's raid buff (with a key to cast it when it is missing). Another class's raid buff is asked for only when someone of that class is in your group. In combat, during a boss fight and for a whole Mythic+ key the game hides buffs from addons: then a buff it cannot see reads **Hidden**, not missing (weapon oil still shows), so the check is for before the pull. In a raid between pulls it reads as usual. The addon asks the game whether buffs are hidden at that moment, so the check never guesses.
+What you need before the pull, counting down: your food, flask, augment rune and weapon oil, and your own class's raid buff (with a key to cast it when it is missing). Another class's raid buff is asked for only when someone of that class is in your group. Each cell says what it checks (Flask, Augment rune); the buff the game found, such as your flask's name, is in its tooltip. In combat, during a boss fight and for a whole Mythic+ key the game hides buffs from addons: then a buff it cannot see reads **Hidden**, not missing (weapon oil still shows), so the check is for before the pull. In a raid between pulls it reads as usual. The addon asks the game whether buffs are hidden at that moment, so the check never guesses.
 
 ### NSRT note and its alerts
 
@@ -115,7 +115,7 @@ Your character from Raider.IO and Battle.net: item level, Mythic+ score, raid pr
 
 <img src="images/wow/plate-gold.png" alt="Gold: this character, all characters, the warband bank" width="200"> <img src="images/wow/plate-bags.png" alt="Bags: free slots, durability and a search across every character" width="380">
 
-<img src="images/wow/plate-keystone.png" alt="Keystone & vault: +12 Ara-Kara, the Great Vault's raid, dungeon and world rows, other characters' keys" width="380"> <img src="images/wow/plate-characters.png" alt="Characters: each with level, item level, gold, key and vault" width="320">
+<img src="images/wow/plate-keystone.png" alt="Keystone & vault: +12 Ara-Kara, the Great Vault's raid, dungeon and world rows, and the alts' keys" width="380"> <img src="images/wow/plate-characters.png" alt="Characters: each with level, item level, gold, key and vault" width="320">
 
 From the addon: gold on this character, on all of them and in the warband bank; free bag slots, durability, and a search through every character's bags (and banks, once opened); your keystone and this week's Great Vault; every character the addon has seen. Characters you are not playing are as of their last logout or `/reload`.
 

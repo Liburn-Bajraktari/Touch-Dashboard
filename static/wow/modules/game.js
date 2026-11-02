@@ -14,6 +14,13 @@
         intellect: 'sparkles', fortitude: 'shield-plus', shout: 'megaphone', wild: 'leaf', bronze: 'hourglass',
         skyfury: 'cloud-lightning', flask: 'flask-conical', food: 'utensils', rune: 'gem', weapon: 'droplet',
     };
+    // The check's own name on each cell; the buff the game has (a flask's,
+    // the rune's "Void-Touched") is in its tooltip and spoken label. The
+    // game's names ran past a cell: "Power Word: …", "Flask of the B…".
+    const SHORT = {
+        intellect: 'Intellect', fortitude: 'Fortitude', shout: 'Battle Shout', wild: 'Mark of the Wild', bronze: 'Bronze',
+        skyfury: 'Skyfury', flask: 'Flask', food: 'Food', rune: 'Augment rune', weapon: 'Weapon oil',
+    };
     const VAULT = [['raid', 'Raid'], ['dungeons', 'Dungeons'], ['world', 'World']];
     let data = null;
     let gotAt = 0;          // when `data` came, on this screen's clock
@@ -82,7 +89,22 @@
         ui.buffsNote.className = 'wow-cell-note';
         sec.append(ui.buffs, ui.buffsNote);
         ui.buffsDrawn = '';
+        if (ui.buffsFit) ui.buffsFit.disconnect();
+        ui.buffsFit = new ResizeObserver(fitBuffs);
+        ui.buffsFit.observe(ui.buffs);
         drawBuffs(api);
+    }
+
+    // As many cells to a row as fit (7.6rem each), then evened out: nine in
+    // three rows of three, not 4 + 4 and one alone.
+    function fitBuffs() {
+        const el = ui.buffs;
+        const n = el ? el.children.length : 0;
+        if (!n || !el.isConnected) return;
+        const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
+        const fit = Math.max(1, Math.floor((el.clientWidth - 0.3 * rem) / (7.9 * rem)));
+        const cols = String(Math.ceil(n / Math.ceil(n / fit)));
+        if (el.style.getPropertyValue('--cols') !== cols) el.style.setProperty('--cols', cols);
     }
 
     function drawBuffs(api) {
@@ -96,11 +118,14 @@
                 // While the game hides auras, one not seen is hidden, not missing
                 const cast = !c.ok && !c.hidden && c.cast;
                 const word = c.ok ? left(c.rem) : (c.hidden ? 'Hidden' : (cast ? 'Cast' : 'Missing'));
-                return `<${cast ? 'button' : 'div'} class="${cast ? 'btn ' : ''}wow-buff" ${cast ? `type="button" data-cast="${api.esc(c.cast)}"` : 'role="img"'} data-state="${c.ok ? 'on' : (c.hidden ? 'hidden' : 'off')}" aria-label="${api.esc(`${c.name}: ${cast ? 'missing, tap to cast' : word.toLowerCase()}`)}">`
-                    + `<span class="key-glyph"><i data-lucide="${GLYPHS[c.id] || 'circle'}"></i>${KEY_WARN}</span><span class="wow-buff-name">${api.esc(c.label || c.name)}</span>`
+                const name = SHORT[c.id] || c.name;
+                const full = c.label && c.label !== name ? `${name} (${c.label})` : c.name;
+                return `<${cast ? 'button' : 'div'} class="${cast ? 'btn ' : ''}wow-buff" ${cast ? `type="button" data-cast="${api.esc(c.cast)}"` : 'role="img"'} data-state="${c.ok ? 'on' : (c.hidden ? 'hidden' : 'off')}" title="${api.esc(full)}" aria-label="${api.esc(`${full}: ${cast ? 'missing, tap to cast' : word.toLowerCase()}`)}">`
+                    + `<span class="key-glyph"><i data-lucide="${GLYPHS[c.id] || 'circle'}"></i>${KEY_WARN}</span><span class="wow-buff-name">${api.esc(name)}</span>`
                     + `<span class="wow-buff-state"><span class="wow-buff-led" aria-hidden="true"></span><span class="wow-buff-word">${word}</span></span></${cast ? 'button' : 'div'}>`;
             }).join('');
             api.icons(ui.buffs);
+            fitBuffs();
         }
         ui.buffs.hidden = !checks.length;
         api.text(ui.buffsNote, status(api));
@@ -115,7 +140,7 @@
         sec.insertAdjacentHTML('beforeend', '<div class="wow-wallet">'
             + '<div class="scribble wow-gold-main"><span class="ch-name">This character</span><span class="live num wow-gold-fig"><span class="live-v">—</span></span></div>'
             + '<div class="wow-gold-lines"><div class="wow-gold-line"><span>All characters</span><span class="num" data-f="all">—</span></div>'
-            + '<div class="wow-gold-line"><span>Warband bank</span><span class="num" data-f="warband">—</span></div></div>'
+            + '<div class="wow-gold-line"><span title="Warband bank">Warband</span><span class="num" data-f="warband">—</span></div></div>'
             + '<p class="wow-cell-note"></p></div>');
         ui.wallet = sec.querySelector('.wow-wallet');
         drawWallet(api);
@@ -193,7 +218,7 @@
         ui.key.innerHTML = `<div class="scribble"><span class="ch-name">Keystone</span><span class="live num"><span class="live-v">${ks ? api.esc(`+${ks.level} ${ks.name || ''}`) : '—'}</span></span></div>`
             + '<div class="wow-vault">' + VAULT.map(([k, name]) => `<div class="wow-vault-row"><span>${name}</span><span class="wow-vault-pips" data-n="${v[k] || 0}">`
                 + [1, 2, 3].map(n => `<span class="wow-pip${(v[k] || 0) >= n ? ' is-on' : ''}"></span>`).join('') + '</span></div>').join('') + '</div>'
-            + (others.length ? '<div class="wow-key-alts">' + others.slice(0, 8).map(c => `<span>${api.esc(c.name)} <span class="num">+${c.keystone.level}</span> ${api.esc(c.keystone.name || '')}</span>`).join('') + '</div>' : '')
+            + (others.length ? '<div class="wow-key-alts"><span class="wow-key-alts-h">Alts</span>' + others.slice(0, 8).map(c => `<span>${api.esc(c.name)} <span class="num">+${c.keystone.level}</span> ${api.esc(c.keystone.name || '')}</span>`).join('') + '</div>' : '')
             + (me ? '' : `<p class="wow-cell-note">${api.esc(status(api))}</p>`);
     }
 
