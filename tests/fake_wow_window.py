@@ -7,7 +7,9 @@ addon's textures would be.
                                     [--title T --cls C --topmost --at X Y]   (a window to cover it with)
 
 It prints "ready <hwnd>" once shown, then takes lines on stdin: "beacon 0|1",
-"payload TEXT", "quit". Windows only."""
+"payload TEXT", "quit". Like a game it draws again and again (30 times a
+second): Windows.Graphics.Capture delivers a frame only when the window
+changes, and the beacon is read only from a fresh one. Windows only."""
 import argparse
 import ctypes
 import sys
@@ -21,7 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from link_frames import frame_symbols, strip_row   # noqa: E402
 from wow_addons import screen                      # noqa: E402
 
-WM_DESTROY, WM_PAINT, WM_CLOSE, WM_APP = 0x0002, 0x000F, 0x0010, 0x8000
+WM_DESTROY, WM_PAINT, WM_CLOSE, WM_TIMER, WM_APP = 0x0002, 0x000F, 0x0010, 0x0113, 0x8000
+FRAME_MS = 33
 WS_OVERLAPPEDWINDOW, WS_VISIBLE, WS_EX_TOPMOST = 0x00CF0000, 0x10000000, 0x00000008
 
 
@@ -67,7 +70,7 @@ def main() -> None:
     ap.add_argument("--topmost", action="store_true")
     ap.add_argument("--at", type=int, nargs=2, default=(100, 100))
     args = ap.parse_args()
-    state = {"payload": args.payload.encode(), "beacon": not args.no_beacon}
+    state = {"payload": args.payload.encode(), "beacon": not args.no_beacon, "frame": 0}
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
@@ -83,6 +86,8 @@ def main() -> None:
     user32.EndPaint.argtypes = [wt.HWND, ctypes.POINTER(PAINTSTRUCT)]
     user32.InvalidateRect.argtypes = [wt.HWND, wt.LPVOID, wt.BOOL]
     user32.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+    user32.SetTimer.argtypes = [wt.HWND, ctypes.c_size_t, wt.UINT, ctypes.c_void_p]
+    gdi32.SetPixel.argtypes = [wt.HDC, ctypes.c_int, ctypes.c_int, wt.DWORD]
     user32.GetMessageW.argtypes = [ctypes.POINTER(wt.MSG), wt.HWND, wt.UINT, wt.UINT]
     gdi32.GetStockObject.restype = wt.HGDIOBJ
     gdi32.SetDIBitsToDevice.argtypes = [wt.HDC, ctypes.c_int, ctypes.c_int, wt.DWORD, wt.DWORD, ctypes.c_int,
@@ -102,6 +107,9 @@ def main() -> None:
             header = (ctypes.c_uint32 * 10)(40, width, ctypes.c_uint32(-rows).value, 1 | 32 << 16, 0, 0, 0, 0, 0, 0)
             buf = (ctypes.c_ubyte * len(bgrx)).from_buffer(bgrx)
             gdi32.SetDIBitsToDevice(hdc, 0, 0, width, rows, 0, 0, 0, rows, buf, header, 0)
+            # A pixel under the rows read changes every frame, so each one is new to the capture
+            state["frame"] += 1
+            gdi32.SetPixel(hdc, 0, rows, 0x404040 if state["frame"] % 2 else 0)
         user32.EndPaint(hwnd, ctypes.byref(ps))
 
     @WNDPROC
@@ -109,7 +117,7 @@ def main() -> None:
         if msg == WM_PAINT:
             paint(hwnd)
             return 0
-        if msg == WM_APP:
+        if msg in (WM_APP, WM_TIMER):
             user32.InvalidateRect(hwnd, None, False)
             return 0
         if msg == WM_DESTROY:
@@ -130,6 +138,8 @@ def main() -> None:
     if not hwnd:
         raise OSError(ctypes.get_last_error(), "CreateWindowExW")
     user32.SetForegroundWindow(hwnd)
+    if args.cls == "GxWindowClass":
+        user32.SetTimer(hwnd, 1, FRAME_MS, None)
 
     def commands():
         for line in sys.stdin:
