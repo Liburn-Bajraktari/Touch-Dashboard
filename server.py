@@ -332,7 +332,8 @@ DEFAULT_CONFIG: dict = {
 
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
 SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like",
-                   "media_result", "audio_apps", "sb_mic", "wow_addons", "bnet", "wow_layout"]   # see _make_config_sync
+                   "media_result", "audio_apps", "sb_mic", "wow_addons", "bnet", "wow_layout",
+                   "page_hidden"]   # see _make_config_sync
 if sys.platform.startswith("win"):
     SERVER_FEATURES.append("soundpad")    # Soundpad's remote control: its list for pads, its volume, its routes
 
@@ -519,6 +520,7 @@ armory = Armory(cache_file=os.path.join(DATA_DIR, "wow_spells.json"), user_agent
                 account_file=os.path.join(DATA_DIR, "wow_characters.json"))
 armory.configure(config.get("bnet_id", ""), config.get("bnet_secret", ""))
 armory_event: asyncio.Event | None = None   # wakes armory_loop (created in lifespan)
+view_event: asyncio.Event | None = None      # a screen came into view: wakes wow_link_loop (created in lifespan)
 ARMORY_IDLE_S = 60
 
 # The WoW plugin page: its addon modules, their settings, commands and watched files.
@@ -770,6 +772,7 @@ class Client:
     app: str | None = None   # the Android app's version (sent since v0.11.12)
     in_app: bool = False     # an Android WebView: the app, even one too old to say its version
     mixer: bool = False      # shows the full-screen mixer: gets audio_apps while it does
+    hidden: bool = False     # its page is out of view (page_hidden): the tray, the app in the background
 
     @property
     def is_admin(self) -> bool:
@@ -799,6 +802,10 @@ class ConnectionManager:
 
     def mixer_clients(self) -> list[Client]:
         return [c for c in self._clients if c.mixer]
+
+    def in_view(self) -> bool:
+        """Some screen shows the dashboard. Pages that never say (older apps) count as shown."""
+        return any(not c.hidden for c in self._clients)
 
     async def send_to(self, clients: list[Client], msg: dict):
         payload = _dumps(msg)
@@ -1675,9 +1682,18 @@ async def lifespan(app: FastAPI):
     async def wow_link_loop():
         # The companion's live link: read from WoW's window ten times a second
         # while it shows, once a second while it does not; a change goes to
-        # every screen like a command's result.
+        # every screen like a command's result. Not while no screen is in view
+        # (the PC's window in the tray, the tablet asleep): on Windows reading
+        # it keeps a capture of WoW running, which copies every frame WoW draws.
         while True:
             try:
+                if not ws_manager.in_view():
+                    changed = await asyncio.to_thread(wow.pause_link)
+                    if changed:
+                        await _broadcast_wow_live(changed)
+                    while not ws_manager.in_view():
+                        view_event.clear()
+                        await view_event.wait()
                 changed = await asyncio.to_thread(wow.read_link)
                 if changed:
                     await _broadcast_wow_live(changed)
@@ -1741,8 +1757,10 @@ async def lifespan(app: FastAPI):
     # different (or non-existent) loop and causes:
     #   RuntimeError: Task got Future <Event> attached to a different loop
     global weather_update_event, speedtest_lock, upower_monitor, win_battery, lock_monitor_instance, sb_route_event, armory_event
+    global view_event
     weather_update_event = asyncio.Event()
     armory_event         = asyncio.Event()
+    view_event           = asyncio.Event()
     speedtest_lock       = asyncio.Lock()
     sb_route_event       = asyncio.Event()
 
@@ -2498,6 +2516,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.send_text(_dumps({"type": "auth_ok", "data": {
             "role": client.role, "device_id": client.device_id, "name": client.name}}))
         ws_manager.add(client)
+        _view_changed(client)
         await _send_initial_state(client)
         # Until the client hangs up, or a handler closed it (unpair_self).
         while ws.application_state == WebSocketState.CONNECTED:
@@ -2818,6 +2837,20 @@ def _app_target(data: dict) -> tuple[str, str]:
     if not app_audio.known(kind, aid):
         raise ValueError("unknown app")
     return kind, aid
+
+
+def _view_changed(client: Client) -> None:
+    if not client.hidden and view_event is not None:
+        view_event.set()
+
+
+async def _ws_page_hidden(client: Client, msg: dict) -> None:
+    # The page went out of view or came back (visibilitychange).
+    hidden = msg["data"]["hidden"]
+    if not isinstance(hidden, bool):
+        raise TypeError("hidden must be a bool")
+    client.hidden = hidden
+    _view_changed(client)
 
 
 async def _ws_audio_apps_watch(client: Client, msg: dict) -> None:
@@ -3425,6 +3458,7 @@ WS_HANDLERS = {
     "action":             _ws_action,
     "set_volume":         _ws_set_volume,
     "audio_apps_watch":   _ws_audio_apps_watch,
+    "page_hidden":        _ws_page_hidden,
     "set_app_volume":     _ws_set_app_volume,
     "set_app_mute":       _ws_set_app_mute,
     "disc_voice":         _ws_disc_voice,
@@ -3599,10 +3633,8 @@ async def _play_clip(pad: dict, source: str) -> None:
         mic = config.get("soundboard_to_mic", True) is not False
 
     def play():
-        if not _soundpad_mod.start(soundpad_rc):
-            raise ValueError("Soundpad is not running and could not be started")
         try:
-            soundpad_rc.play(soundpad_rc.index_of(pad), speakers, mic)
+            _soundpad_mod.play_pad(soundpad_rc, pad, speakers, mic)
         except (OSError, _soundpad_mod.SoundpadError) as e:
             raise ValueError(f"Soundpad did not play it: {e}") from e
     await asyncio.to_thread(play)

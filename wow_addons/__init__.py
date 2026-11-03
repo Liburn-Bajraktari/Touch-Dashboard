@@ -960,10 +960,29 @@ class WowAddons:
             # the same page at every read: the rest is read frame by frame.
             return LINK_PAGE_S if self._link.pending else LINK_FAST_S
 
+    def _release_screen(self) -> None:
+        release = getattr(self.screen, "release", None)
+        if release is not None:
+            release()
+
+    def pause_link(self) -> set[str]:
+        """No screen is in view: WoW's window is let go (on Windows its capture
+        closes) and the link reads as down until read_link sees it again. The
+        modules whose views change, as read_link answers."""
+        self._release_screen()
+        with self._lock:
+            self._link_at = None
+            if not self._link_told:
+                return set()
+            self._link_told = False
+        logger.info("WoW live link paused: no screen is in view")
+        return {mid for mid, m in self.modules.items() if m.snapshot}
+
     def read_link(self) -> set[str]:
         """Read the companion's live link from WoW's window (link.py): the
         modules whose views changed (its state, or the link going up or down)."""
         if not self._companion_ready(ignore_quiet=True):     # switched off, or not in this game folder
+            self._release_screen()
             return set()
         page = None
         size = self.screen.size()

@@ -571,13 +571,15 @@ def test_local_art_needs_a_url_signed_for_the_current_cover(app, tmp_path):
         assert app.get(signed).status_code == 404
 
 
-def test_devices_may_use_the_mixer(app):
+def test_devices_may_use_the_mixer_and_say_they_are_out_of_view(app):
     reading = {"out": {"firefox": {"id": "firefox", "name": "Firefox", "vol": 72, "muted": False,
                                    "active": True, "streams": [10], "has_icon": False}}, "in": {}}
     with patch("server.app_audio.read", return_value=reading), patch.object(server.app_audio, "_last", reading), \
             patch("server.AudioSystem.set_app_vol") as set_vol, _device(app, _paired_token()) as ws:
+        ws.send_json({"type": "page_hidden", "data": {"hidden": True}})      # the tablet asleep
         ws.send_json({"type": "audio_apps_watch", "data": {"on": True}})
         assert _receive_until(ws, "audio_apps")["data"]["out"][0]["id"] == "firefox"
+        assert [c.hidden for c in server.ws_manager._clients] == [True]
         ws.send_json({"type": "set_app_volume", "data": {"dir": "out", "id": "firefox", "val": 30}})
         ws.send_json({"type": "set_app_volume", "data": {"dir": "out", "id": "../firefox", "val": 30}})
         assert _refusals(ws, 1)[0]["reason"] == "invalid"

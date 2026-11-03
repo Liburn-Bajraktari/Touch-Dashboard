@@ -35,7 +35,8 @@ logger = logging.getLogger(__name__)
 PIPE = r"\\.\pipe\sp_remote_control"
 EXE = "soundpad.exe"
 TIMEOUT_S = 2.0       # a reply must start within this
-QUIET_S = 0.05        # and has ended once nothing more comes for this long
+QUIET_S = 0.05        # and has ended once nothing more comes for this long (R-200 ends at once)
+POLL_S = 0.002        # how often the pipe is looked at while a reply is due
 START_WAIT_S = 8.0    # Soundpad, started from here, has this long to open its pipe
 
 
@@ -90,6 +91,14 @@ class Soundpad:
                 pass
             self._pipe = None
 
+    def _drain(self) -> None:
+        """Whatever is left of an earlier reply goes, so it is not read as this one's."""
+        n = self._waiting(self._pipe)
+        if n is None:
+            raise ConnectionError("Soundpad closed its pipe")
+        if n:
+            self._pipe.read(n)
+
     def _read(self, until: str | None) -> str:
         deadline = self._clock() + TIMEOUT_S
         out = bytearray()
@@ -101,7 +110,12 @@ class Soundpad:
             if n:
                 out += self._pipe.read(n)
                 quiet = self._clock() + QUIET_S
-                if until and out.rstrip().endswith(until.encode()):
+                # A pad press is answered R-200: waiting QUIET_S for more after
+                # it made every sound start 50 ms late. Anything else (an error
+                # and its words, a Get's value) may still be coming.
+                text = out.rstrip(b"\0 \t\r\n")
+                done = text.endswith(until.encode()) if until else text == b"R-200"
+                if done:
                     break
                 continue
             now = self._clock()
@@ -109,8 +123,8 @@ class Soundpad:
                 break
             if not out and now >= deadline:
                 raise TimeoutError("Soundpad did not answer")
-            self._sleep(0.005)
-        return out.decode("utf-8", errors="replace").strip()
+            self._sleep(POLL_S)
+        return out.decode("utf-8", errors="replace").strip("\0 \t\r\n")
 
     def request(self, command: str, until: str | None = None) -> str:
         """Soundpad's reply to one command. OSError when it is not running or
@@ -120,6 +134,7 @@ class Soundpad:
                 try:
                     if self._pipe is None:
                         self._pipe = self._opener()
+                    self._drain()
                     self._pipe.write(command.encode("utf-8"))
                     self._pipe.flush()
                     return self._read(until)
@@ -235,6 +250,23 @@ def find_exe() -> str | None:
         if os.environ.get(env):
             candidates.append(os.path.join(os.environ[env], "Soundpad", "Soundpad.exe"))
     return next((c for c in candidates if os.path.isfile(c)), None)
+
+
+def play_pad(sp: Soundpad, pad: dict, speakers: bool = True, mic: bool = True) -> None:
+    """A pad's sound. Soundpad is started only when its pipe is not there:
+    asking IsAlive() first cost every press a round trip. FileNotFoundError
+    when it is not running and cannot be started."""
+    for attempt in (1, 2):
+        try:
+            sp.play(sp.index_of(pad), speakers, mic)
+            return
+        except TimeoutError:                # it runs but hangs: starting it again would not help
+            raise
+        except OSError:
+            if attempt == 2:
+                raise
+            if not start(sp):
+                raise FileNotFoundError("Soundpad is not running and could not be started") from None
 
 
 def start(sp: Soundpad, wait: float = START_WAIT_S) -> bool:

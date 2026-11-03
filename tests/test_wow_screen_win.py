@@ -309,6 +309,27 @@ def test_with_no_fresh_frame_the_beacon_is_not_read_but_the_link_may_use_it():
     assert f.read(5, 0, 10, 1, sw.STALE_S) is None               # another rectangle: never copied
 
 
+def test_the_link_waits_about_a_frame_and_the_beacon_for_a_fresh_one():
+    f, pool, gpu, clock = frames()
+    pool.queue = [Frame(9.6, name="o")]          # WoW in the background, drawing slowly
+    pool.arrive = {10.05: Frame(10.05, name="n")}
+    assert f.read(0, 0, 10, 1, sw.STALE_S)[0][:1] == b"o" and clock.t == 10.0 + sw.LINK_WAIT_S
+    assert f.read(0, 0, 10, 4, sw.BEACON_AGE_S)[0][:1] == b"n" and clock.t == 10.052
+    t = clock.t
+    assert f.read(0, 0, 10, 1, sw.STALE_S)[0][:1] == b"n" and clock.t == t     # a fresh copy: no wait
+
+
+def test_the_beacon_takes_the_links_copy_while_it_is_fresh():
+    f, pool, gpu, clock = frames()
+    pool.queue = [Frame(9.99, name="l")]
+    f.read(0, 0, 10, 1, sw.STALE_S)              # the link's read copies the beacon's rows too
+    clock.t = 10.03
+    assert f.read(0, 0, 10, 4, sw.BEACON_AGE_S)[0][:1] == b"l" and clock.t == 10.03
+    assert len(gpu.copies) == 1
+    clock.t = 10.1                               # older than FRESH_S: the beacon waits for a frame
+    assert f.read(0, 0, 10, 4, sw.BEACON_AGE_S) is None and clock.t == 10.1 + sw.WAIT_S
+
+
 def test_a_resized_window_recreates_the_pool_and_skips_that_frame():
     f, pool, gpu, clock = frames()
     big = Frame(9.99, size=(200, 80))

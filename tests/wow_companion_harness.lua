@@ -285,7 +285,8 @@ local function runTimers(upTo)
     for _, t in ipairs(due) do if not t.cancelled then t.f() end end
 end
 
-io.stdout:setvbuf("line")
+-- Each answer is flushed: Microsoft's C runtime takes setvbuf's line mode as
+-- full buffering, and the test waited for a line that never came.
 for line in io.lines() do
     local cmd, rest = line:match("^(%S+)%s*(.*)$")
     local out = "ok"
@@ -498,4 +499,5 @@ for line in io.lines() do
         out = tostring(focused ~= nil)
     end
     io.write(out, "\n")
+    io.stdout:flush()
 end

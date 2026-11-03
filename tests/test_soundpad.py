@@ -151,6 +151,60 @@ def test_soundpad_not_answering_times_out_and_a_closed_pipe_is_opened_again():
     assert sp.alive() and len(pipes) == 3
 
 
+def test_a_press_is_one_command_and_r200_ends_it_at_once():
+    sp, app, _ = make()
+    soundpad.play_pad(sp, {"id": "2"}, True, True)
+    assert app.commands == ["DoPlaySound(2, true, true)"]          # no IsAlive() first
+    assert sp._clock.t == 0                                         # no wait for more after R-200
+    soundpad.play_pad(sp, {"id": "1", "path": "C:\\Sounds\\bruh.wav"}, True, True)
+    assert app.commands[1:] == ["GetSoundlist()", "DoPlaySound(2, true, true)"]
+    assert sp._clock.t == 0                                         # the list ends at </Soundlist>
+
+
+def test_r200_in_pieces_and_an_error_are_read_whole():
+    sp, app, _ = make()
+    app.chunk = 2                                                   # "R-", "20", "0"
+    sp.play(1)
+    app.answer = lambda c: "R-404: Command not found."
+    with pytest.raises(SoundpadError, match="Command not found"):
+        sp.play(1)
+
+
+def test_what_is_left_of_an_earlier_reply_is_not_read_as_the_next():
+    sp, app, pipes = make()
+    sp.play(1)
+    pipes[0].out += b" (late)"                                      # written after R-200 was read
+    assert sp.request("GetVolume()") == "70"
+
+
+def test_soundpad_is_started_only_when_its_pipe_is_not_there(monkeypatch):
+    sp, app, pipes = make()
+    real, started = sp._opener, []
+
+    def opener():
+        if not started:
+            raise FileNotFoundError("no pipe")
+        return real()
+    sp._opener = opener
+    monkeypatch.setattr(soundpad, "start", lambda s: started.append(s) or True)
+    soundpad.play_pad(sp, {"id": "3"}, True, False)
+    assert started == [sp] and app.commands == ["DoPlaySound(3, true, false)"]
+
+    started.clear()
+    sp._close()
+    monkeypatch.setattr(soundpad, "start", lambda s: False)        # not installed
+    with pytest.raises(FileNotFoundError, match="not running"):
+        soundpad.play_pad(sp, {"id": "3"})
+
+
+def test_soundpad_hanging_is_not_started_again(monkeypatch):
+    sp, app, _ = make()
+    app.silent = True
+    monkeypatch.setattr(soundpad, "start", lambda s: pytest.fail("Soundpad started again"))
+    with pytest.raises(TimeoutError):
+        soundpad.play_pad(sp, {"id": "1"})
+
+
 def test_without_soundpad_nothing_is_alive():
     def gone():
         raise FileNotFoundError("no pipe")
@@ -185,7 +239,9 @@ def test_a_pad_plays_through_soundpad_with_the_route_keys(monkeypatch):
 
 def test_a_pad_soundpad_cannot_play_is_refused(monkeypatch):
     import server
-    monkeypatch.setattr(server, "soundpad_rc", make()[0])
-    monkeypatch.setattr(server._soundpad_mod, "start", lambda s: False)    # not installed
+    def gone():
+        raise FileNotFoundError("no pipe")
+    monkeypatch.setattr(server, "soundpad_rc", Soundpad(opener=gone))       # not running
+    monkeypatch.setattr(server._soundpad_mod, "start", lambda s: False)    # and not installed
     with pytest.raises(ValueError, match="not running"):
         asyncio.run(server._play_clip({"uid": "p1", "id": "1"}, "soundpad"))

@@ -10003,6 +10003,7 @@
                     globalCfg = d.cfg;
                     serverFeatures = new Set(d.features || []);
                     setMixerAvailable(serverFeatures.has('audio_apps'));
+                    if (document.hidden) sayPageHidden();
                     requiredAppVersion = d.req_apk_version || '';
                     currentHwDevices = d.hw;
                     osTarget = d.os_target || 'windows';
@@ -10332,8 +10333,13 @@
 
         // ── Page Visibility: pause heavy rendering when tab is hidden ──────────
         let _pageVisible = !document.hidden;
+        // The PC reads WoW's window only while some screen is in view (page_hidden).
+        function sayPageHidden() {
+            if (serverFeatures.has('page_hidden')) sendSocket('page_hidden', { hidden: document.hidden });
+        }
         document.addEventListener('visibilitychange', () => {
             _pageVisible = !document.hidden;
+            sayPageHidden();
             if (_pageVisible && pendingSysData) {
                 updateSysDataDOM(pendingSysData);
                 pendingSysData = null;

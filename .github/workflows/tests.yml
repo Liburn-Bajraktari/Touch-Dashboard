@@ -38,6 +38,7 @@ jobs:
   # ── Windows: the same suite on real Windows, Python as install.ps1 installs it ─
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30               # a hang must not hold a runner for six hours
     defaults:
       run:
         shell: bash
@@ -76,7 +77,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/appdata"
           APPDATA="$(cygpath -w "$RUNNER_TEMP/appdata")" python -m pytest tests/test_wow.py tests/test_wow_layout.py \
-            tests/test_wow_link.py tests/test_wow_screen.py tests/test_wow_screen_win.py tests/test_wow_companion.py -q
+            tests/test_wow_link.py tests/test_wow_screen.py tests/test_wow_screen_win.py tests/test_wow_companion.py -q \
+            -o faulthandler_timeout=60  # a test stuck for a minute prints every thread's stack
 
       # WoW's window read for real: a stand-in window through WGC and GDI. A
       # hosted runner may not offer WGC: those tests skip and say so above.

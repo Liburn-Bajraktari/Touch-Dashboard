@@ -29,8 +29,9 @@ class Game:
     """The harness: one command a line, one answer a line."""
 
     def __init__(self):
+        # UTF-8 both ways: the addon's names are, and Windows' default is cp1252
         self.p = subprocess.Popen([LUA, HARNESS, ADDON], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  text=True, cwd=HERE)
+                                  text=True, encoding="utf-8", cwd=HERE)
         self.cmd("event PLAYER_LOGIN")
 
     def cmd(self, line: str) -> str:
@@ -632,6 +633,18 @@ def test_the_link_switched_off_in_game_is_told_once(game, tmp_path):
     game.cmd("slash link on")
     assert frames(core, 2) == {"game"} and core.companion_status()["link"] is True
     assert core.link_interval() == wow_addons.LINK_FAST_S
+
+
+def test_with_no_screen_in_view_wow_is_let_go_and_the_link_told_down_once(game, tmp_path):
+    core, _, _ = make(game, tmp_path)
+    frames(core, 2)
+    if game.backend == "win":
+        assert core.screen._cap is not None
+    assert core.pause_link() == {"game"} and core.pause_link() == set()
+    assert core.companion_status()["link"] is False
+    if game.backend == "win":
+        assert core.screen._cap is None                    # Windows stops copying WoW's frames for us
+    assert frames(core, 1) == {"game"} and core.companion_status()["link"] is True
 
 
 def test_with_the_link_up_a_command_skips_the_first_read(game, tmp_path):

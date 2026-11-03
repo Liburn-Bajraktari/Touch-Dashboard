@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 
 CLASS = "GxWindowClass"         # WoW's window class, retail and classic
 FRESH_S = 0.05                  # a frame this young is WoW's picture now
-WAIT_S = 0.1                    # how long a read waits for a fresh one
+WAIT_S = 0.1                    # how long the beacon's read waits for a fresh one
+LINK_WAIT_S = 0.02              # ... and the live link's: about a frame at 50 fps, then what there is
 POLL_S = 0.004
 BEACON_AGE_S = 0.15             # the beacon lets keys through: never read from an older frame
 STALE_S = 1.0                   # the live link may use one this old (its pages carry WoW's clock)
@@ -213,6 +214,12 @@ class WinScreen:
             return got[0] if got else None
         return self._guarded("read WoW's window", run)
 
+    def release(self) -> None:
+        """Let WoW's window go until the next read: the capture closes, so
+        Windows stops copying each frame WoW draws for us."""
+        with self._lock:
+            self._close()
+
     def keys_blocked(self) -> bool:
         """WoW runs elevated (as administrator): Windows drops our keys on the way in."""
         def run():
@@ -245,12 +252,22 @@ class _Frames:
             newest = f
         return newest
 
-    def _fresh(self):
+    def _age(self, frame, box) -> float:
+        """How old the picture a read would get is: the frame's, else that of
+        the rows copied last (when they hold this box)."""
+        if frame is not None:
+            return self.now() - frame.time
+        c = self._rows
+        if c is not None and c[:3] == box[:3] and c[3] >= box[3]:
+            return self.now() - c[6]
+        return float("inf")
+
+    def _fresh(self, box, wait: float):
+        """The newest frame, waited for (up to `wait`) while what a read would
+        get is older than FRESH_S."""
         frame = self._newest()
-        deadline = self.now() + WAIT_S
-        while frame is None or self.now() - frame.time > FRESH_S:
-            if self.now() >= deadline:
-                break
+        deadline = self.now() + wait
+        while self._age(frame, box) > FRESH_S and self.now() < deadline:
             self.sleep(POLL_S)
             f = self._newest()
             if f is not None:
@@ -277,8 +294,15 @@ class _Frames:
             frame.close()                    # after the copy is read back: the buffer goes to the next frame
 
     def read(self, x: int, y: int, w: int, rows: int, max_age: float):
+        # The pool holds the first two frames after the last read and drops the
+        # rest, so its newest can be a read's interval old. The beacon's read
+        # (it lets keys through) waits for WoW's picture of now; the live link
+        # waits only about a frame: waiting as long held the window's lock
+        # 25-70 ms a read while WoW drew slowly in the background, and a
+        # command's beacon check queued behind it.
+        wait = WAIT_S if max_age <= BEACON_AGE_S else LINK_WAIT_S
         try:
-            frame = self._fresh()
+            frame = self._fresh((x, y, w, rows), wait)
             if frame is not None:
                 self._take(frame, x, y, w, rows)
         except OSError as e:

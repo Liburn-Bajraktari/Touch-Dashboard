@@ -338,6 +338,23 @@ def test_mixer_sends_app_levels_only_while_it_shows(client):
             assert [c.mixer for c in server.ws_manager._clients] == [False]
 
 
+def test_a_screen_says_when_it_is_out_of_view(client):
+    # The PC reads WoW's window only while some screen is in view
+    import server
+    with _admin_ws(client) as websocket:
+        sync = websocket.receive_json()
+        assert sync["type"] == "config_sync" and "page_hidden" in sync["data"]["features"]
+        assert server.ws_manager.in_view()              # a page that never says counts as shown
+        websocket.send_json({"type": "page_hidden", "data": {"hidden": True}})
+        websocket.send_json({"type": "page_hidden", "data": {"hidden": "yes"}})
+        assert _receive_until(websocket, "refused")["data"]["reason"] == "invalid"
+        assert not server.ws_manager.in_view()
+        websocket.send_json({"type": "page_hidden", "data": {"hidden": False}})
+        websocket.send_json({"type": "page_hidden", "data": {}})
+        assert _receive_until(websocket, "refused")["data"]["reason"] == "invalid"
+        assert server.ws_manager.in_view() and server.view_event.is_set()
+
+
 def test_app_levels_are_checked_clamped_and_queued(client):
     import server
     reading = _mixer_reading()
