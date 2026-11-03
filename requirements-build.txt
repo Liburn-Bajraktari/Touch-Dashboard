@@ -1,0 +1,3 @@
+# Building the Windows app with PyInstaller: on top of requirements.txt.
+-r requirements.txt
+pyinstaller

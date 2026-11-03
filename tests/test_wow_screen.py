@@ -69,6 +69,14 @@ def test_without_a_display_nothing_can_be_told(monkeypatch):
     assert NoScreen().front() is None and NoScreen().beacon() is None
 
 
-def test_other_platforms_check_nothing(monkeypatch):
+def test_windows_gets_its_own_reader_without_touching_windows_yet(monkeypatch):
+    from wow_addons.screen_win import WinScreen
     monkeypatch.setattr(screen.sys, "platform", "win32")
+    s = screen.for_platform()
+    assert isinstance(s, WinScreen) and s._api is None      # nothing Windows-only is loaded until it is asked
+
+
+def test_other_platforms_check_nothing(monkeypatch):
+    monkeypatch.setattr(screen.sys, "platform", "darwin")
     assert isinstance(screen.for_platform(), NoScreen)
+    assert NoScreen().keys_blocked() is False

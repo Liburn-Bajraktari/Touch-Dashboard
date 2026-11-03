@@ -317,14 +317,14 @@ def test_saved_variables_are_read_when_they_change(tmp_path):
     folder = tmp_path / "_retail_" / "WTF" / "Account" / "ACC" / "SavedVariables"
     folder.mkdir(parents=True)
     file = folder / nsrt.NOTE_FILE
-    file.write_text('NSRT = { ["Note"] = "EncounterID:1;Name:First;\\ntime:5;tag:me;text:Go" }\n')
+    file.write_text('NSRT = { ["Note"] = "EncounterID:1;Name:First;\\ntime:5;tag:me;text:Go" }\n', encoding="utf-8")
     core, _ = make({"wow_path": str(tmp_path), "character": "me"})
     assert core.poll() == {"nsrt"}
     assert core.poll() == set()                  # unchanged: not read again
     assert nsrt_msgs(core)[0]["data"]["personal"][0]["text"] == "Go"
     assert core.state_msg(True)["data"]["files"]["nsrt"] == str(file)
 
-    file.write_text('NSRT = { ["Note"] = "EncounterID:2;Name:Second;\\ntime:6;text:Again" }\n')
+    file.write_text('NSRT = { ["Note"] = "EncounterID:2;Name:Second;\\ntime:6;text:Again" }\n', encoding="utf-8")
     os.utime(file, (time.time() + 5, time.time() + 5))
     assert core.poll() == {"nsrt"}
     assert nsrt_msgs(core)[0]["data"]["encounterName"] == "Second"
@@ -428,7 +428,7 @@ def test_page_files_follow_the_template_rules():
 def test_page_phone_query_is_the_dashboards():
     html = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
     js = re.search(r"const PHONE_LAYOUT = matchMedia\('([^']+)'\)", html).group(1)
-    css = re.search(r"── Phones ─[\s\S]*?@media ([^{]+?)\s*\{", (WOW_STATIC / "wow.css").read_text()).group(1)
+    css = re.search(r"── Phones ─[\s\S]*?@media ([^{]+?)\s*\{", (WOW_STATIC / "wow.css").read_text(encoding="utf-8")).group(1)
     assert css == js
 
 

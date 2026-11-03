@@ -81,70 +81,97 @@ def key_name(key: str) -> str:
     return _KEY_ALIASES.get(name, name)
 
 
-def _win_send_keys(*keys) -> None:
-    """Inject a key-down + key-up sequence on Windows via SendInput."""
-    import ctypes
+# Keys a keyboard sends with an E0 scan code prefix that MapVirtualKey does not
+# always report from their virtual key (keypad Enter shares VK_RETURN with
+# Enter). Everything else comes from MapVirtualKeyW.
+_WIN_SCAN: dict[str, tuple[int, bool]] = {
+    "KEY_KPENTER": (0x1C, True), "KEY_KPSLASH": (0x35, True), "KEY_NUMLOCK": (0x45, True),
+    "KEY_RIGHTCTRL": (0x1D, True), "KEY_RIGHTALT": (0x38, True),
+}
+KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP = 0x1, 0x2
 
-    PUL = ctypes.POINTER(ctypes.c_ulong)
 
-    class _KeyBdInput(ctypes.Structure):
-        _fields_ = [
-            ("wVk",         ctypes.c_ushort),
-            ("wScan",       ctypes.c_ushort),
-            ("dwFlags",     ctypes.c_ulong),
-            ("time",        ctypes.c_ulong),
-            ("dwExtraInfo", PUL),
-        ]
+def _win_chord(keys, scan_of) -> tuple[list[tuple[int, int, int]], list[tuple[int, int, int]]]:
+    """A chord's key-downs and key-ups as (virtual key, scan code, flags).
 
-    class _HardwareInput(ctypes.Structure):
-        _fields_ = [
-            ("uMsg",    ctypes.c_ulong),
-            ("wParamL", ctypes.c_short),
-            ("wParamH", ctypes.c_ushort),
-        ]
-
-    class _MouseInput(ctypes.Structure):
-        _fields_ = [
-            ("dx",          ctypes.c_long),
-            ("dy",          ctypes.c_long),
-            ("mouseData",   ctypes.c_ulong),
-            ("dwFlags",     ctypes.c_ulong),
-            ("time",        ctypes.c_ulong),
-            ("dwExtraInfo", PUL),
-        ]
-
-    class _Input_I(ctypes.Union):
-        _fields_ = [("ki", _KeyBdInput), ("mi", _MouseInput), ("hi", _HardwareInput)]
-
-    class _Input(ctypes.Structure):
-        _fields_ = [("type", ctypes.c_ulong), ("ii", _Input_I)]
-
-    KEYEVENTF_KEYUP = 0x0002
-
-    def _make(vk: int, flags: int) -> _Input:
-        ii = _Input_I()
-        ii.ki = _KeyBdInput(vk, 0, flags, 0, None)
-        return _Input(1, ii)
-
-    vks: list[int] = []
+    Each key carries its scan code and, for the navigation block (Home, End,
+    the arrows…), the extended flag, as a keyboard sends them: with a virtual
+    key alone a game that reads scan codes sees nothing, or Numpad 7 for Home.
+    `scan_of(vk)` → (scan code, extended). A key with no Windows code refuses
+    the whole chord: pressing the rest would send bare modifiers."""
+    down = []
     for k in keys:
         if isinstance(k, int):
-            vks.append(k)
+            vk, name = k, ""
         else:
-            vk = _WIN_VK_MAP.get(key_name(k), 0)
-            if vk:
-                vks.append(vk)
+            name = key_name(k)
+            vk = _WIN_VK_MAP.get(name, 0)
+            if not vk:
+                raise ValueError(f"no Windows key for {k!r}")
+        scan, extended = _WIN_SCAN.get(name) or scan_of(vk)
+        down.append((vk, scan, KEYEVENTF_EXTENDEDKEY if extended else 0))
+    return down, [(vk, scan, flags | KEYEVENTF_KEYUP) for vk, scan, flags in reversed(down)]
 
-    if not vks:
+
+_win = None
+
+
+def _win_api():
+    global _win
+    if _win is None:
+        import ctypes
+        from ctypes import wintypes as wt
+
+        class KeybdInput(ctypes.Structure):
+            _fields_ = [("wVk", wt.WORD), ("wScan", wt.WORD), ("dwFlags", wt.DWORD),
+                        ("time", wt.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+        class MouseInput(ctypes.Structure):         # the union's largest member: INPUT's size
+            _fields_ = [("dx", wt.LONG), ("dy", wt.LONG), ("mouseData", wt.DWORD), ("dwFlags", wt.DWORD),
+                        ("time", wt.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+        class Union(ctypes.Union):
+            _fields_ = [("ki", KeybdInput), ("mi", MouseInput)]
+
+        class Input(ctypes.Structure):
+            _fields_ = [("type", wt.DWORD), ("u", Union)]
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.SendInput.argtypes = [wt.UINT, ctypes.POINTER(Input), ctypes.c_int]
+        user32.SendInput.restype = wt.UINT
+        user32.MapVirtualKeyW.argtypes = [wt.UINT, wt.UINT]
+        user32.MapVirtualKeyW.restype = wt.UINT
+        _win = (ctypes, user32, Input)
+    return _win
+
+
+def _win_send_keys(*keys) -> None:
+    """Press and release a chord on Windows through SendInput. OSError when
+    Windows refused it (the secure desktop, or a window running as administrator)."""
+    ctypes, user32, Input = _win_api()
+
+    def scan_of(vk: int) -> tuple[int, bool]:
+        sc = user32.MapVirtualKeyW(vk, 4)            # MAPVK_VK_TO_VSC_EX: E0/E1 in the high byte
+        return sc & 0xFF, (sc >> 8) in (0xE0, 0xE1)
+
+    down, up = _win_chord(keys, scan_of)
+    if not down:
         return
 
-    down_events = [_make(vk, 0) for vk in vks]
-    up_events   = [_make(vk, KEYEVENTF_KEYUP) for vk in reversed(vks)]
-    arr_type     = _Input * len(down_events)
-    ctypes.windll.user32.SendInput(len(down_events), arr_type(*down_events), ctypes.sizeof(_Input))
+    def send(events) -> int:
+        arr = (Input * len(events))()
+        for i, (vk, scan, flags) in enumerate(events):
+            arr[i].type = 1                          # INPUT_KEYBOARD
+            arr[i].u.ki.wVk, arr[i].u.ki.wScan, arr[i].u.ki.dwFlags = vk, scan, flags
+        return user32.SendInput(len(events), arr, ctypes.sizeof(Input))
+
+    sent = send(down)
     time.sleep(0.05)
-    arr_type2 = _Input * len(up_events)
-    ctypes.windll.user32.SendInput(len(up_events), arr_type2(*up_events), ctypes.sizeof(_Input))
+    released = send(up)                              # always: a modifier left down would stick
+    if sent != len(down) or released != len(up):
+        raise OSError(ctypes.get_last_error(), "Windows did not take the key presses")
+
+
 
 
 # ─── MacroSystem ───────────────────────────────────────────────────────────────
@@ -178,6 +205,14 @@ class MacroSystem:
             return False
         cls._init_linux()
         return cls._ui is not None
+
+    @classmethod
+    def press(cls, *keys) -> None:
+        """send_keys that raises when Windows refuses the keys (the WoW page says why)."""
+        if sys.platform.startswith("win"):
+            _win_send_keys(*keys)
+        else:
+            cls.send_keys(*keys)
 
     @classmethod
     def send_keys(cls, *keys) -> None:
@@ -249,6 +284,9 @@ class AppEnumerator:
         if sys.platform.startswith("win"):
             try:
                 ps = (
+                    # Windows PowerShell pipes in the OEM code page unless told:
+                    # accented app names came back garbled.
+                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
                     "$apps = Get-StartApps | Select-Object Name, AppID;"
                     "$apps | ForEach-Object {"
                     "  [PSCustomObject]@{name=$_.Name; exec=$_.AppID}"
@@ -257,6 +295,7 @@ class AppEnumerator:
                 out = subprocess.check_output(
                     ["powershell", "-NoProfile", "-Command", ps],
                     stderr=subprocess.DEVNULL, timeout=12,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),   # no console flashing up
                 ).decode("utf-8", errors="replace").strip()
                 if out:
                     raw = __import__("json").loads(out)

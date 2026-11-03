@@ -194,7 +194,7 @@ def game_view(core):
 def test_saved_characters_and_the_live_one_are_merged(tmp_path):
     folder = tmp_path / "WTF" / "Account" / "ACC" / "SavedVariables"
     folder.mkdir(parents=True)
-    (folder / game.SV_FILE).write_text(SV)
+    (folder / game.SV_FILE).write_text(SV, encoding="utf-8")
     core, _ = make({"wow_path": str(tmp_path)})
     core.poll()
     v = game_view(core)
@@ -250,7 +250,7 @@ def test_a_character_saved_without_its_realm_is_left_out(tmp_path):
     folder = tmp_path / "SavedVariables"
     folder.mkdir()
     (folder / game.SV_FILE).write_text(SV.replace('["Jaina-Draenor"]', '["Thrall-"] = { ["name"] = "Thrall", '
-                                                  '["gold"] = 0, ["ilvl"] = 0 },\n\t\t["Jaina-Draenor"]'))
+                                                  '["gold"] = 0, ["ilvl"] = 0 },\n\t\t["Jaina-Draenor"]'), encoding="utf-8")
     core, _ = make({"wow_path": str(folder)})
     core.poll()
     assert [c["key"] for c in game_view(core)["chars"]] == ["Thrall-Draenor", "Jaina-Draenor"]
@@ -259,7 +259,7 @@ def test_a_character_saved_without_its_realm_is_left_out(tmp_path):
 def test_items_are_found_on_every_character(tmp_path):
     folder = tmp_path / "SavedVariables"
     folder.mkdir()
-    (folder / game.SV_FILE).write_text(SV)
+    (folder / game.SV_FILE).write_text(SV, encoding="utf-8")
     core, _ = make({"wow_path": str(folder)})
     core.poll()
     _, reply = core.run_ex("game_find", {"q": "flask"})
@@ -363,7 +363,7 @@ def test_a_command_answer_carries_its_data(app, wow):
 def old_companion(tmp_path, version="1.0.0"):
     target = tmp_path / "_retail_" / "Interface" / "AddOns" / wow_addons.COMPANION
     target.mkdir(parents=True)
-    (target / f"{wow_addons.COMPANION}.toc").write_text(f"## Title: Touch Dashboard\n## Version: {version}\n")
+    (target / f"{wow_addons.COMPANION}.toc").write_text(f"## Title: Touch Dashboard\n## Version: {version}\n", encoding="utf-8")
     return target
 
 
@@ -372,8 +372,8 @@ def test_an_older_companion_in_the_game_folder_is_updated(tmp_path):
     core, _ = make({"wow_path": str(tmp_path)})
     core.poll()
     assert core.companion_status()["installed"] == wow_addons.bundled_version()
-    assert (target / f"{wow_addons.COMPANION}.lua").read_text() == (
-        Path(wow_addons.COMPANION_DIR) / f"{wow_addons.COMPANION}.lua").read_text()
+    assert (target / f"{wow_addons.COMPANION}.lua").read_text(encoding="utf-8") == (
+        Path(wow_addons.COMPANION_DIR) / f"{wow_addons.COMPANION}.lua").read_text(encoding="utf-8")
 
 
 def test_the_companion_is_never_installed_or_updated_unasked(tmp_path):
@@ -439,6 +439,7 @@ def test_the_addons_folder_is_found_from_the_folder_set_in_settings(tmp_path, mo
     (retail / "Interface" / "AddOns" / "BigWigs").mkdir(parents=True)
     (retail / "WTF" / "Account" / "ACC" / "SavedVariables").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))     # what expanduser reads on Windows
     path = "~/World of Warcraft/_retail_" if where == "~" else str(tmp_path / where)
     core, _ = make({"wow_path": path})
     core.poll()

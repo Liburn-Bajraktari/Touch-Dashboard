@@ -7,7 +7,6 @@ speedtest-cli
 spotipy
 nvidia-ml-py
 Pillow
-pyinstaller
 
 # ── Desktop window + tray ──────────────────────────────────────────────────────
 # On Arch Linux install via pacman (preferred):
@@ -23,13 +22,21 @@ orjson
 evdev; sys_platform == "linux"
 PyGObject; sys_platform == "linux"
 
-# ── Windows (Audio / COM / Soundboard / Media Transport) ──────────────────────
-comtypes; sys_platform == "win32"
-pycaw; sys_platform == "win32"
-sounddevice; sys_platform == "win32"
-soundfile; sys_platform == "win32"
-winrt-runtime; sys_platform == "win32"
-winrt-Windows.Media.Control; sys_platform == "win32"
-winrt-Windows.Foundation; sys_platform == "win32"
+# ── Windows (Audio / COM / Media Transport; the soundboard is Soundpad's) ─────
+# Pinned: pycaw's and winrt's APIs move between releases, and a change there
+# fails quietly (a volume reading 0, no media). Raise them together, on Windows.
+comtypes>=1.4.10,<1.5; sys_platform == "win32"
+pycaw==20260927; sys_platform == "win32"
+winrt-runtime>=4.1,<5; sys_platform == "win32"
+winrt-Windows.Media.Control>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
+winrt-Windows.Foundation>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
+winrt-Windows.Storage.Streams>=4!10.0.28000.2957,<4!11; sys_platform == "win32"   # media covers
+# WoW's window (wow_addons/screen_win.py): Windows.Graphics.Capture and its Direct3D side
+winrt-Windows.Graphics>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
+winrt-Windows.Graphics.Capture>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
+winrt-Windows.Graphics.Capture.Interop>=4.0,<5; sys_platform == "win32"
+winrt-Windows.Graphics.DirectX>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
+winrt-Windows.Graphics.DirectX.Direct3D11>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
+winrt-Windows.Graphics.DirectX.Direct3D11.Interop>=4.1,<5; sys_platform == "win32"
 pydub>=0.25.1
 audioop-lts; python_version >= "3.13"

@@ -43,6 +43,7 @@
         no_answer: 'The addon opened its box but gave nothing back',
         no_box: 'The addon did not open its box: is it on in game? (/tdc)',
         not_front: 'WoW is not the window in front on the PC',
+        elevated: 'WoW runs as administrator, so Windows drops the PC’s keys: start it normally',
         no_check: 'The PC cannot see WoW’s window to check the addon',
         no_bossmod: 'A break needs BigWigs, DBM or NSRT in the game',
         in_combat: 'Key slots change after combat: try again then',
@@ -1293,11 +1294,13 @@
         const cs = server.companion || {};
         setPanes.general.innerHTML = '<h3 class="settings-h">Game folder</h3>'
             + '<p class="settings-sub">The World of Warcraft folder, its _retail_ folder, or a SavedVariables folder. Checked every 5 seconds; WoW writes SavedVariables on /reload, logout and exit.</p>'
-            + `<div class="form-group"><label for="wow-set-path">Folder</label><input type="text" id="wow-set-path" maxlength="1024" autocomplete="off" spellcheck="false" placeholder="~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_retail_" value="${esc(s.wow_path)}"></div>`
+            + `<div class="form-group"><label for="wow-set-path">Folder</label><input type="text" id="wow-set-path" maxlength="1024" autocomplete="off" spellcheck="false" placeholder="${esc(server.folder_hint || 'The World of Warcraft folder')}" value="${esc(s.wow_path)}"></div>`
+            // Where Battle.net installed it (Windows), offered, never saved unasked.
+            + (server.folder_hint && !s.wow_path ? `<div class="setting-row wow-set-hint"><div><label class="title">WoW is installed here</label><label class="desc num">${esc(server.folder_hint)}</label></div><button class="btn btn-pill btn-ghost" type="button" data-act="use-hint"><i data-lucide="folder-check"></i>Use this folder</button></div>` : '')
             + `<div class="form-group"><label for="wow-set-account">Account folder (optional)</label><input type="text" id="wow-set-account" maxlength="64" autocomplete="off" spellcheck="false" placeholder="The newest file wins" value="${esc(s.account)}"></div>`
             + '<div class="wow-set-files"></div>'
             + '<h3 class="settings-h">Touch Dashboard addon</h3>'
-            + '<p class="settings-sub">Runs addon commands and Blizzard’s without opening chat, holds the key slots’ commands, and shows this page the game as it changes (Linux; /tdc link off in WoW hides its line of dots). This PC keeps it up to date, and it reads only what the game lets addons see.</p>'
+            + '<p class="settings-sub">Runs addon commands and Blizzard’s without opening chat, holds the key slots’ commands, and shows this page the game as it changes (/tdc link off in WoW hides its line of dots). This PC keeps it up to date, and it reads only what the game lets addons see.</p>'
             + '<div class="setting-group">'
             + settingRow('Use the addon', 'When it is installed', switchHtml('id="wow-set-companion"', s.companion !== false))
             + `<div class="setting-row"><div><label class="title">Status</label><label class="desc wow-comp-status">${esc(companionText(cs))}</label></div>`
@@ -1326,6 +1329,12 @@
         const install = setPanes.general.querySelector('[data-act="install"]');
         const pathIn = setPanes.general.querySelector('#wow-set-path');
         pathIn.addEventListener('input', () => { install.disabled = !pathIn.value.trim(); });
+        const useHint = setPanes.general.querySelector('[data-act="use-hint"]');
+        if (useHint) useHint.addEventListener('click', () => {
+            pathIn.value = server.folder_hint;
+            pathIn.dispatchEvent(new Event('input'));
+            useHint.closest('.wow-set-hint').remove();
+        });
         install.addEventListener('click', () => {
             const folder = { wow_path: pathIn.value.trim(), account: setPanes.general.querySelector('#wow-set-account').value.trim() };
             if (folder.wow_path !== server.settings.wow_path || folder.account !== server.settings.account) {

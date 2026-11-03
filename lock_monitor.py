@@ -79,6 +79,51 @@ class LockMonitor:
         pass
 
 
+# ─── Windows' session struct ───────────────────────────────────────────────────
+#
+# WTSQuerySessionInformationW(WTSSessionInfoEx) hands back a WTSINFOEXW: a
+# DWORD level, then a union whose largest member holds LARGE_INTEGERs, so the
+# data starts at offset 8. Its SessionFlags (offset 16) says locked (0) or
+# unlocked (1); Windows 7 / Server 2008 R2 swapped the two, which no longer
+# matters. Up to v0.16.4 the struct left out the times and swapped two fields:
+# it read the session's id as the flags, and session 1 was always "locked".
+# Defined with portable types (UTF-16 names as uint16) so tests check the
+# layout on Linux too.
+
+import ctypes as _ct
+
+
+class WTSINFOEX_LEVEL1(_ct.Structure):
+    _fields_ = [
+        ("SessionId",      _ct.c_uint32),
+        ("SessionState",   _ct.c_int32),          # WTS_CONNECTSTATE_CLASS
+        ("SessionFlags",   _ct.c_int32),
+        ("WinStationName", _ct.c_uint16 * 33),
+        ("UserName",       _ct.c_uint16 * 21),
+        ("DomainName",     _ct.c_uint16 * 18),
+        ("LogonTime",      _ct.c_int64),
+        ("ConnectTime",    _ct.c_int64),
+        ("DisconnectTime", _ct.c_int64),
+        ("LastInputTime",  _ct.c_int64),
+        ("CurrentTime",    _ct.c_int64),
+        ("IncomingBytes",  _ct.c_uint32),
+        ("OutgoingBytes",  _ct.c_uint32),
+        ("IncomingFrames", _ct.c_uint32),
+        ("OutgoingFrames", _ct.c_uint32),
+        ("IncomingCompressedBytes", _ct.c_uint32),
+        ("OutgoingCompressedBytes", _ct.c_uint32),
+    ]
+
+
+class WTSINFOEX(_ct.Structure):
+    _fields_ = [("Level", _ct.c_uint32), ("Data", WTSINFOEX_LEVEL1)]
+
+
+def session_locked(flags: int) -> bool:
+    """WTS_SESSIONSTATE_LOCK is 0, UNLOCK 1, UNKNOWN -1 (Windows 8 and later)."""
+    return flags == 0
+
+
 # ─── Linux ─────────────────────────────────────────────────────────────────────
 
 if sys.platform.startswith("linux"):
@@ -245,9 +290,6 @@ if sys.platform.startswith("linux"):
 
 elif sys.platform.startswith("win"):
     import ctypes
-    import ctypes.wintypes as _wt
-
-    _WTS_SESSIONSTATE_LOCK = 0x00000001
 
     _WTSAPI32 = None
     try:
@@ -255,39 +297,25 @@ elif sys.platform.startswith("win"):
     except OSError:
         logger.warning("lock-monitor: wtsapi32.dll not available")
 
-    class _WTSINFOEX_LEVEL1(ctypes.Structure):
-        _fields_ = [
-            ("SessionId",       _wt.ULONG),
-            ("SessionFlags",    _wt.ULONG),
-            ("WTSSessionState", _wt.ULONG),
-            ("SessionName",     ctypes.c_wchar * 33),
-        ]
-
-    class _WTSINFOEX(ctypes.Structure):
-        _fields_ = [
-            ("Level", _wt.ULONG),
-            ("Data",  _WTSINFOEX_LEVEL1),
-        ]
-
     _WTSSessionInfoEx = 25
 
     def _query_locked() -> bool:
         if _WTSAPI32 is None:
             return False
         buf    = ctypes.c_void_p()
-        bytes_ = _wt.DWORD()
+        bytes_ = ctypes.c_ulong()
         try:
             ok = _WTSAPI32.WTSQuerySessionInformationW(
                 None,
-                ctypes.c_ulong(0xFFFFFFFF),
+                ctypes.c_ulong(0xFFFFFFFF),     # this session
                 _WTSSessionInfoEx,
                 ctypes.byref(buf),
                 ctypes.byref(bytes_),
             )
-            if not ok or not buf.value:
+            if not ok or not buf.value or bytes_.value < ctypes.sizeof(WTSINFOEX):
                 return False
-            info = ctypes.cast(buf, ctypes.POINTER(_WTSINFOEX)).contents
-            return bool(info.Data.SessionFlags & _WTS_SESSIONSTATE_LOCK)
+            info = ctypes.cast(buf, ctypes.POINTER(WTSINFOEX)).contents
+            return session_locked(info.Data.SessionFlags)
         except Exception as exc:
             logger.debug("lock-monitor: WTSQuerySessionInformation error: %s", exc)
             return False

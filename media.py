@@ -1096,6 +1096,45 @@ def _smtc_session(manager, aumid: str):
     return None
 
 
+def cover_data_uri(data: bytes) -> str:
+    """Image bytes as a data: URI for resolve_art's in-memory covers ("" when
+    they are not a JPEG, PNG or WebP within COVER_MAX_BYTES)."""
+    mime = _image_type(data)
+    if not mime or len(data) > COVER_MAX_BYTES:
+        return ""
+    return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
+
+
+# Windows' media controls carry a cover as a stream, read once per track: an
+# app may set it a moment after the title, so an empty read is tried again a
+# few times (one SMTC poll apart).
+SMTC_COVER_TRIES = 3
+_smtc_art: dict[str, tuple[str, str, int]] = {}     # aumid → (track, data: URI or "", tries)
+
+
+async def _smtc_cover(aumid: str, props) -> str:
+    track = f"{props.title}|{props.artist}|{getattr(props, 'album_title', '')}"
+    known = _smtc_art.get(aumid)
+    if known and known[0] == track and (known[1] or known[2] >= SMTC_COVER_TRIES):
+        return known[1]
+    uri = ""
+    try:
+        ref = getattr(props, "thumbnail", None)
+        if ref is not None:
+            from winrt.windows.storage.streams import Buffer, InputStreamOptions   # type: ignore[import]
+            stream = await asyncio.wait_for(ref.open_read_async(), timeout=2.0)
+            size = int(stream.size)
+            if 0 < size <= COVER_MAX_BYTES:
+                got = await asyncio.wait_for(stream.read_async(Buffer(size), size, InputStreamOptions.READ_AHEAD),
+                                             timeout=2.0)
+                uri = cover_data_uri(bytes(memoryview(got))[:got.length])
+    except Exception as e:      # winrt projections differ between versions; a cover is not worth a failed poll
+        logger.debug(f"SMTC cover for {aumid}: {e}")
+    tries = known[2] + 1 if known and known[0] == track else 1
+    _smtc_art[aumid] = (track, uri, tries)
+    return uri
+
+
 async def _query_winrt_sessions() -> list[dict]:
     """Every playing or paused SMTC session as a record (winrt 3.x coroutines
     are natively awaitable — no run_in_executor needed)."""
@@ -1137,6 +1176,7 @@ async def _query_winrt_sessions() -> list[dict]:
                 title=(props.title or "Unknown") if props else "Unknown",
                 artist=(props.artist or "Unknown") if props else "Unknown",
                 album=(getattr(props, "album_title", "") or "") if props else "",
+                art=await _smtc_cover(aumid, props) if props else "",
                 position=position, length=length, caps=caps,
                 # Windows' own current session wins a tie.
                 started=started + (0.001 if aumid == current_id else 0.0),

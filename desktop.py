@@ -21,15 +21,58 @@ logger = logging.getLogger(__name__)
 
 # Module-level window reference so /api/wakeup can bring it forward.
 _active_window = None
+_active_tray = None
+_window_title = ""
+
+
+def _windows_hwnd(title: str) -> int:
+    """The desktop window's handle, found by its title (pywebview's own lives on its UI thread)."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user32.FindWindowW.restype = wintypes.HWND
+    return user32.FindWindowW(None, title) or 0
 
 
 def wakeup() -> None:
-    """Show and focus the window (called by the /api/wakeup HTTP endpoint)."""
-    if _active_window is not None:
+    """Show, restore and focus the window (called by the /api/wakeup HTTP endpoint)."""
+    if _active_window is None:
+        return
+    try:
+        _active_window.show()
+        _active_window.restore()            # out of the taskbar too, not only out of the tray
+    except Exception as exc:
+        logger.debug("wakeup show: %s", exc)
+    if _active_tray is not None:
+        _active_tray.set_visible(True)
+    if sys.platform.startswith("win"):
         try:
-            _active_window.show()
-        except Exception as exc:
-            logger.debug("wakeup show: %s", exc)
+            import ctypes
+            hwnd = _windows_hwnd(_window_title)
+            if hwnd:
+                ctypes.windll.user32.SetForegroundWindow(hwnd)   # allowed: the second instance passed it on
+        except (OSError, AttributeError) as exc:
+            logger.debug("wakeup focus: %s", exc)
+
+
+def _set_windows_icon(title: str, icon_path: str) -> None:
+    """The window's and taskbar's icon: pywebview's icon= reaches only GTK and Qt,
+    so a Windows window showed Python's."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int, ctypes.c_int,
+                                  wintypes.UINT]
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    hwnd = _windows_hwnd(title)
+    if not hwnd:
+        return
+    for which, size in ((1, 32), (0, 16)):              # ICON_BIG (taskbar, Alt+Tab), ICON_SMALL (title)
+        icon = user32.LoadImageW(None, icon_path, 1, size, size, 0x10)   # IMAGE_ICON, LR_LOADFROMFILE
+        if icon:
+            user32.SendMessageW(hwnd, 0x80, which, icon)                # WM_SETICON
 
 
 # ─── Window API (exposed to JS as window.pywebview.api.*) ──────────────────────
@@ -153,7 +196,8 @@ class TrayManager:
             return "Hide Dashboard" if self._visible else "Show Dashboard"
 
         return pystray.Menu(
-            pystray.MenuItem(_toggle_label, lambda: self._toggle()),
+            # default: what a left click on the icon does (Windows)
+            pystray.MenuItem(_toggle_label, lambda: self._toggle(), default=True),
             pystray.MenuItem(f"IP: {self._local_ip}", None, enabled=False),
             pystray.MenuItem("Quit", lambda: self._quit()),
         )
@@ -224,6 +268,14 @@ def _wake_existing_instance(port: int, data_dir: str) -> None:
     """
     import urllib.request
     import security
+    if sys.platform.startswith("win"):
+        # This process was just started by the user, so it may bring a window
+        # to the front; the running one may not until it is handed that right.
+        try:
+            import ctypes
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)        # ASFW_ANY
+        except (OSError, AttributeError):
+            pass
     for _ in range(10):
         try:
             req = urllib.request.Request(
@@ -277,9 +329,12 @@ def launch_desktop(
         ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED = 183, 5
         mutex_name = f"Global\\TouchDashboard_Mutex_{port}"
         try:
-            kernel32 = ctypes.windll.kernel32
+            # use_last_error: ctypes may run other calls between CreateMutexW
+            # and a plain GetLastError, which then reads their error instead.
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateMutexW.restype = ctypes.c_void_p
             _mutex = kernel32.CreateMutexW(None, False, mutex_name)
-            last_err = kernel32.GetLastError()
+            last_err = ctypes.get_last_error()
             if last_err in (ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED) or not _mutex:
                 _wake_existing_instance(port, data_dir)
                 os._exit(0)
@@ -341,19 +396,33 @@ def launch_desktop(
     # ── Build API and window ───────────────────────────────────────────────────
     api = DesktopApi(local_ip=local_ip, quit_fn=_do_quit)
 
+    # Windows: pywebview's easy_drag on Edge Chromium listens on the whole page,
+    # so dragging a fader or a slider with the mouse moved the window. The
+    # title bar's strip (.titlebar-drag) drags it instead; its buttons are
+    # siblings, not inside it, so they never start a drag. Linux drags through
+    # GTK, patched to the title bar below.
+    on_windows = sys.platform.startswith("win")
+    if on_windows:
+        webview.settings["DRAG_REGION_SELECTOR"] = ".titlebar-drag"
+        webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
+
+    global _window_title, _active_tray
+    _window_title = f"Touch Dashboard \u2014 {local_ip}"
     window = webview.create_window(
-        title=f"Touch Dashboard \u2014 {local_ip}",
+        title=_window_title,
         url=f"http://127.0.0.1:{port}",
         js_api=api,
         width=1280,
         height=800,
         frameless=True,
         transparent=False,
-        easy_drag=True,
+        easy_drag=not on_windows,
         background_color=background_color,
     )
     assert window is not None
     _active_window = window
+    if on_windows:
+        window.events.shown += lambda: _set_windows_icon(_window_title, icon_path)
 
     # ── System tray ────────────────────────────────────────────────────────────
     tray = TrayManager(
@@ -364,6 +433,7 @@ def launch_desktop(
         quit_fn=_do_quit,
     )
     api._bind(window=window, tray=tray)
+    _active_tray = tray
     tray.start()
 
     # ── Start WebKit2GTK / WebView2 main loop (blocks until all windows gone) ──

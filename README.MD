@@ -51,7 +51,7 @@
 | **Audio mixer** | Two studio faders for speaker and microphone volume, each with a mute key, and a rotary encoder that switches the output device (one LED per device; hide the ones you never use). |
 | **Discord** | Mute, deafen, camera and screen share, the current voice channel, who is in it and who is speaking, and a leave-call key. |
 | **Macros & apps** | Nine display keys: launch apps, send keyboard shortcuts or open the soundboard. |
-| **Soundboard** | Drum pads that play clips into your microphone (Linux, through PipeWire) or through Soundpad / a local folder (Windows). |
+| **Soundboard** | Drum pads that play clips into your microphone: through PipeWire on Linux, through [Soundpad](https://www.leppsoft.com/soundpad/) on Windows (pads pick from Soundpad's list; hear-it-here and send-to-mic keys on both). |
 | **System** | CPU, RAM and GPU load with a live trace of the last minute, mouse battery (level, charging, wired or no mouse), a live network speed test (ping, download, upload) and a power-off key. |
 | **Clock & weather** | Time, date and current weather from OpenWeatherMap. |
 | **Lock screen** | When the PC locks, the tablet shows a large clock with the weather; it shifts slightly every minute to protect OLED screens. |
@@ -75,10 +75,14 @@ Touch Dashboard is client and server:
 
 ## Install
 
-### Windows (Testing and Development paused for the time being)
+### Windows 11
 
 > [!WARNING]
-> **Testing and Development on Windows is paused for the time being.**
+> **Not yet tried on a real Windows PC.** The Windows side is built and tested against stand-ins and on GitHub's Windows runners only. Reports welcome.
+
+**The installer (recommended).** From the [latest release](https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/latest), download `TouchDashboard-Setup-vX.Y.Z.exe` and run it. It needs no Python and no administrator rights; it installs to `%LOCALAPPDATA%\Programs\Touch Dashboard`, adds Touch Dashboard to Installed Apps, and offers a desktop shortcut, starting with Windows, and the firewall rule tablets need (that one asks for administrator rights once). The app updates itself through the next release's installer, checked against its `SHA256SUMS`. It is not code-signed yet, so Windows SmartScreen asks before the first run (**More info → Run anyway**).
+
+**Or the PowerShell installer**, which runs the app from Python in a folder of its own:
 
 1. From the [latest release](https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/latest), download `install.ps1` and `SHA256SUMS` into the same folder.
 2. Open PowerShell as administrator (so the installer can add the firewall rule), go to that folder and check the installer against the published checksum. It prints `True` when they match; if it prints `False`, delete the file and do not run it:
@@ -89,7 +93,7 @@ Touch Dashboard is client and server:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\install.ps1
    ```
-4. A text menu opens. Press <kbd>1</kbd> to download the app, set up Python and create the Start Menu and desktop shortcuts. The app installs to `%LOCALAPPDATA%\Touch-Dashboard`.
+4. A text menu opens. Press <kbd>1</kbd> to download the app, set up Python (3.11 to 3.13; it offers to install it with winget) and create the Start Menu and desktop shortcuts. The app installs to `%LOCALAPPDATA%\Touch-Dashboard`.
 5. Launch **Touch Dashboard** from the Start Menu. It opens the dashboard window and keeps running in the system tray when you close the window (you can turn that off in the window's menu).
 
 The installer also has a repair mode, an uninstaller, and an option (<kbd>4</kbd>) to download the latest Android APK to your PC. It installs the latest release, never unreleased code: it downloads that release's source archive and refuses it unless it matches the release's `SHA256SUMS`. Run as administrator, it opens port 8888 in Windows Firewall for private networks and your local subnet only; on a network Windows classes as Public the dashboard stays closed.
@@ -243,8 +247,8 @@ Add a key of type **Plugin → World of Warcraft** to open it. Its plates (NSRT 
 ## Platform notes
 
 - **Linux audio** uses PipeWire and WirePlumber (`wpctl`, `pactl`, `pw-play`, `pw-link`). The soundboard creates a virtual sink called `Dashboard-Soundboard`, plays clips into it and links it into the apps that use your microphone (Discord, OBS and so on). Routing like this depends on your setup and may need adjusting.
-- **Mouse battery** on Linux comes from UPower over D-Bus, event-driven, for any mouse UPower knows about (`upower` must be installed). On Windows it reads `%TEMP%\g502_battery.txt`, written by an external script.
-- **Windows** integrates with WASAPI (`pycaw`), COM for switching the default device, and WinRT for the media controls.
+- **Mouse battery** on Linux comes from UPower over D-Bus, event-driven, for any mouse UPower knows about (`upower` must be installed). On Windows it is read from the mouse itself once a minute, with nothing to install: Logitech mice (Unifying, Lightspeed and Bolt receivers, or on their cable) over HID++, Razer mice, and any Bluetooth mouse whose battery Windows shows. `%TEMP%\g502_battery.txt`, written by a script of your own, still works as a fallback.
+- **Windows** integrates with WASAPI (`pycaw`), COM for switching the default device, WinRT for the media controls and their covers, Windows Graphics Capture for WoW's window (the WoW page), and Soundpad's remote control for the soundboard.
 - **App launchers** follow your desktop environment and the `$TERMINAL` / `$BROWSER` variables instead of fixed program names.
 - **The Android app** is a small native app (`android/`, plain Java) around a WebView with the dashboard bundled in. A change to the dashboard reaches tablets with the next APK release, which the app installs itself. It asks for `REQUEST_INSTALL_PACKAGES` (its own updates) and `VIBRATE` (haptic ticks), and keeps its pairing out of cloud backups.
 

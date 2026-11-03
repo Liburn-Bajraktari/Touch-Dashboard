@@ -105,7 +105,8 @@ RUNTIME_DEPENDENCIES = [
 if sys.platform.startswith("linux"):
     RUNTIME_DEPENDENCIES += [("evdev", "evdev"), ("gi", "PyGObject")]
 elif sys.platform.startswith("win"):
-    RUNTIME_DEPENDENCIES += [("pycaw", "pycaw"), ("comtypes", "comtypes")]
+    RUNTIME_DEPENDENCIES += [("pycaw", "pycaw"), ("comtypes", "comtypes"),
+                             ("winrt.windows.media.control", "winrt-Windows.Media.Control")]
 
 
 def _is_linux_cli():
@@ -142,9 +143,15 @@ def _show_popup(title, msg):
     return False
 
 
+def _has_module(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except ModuleNotFoundError:      # a dotted name whose parent package is missing
+        return False
+
+
 def ensure_runtime_dependencies():
-    missing = [pkg for mod, pkg in RUNTIME_DEPENDENCIES
-               if importlib.util.find_spec(mod) is None]
+    missing = [pkg for mod, pkg in RUNTIME_DEPENDENCIES if not _has_module(mod)]
     if not missing:
         return
 
@@ -193,10 +200,11 @@ logger = logging.getLogger(__name__)
 VERSION = "v0.4.0" # Fallbacks
 REQUIRED_APK_VERSION = "v0.3.0"
 
-version_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.json")
+# A frozen build (PyInstaller) unpacks its files into sys._MEIPASS
+version_file = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "version.json")
 try:
     if os.path.exists(version_file):
-        with open(version_file, "r") as f:
+        with open(version_file, "r", encoding="utf-8") as f:
             v_data = json.load(f)
             VERSION = v_data.get("desktop_version", VERSION)
             REQUIRED_APK_VERSION = v_data.get("required_apk_version", REQUIRED_APK_VERSION)
@@ -239,6 +247,8 @@ import wow_addons
 from wow_addons.armory import Armory, ArmoryError, character_id
 
 import lock_monitor as _lock_monitor_mod
+import soundpad as _soundpad_mod
+import mouse_battery_win as _mouse_battery_win_mod
 
 if sys.platform.startswith("linux"):
     import mouse_battery as _mouse_battery_mod
@@ -323,6 +333,11 @@ DEFAULT_CONFIG: dict = {
 THEME_ID_RE    = re.compile(r"[a-z0-9-]{1,32}")
 SERVER_FEATURES = ["disc_voice", "pairing", "media_seek", "media_source", "media_like",
                    "media_result", "audio_apps", "sb_mic", "wow_addons", "bnet", "wow_layout"]   # see _make_config_sync
+if sys.platform.startswith("win"):
+    SERVER_FEATURES.append("soundpad")    # Soundpad's remote control: its list for pads, its volume, its routes
+
+# The Windows soundboard (soundpad.py); None elsewhere.
+soundpad_rc = _soundpad_mod.Soundpad() if sys.platform.startswith("win") else None
 HEX_COLOUR_RE  = re.compile(r"#[0-9a-fA-F]{6}")
 ITEM_ID_RE     = re.compile(r"[A-Za-z0-9_-]{1,64}")   # macro "id" / soundboard pad "uid"
 APP_VERSION_RE = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,4}")   # the Android app's version, from auth
@@ -377,19 +392,19 @@ def _migrate_config():
             except Exception: pass
         elif os.path.exists(old) and old == os.path.join(BASE_DIR, "config.json"):
             try:
-                with open(old) as f: old_data = json.load(f)
-                with open(new)  as f: new_data = json.load(f)
+                with open(old, encoding="utf-8") as f: old_data = json.load(f)
+                with open(new, encoding="utf-8") as f: new_data = json.load(f)
                 for k, v in old_data.items():
                     if k not in new_data or not new_data[k]:
                         new_data[k] = v
-                with open(new, "w") as f: json.dump(new_data, f, indent=2)
+                with open(new, "w", encoding="utf-8") as f: json.dump(new_data, f, indent=2)
             except Exception: pass
 
 
 def load_config() -> dict:
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE) as f:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
                 return {**DEFAULT_CONFIG, **json.load(f)}
         except Exception:
             pass
@@ -399,7 +414,7 @@ def load_config() -> dict:
 def save_config():
     with CONFIG_LOCK:
         tmp = CONFIG_FILE + ".tmp"
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
         os.replace(tmp, CONFIG_FILE)
 
@@ -415,6 +430,7 @@ if (_cfg_with_ids := _with_item_ids(config)) != config:
 _log_file = os.path.join(DATA_DIR, "server.log")
 logging.basicConfig(
     filename=_log_file,
+    encoding="utf-8",     # the locale's on Windows (cp1252) cannot hold every title or name
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
@@ -424,7 +440,7 @@ logging.basicConfig(
 # This catches crashes in _ctypes.pyd, COM vtable calls, Qt/Chromium etc.
 import faulthandler as _faulthandler
 try:
-    _fh_file = open(_log_file, "a", buffering=1)  # line-buffered append
+    _fh_file = open(_log_file, "a", buffering=1, encoding="utf-8")  # line-buffered append
     _faulthandler.enable(file=_fh_file, all_threads=True)
     logger.info("faulthandler enabled → %s", _log_file)
 except Exception as _fh_err:
@@ -488,6 +504,7 @@ mpris_mon = None                     # MprisMonitor (Linux); None → playerctl 
 last_audio_devs: list = []
 last_weather_data    = {"temp": "--", "desc": "--", "timestamp": 0}
 upower_monitor       = None   # UPowerMouseMonitor instance (Linux only)
+win_battery          = None   # mouse_battery_win.WindowsMouseBattery (Windows only)
 lock_monitor_instance = None  # LockMonitor instance (all platforms)
 # NOTE: asyncio primitives MUST be created inside a running event loop.
 # We declare them as None here and initialise them inside lifespan().
@@ -506,7 +523,7 @@ ARMORY_IDLE_S = 60
 
 # The WoW plugin page: its addon modules, their settings, commands and watched files.
 wow = wow_addons.WowAddons(
-    wow_addons.discover(), send_keys=MacroSystem.send_keys, keys_ready=MacroSystem.available,
+    wow_addons.discover(), send_keys=MacroSystem.press, keys_ready=MacroSystem.available,
     open_url=webbrowser.open, launch=AppEnumerator.launch_app, armory=armory,
     screen=wow_addons.screen.for_platform())
 wow.configure(config.get("wow_addons"))
@@ -832,10 +849,14 @@ SPOTIFY_RECHECK_S     = 1.5   # ...and read Spotify once more after this
 
 
 def _read_batt_windows() -> dict:
-    """Windows fallback: read the legacy g502_battery.txt file."""
+    """Windows: the mouse itself (mouse_battery_win), else the g502_battery.txt
+    file a script of the user's own may write."""
+    state = win_battery.get_state() if win_battery is not None else None
+    if state:
+        return state
     path = os.path.join(os.environ.get("TEMP", ""), "g502_battery.txt")
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             # File may contain just a number like "73" or "73%"
             pct_str = f.read().strip().replace("%", "").strip()
         return {"pct": float(pct_str), "state": "unknown", "model": "", "vendor": ""}
@@ -1282,7 +1303,7 @@ async def fetch_weather():
             if "main" in data:
                 last_weather_data = _weather_from_owm(data)
                 def _write_weather(data):
-                    with open(WEATHER_CACHE_FILE, "w") as f:
+                    with open(WEATHER_CACHE_FILE, "w", encoding="utf-8") as f:
                         json.dump(data, f)
                 await asyncio.to_thread(_write_weather, last_weather_data)
                 await ws_manager.broadcast({"type": "weather_data", "data": last_weather_data})
@@ -1293,7 +1314,7 @@ async def fetch_weather():
     if os.path.exists(WEATHER_CACHE_FILE):
         try:
             def _read_weather():
-                with open(WEATHER_CACHE_FILE) as f:
+                with open(WEATHER_CACHE_FILE, encoding="utf-8") as f:
                     return json.load(f)
             # This runs once on startup, but we still make it async-friendly
             # (or we could leave it sync since it's before the loop really starts, 
@@ -1474,6 +1495,11 @@ async def _make_config_sync(sinks: list[dict], initial_disc: dict | None = None)
         "features":        SERVER_FEATURES,
         "clip_source":     _clip_source(config),
     }
+    if get_os_target() == "windows":     # admins only: not in DEVICE_SYNC_KEYS
+        try:
+            data["autostart"] = await asyncio.to_thread(_autostart)
+        except OSError as e:
+            logger.debug("Start with Windows: %s", e)
     if initial_disc is not None:
         data["disc_init"] = initial_disc
     return {
@@ -1499,8 +1525,10 @@ MACRO_MODULES = frozenset({"app_term", "app_web", "app_files", "app_task", "app_
 
 
 def _clip_source(cfg: dict) -> str:
-    """Which pad list the soundboard plays: local files or Soundpad indices."""
-    return "local" if get_os_target() == "linux" or cfg.get("sounds_path") else "soundpad"
+    """Which pad list the soundboard plays: local files (Linux, through
+    PipeWire) or Soundpad's sounds (Windows: Windows itself cannot play into
+    the mic, Soundpad can)."""
+    return "local" if get_os_target() == "linux" else "soundpad"
 
 
 def _device_macro(m: dict) -> dict:
@@ -1712,7 +1740,7 @@ async def lifespan(app: FastAPI):
     # exist at this point. Creating them at module scope binds them to a
     # different (or non-existent) loop and causes:
     #   RuntimeError: Task got Future <Event> attached to a different loop
-    global weather_update_event, speedtest_lock, upower_monitor, lock_monitor_instance, sb_route_event, armory_event
+    global weather_update_event, speedtest_lock, upower_monitor, win_battery, lock_monitor_instance, sb_route_event, armory_event
     weather_update_event = asyncio.Event()
     armory_event         = asyncio.Event()
     speedtest_lock       = asyncio.Lock()
@@ -1748,6 +1776,16 @@ async def lifespan(app: FastAPI):
     # Linux: start the event-driven UPower mouse battery monitor.
     # The callback fires call_soon_threadsafe(sys_data_trigger.set) so that
     # hardware_loop wakes immediately on a battery property change.
+    if get_os_target() == "windows":
+        _win_loop = asyncio.get_running_loop()
+        win_battery = _mouse_battery_win_mod.WindowsMouseBattery()
+
+        def _on_win_batt():
+            if sys_data_trigger:
+                _win_loop.call_soon_threadsafe(sys_data_trigger.set)
+        win_battery.on_battery_change = _on_win_batt
+        win_battery.start()
+
     if get_os_target() == "linux":
         _loop_ref = asyncio.get_running_loop()
         upower_monitor = _mouse_battery_mod.UPowerMouseMonitor()
@@ -1798,6 +1836,8 @@ async def lifespan(app: FastAPI):
         lock_monitor_instance.stop()
     if upower_monitor is not None:
         upower_monitor.stop()
+    if win_battery is not None:
+        win_battery.stop()
     if mpris_mon is not None:
         mpris_mon.stop()
 
@@ -2133,6 +2173,8 @@ RELEASE_TAG_RE       = re.compile(r"v\d+\.\d+\.\d+")
 RELEASE_DOWNLOAD_URL = "https://github.com/Liburn-Bajraktari/Touch-Dashboard/releases/download"
 SUMS_MAX_BYTES       = 64 * 1024
 INSTALLER_MAX_BYTES  = 1 << 20
+SETUP_MAX_BYTES      = 400 << 20      # the frozen Windows app's installer (packaging/windows)
+FROZEN               = bool(getattr(sys, "frozen", False))
 
 
 def _download(url: str, limit: int) -> bytes:
@@ -2162,10 +2204,10 @@ def _fetch_verified_installer(tag: str) -> str:
     """
     if not RELEASE_TAG_RE.fullmatch(tag):
         raise ValueError(f"not a release tag: {tag!r}")
-    name = "setup.sh" if get_os_target() == "linux" else "install.ps1"
+    name = _installer_name(tag)
     sums = _sha256sums(_download(f"{RELEASE_DOWNLOAD_URL}/{tag}/SHA256SUMS", SUMS_MAX_BYTES)
                        .decode("utf-8", errors="replace"))
-    body = _download(f"{RELEASE_DOWNLOAD_URL}/{tag}/{name}", INSTALLER_MAX_BYTES)
+    body = _download(f"{RELEASE_DOWNLOAD_URL}/{tag}/{name}", SETUP_MAX_BYTES if FROZEN else INSTALLER_MAX_BYTES)
     expected = sums.get(name, "")
     if not expected or not hmac.compare_digest(hashlib.sha256(body).hexdigest(), expected):
         raise ValueError(f"{name} of {tag} does not match its SHA256SUMS")
@@ -2175,10 +2217,27 @@ def _fetch_verified_installer(tag: str) -> str:
     return path
 
 
+def _installer_name(tag: str) -> str:
+    """What updates this install: the frozen app's installer (built by the
+    release workflow on Windows), else the script that set it up."""
+    if FROZEN:
+        return f"TouchDashboard-Setup-{tag}.exe"
+    return "setup.sh" if get_os_target() == "linux" else "install.ps1"
+
+
 def _installer_argv(path: str) -> list[str]:
+    if FROZEN:
+        # Inno Setup, silent; it waits for this process to be gone, then starts the new version
+        return [path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", f"/TDWAIT={os.getpid()}"]
     if get_os_target() == "linux":
         return ["bash", path]
     return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path]
+
+
+# install.ps1, once the release is downloaded and checked: a hidden copy of it
+# installs as soon as this app is gone (Windows keeps a running app's packages
+# locked, so pip could not replace them under it) and starts the new version.
+UPDATE_HANDOFF = "TD-HANDOFF"
 
 
 def _start_update(tag: str) -> bool:
@@ -2194,7 +2253,9 @@ def _start_update(tag: str) -> bool:
     _update_running = True
     current_dir = os.path.dirname(os.path.abspath(__file__))
     env = {**os.environ, "AUTO_UPDATE": "1", "BACKGROUND_UPDATE": "1",
-           "TARGET_DIR": current_dir, "TD_RELEASE_TAG": tag}
+           "TARGET_DIR": current_dir, "TD_RELEASE_TAG": tag, "TD_WAIT_PID": str(os.getpid())}
+    # No console window flashing up for PowerShell (the app runs under pythonw)
+    spawn = {"creationflags": subprocess.CREATE_NO_WINDOW} if get_os_target() == "windows" else {}
 
     # Run in background and stream output to WS
     async def run_update():
@@ -2203,6 +2264,18 @@ def _start_update(tag: str) -> bool:
         try:
             installer = await asyncio.to_thread(_fetch_verified_installer, tag)
             logger.info("Updating to %s with the verified installer %s", tag, installer)
+            if FROZEN:
+                # Setup replaces this program's own files: it runs on its own,
+                # waits for this process to exit, and starts the new version.
+                subprocess.Popen(_installer_argv(installer), close_fds=True,
+                                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+                await ws_manager.broadcast(admin_only=True, msg={
+                    "type": "update_progress",
+                    "data": {"text": f"[*] {tag} downloaded and checked. Touch Dashboard closes now and opens "
+                                     "again once it is installed.", "progress": 100, "error": False}})
+                await asyncio.sleep(1)
+                restart_discord_ipc()
+                os._exit(0)
             # An argument list, no shell: nothing in a path or tag is ever parsed as a command.
             process = await asyncio.create_subprocess_exec(
                 *_installer_argv(installer),
@@ -2210,7 +2283,9 @@ def _start_update(tag: str) -> bool:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
+                **spawn,
             )
+            handoff = False
             
             buf = b""
             progress_pct = 0.0
@@ -2225,6 +2300,9 @@ def _start_update(tag: str) -> bool:
                     line = buf.decode('utf-8', errors='replace').strip()
                     buf = b""
                     if not line:
+                        continue
+                    if line == UPDATE_HANDOFF:
+                        handoff = True
                         continue
                         
                     import re
@@ -2242,6 +2320,17 @@ def _start_update(tag: str) -> bool:
                     })
                     
             await process.wait()
+            if handoff and process.returncode == 0:
+                # The installer's hidden copy runs from that file and removes it itself.
+                installer = ""
+                await ws_manager.broadcast(admin_only=True, msg={
+                    "type": "update_progress",
+                    "data": {"text": "\n[*] Touch Dashboard closes now and opens again once the update is installed.",
+                             "progress": 100, "error": False}})
+                await asyncio.sleep(1)       # the message out first
+                restart_discord_ipc()
+                logger.info("Update to %s: exiting so the installer can finish", tag)
+                os._exit(0)
             os.unlink(installer)
             installer = ""
             if process.returncode != 0:
@@ -2268,14 +2357,8 @@ def _start_update(tag: str) -> bool:
                 # Cleanly close Discord IPC to allow immediate reconnection on restart
                 restart_discord_ipc()
 
-                # Restart the server
-                if get_os_target() == "linux":
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
-                else:
-                    # On Windows, os.execv is unreliable, better to spawn and exit
-                    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 512) | 0x00000008
-                    subprocess.Popen([sys.executable] + sys.argv, creationflags=flags)
-                    os._exit(0)
+                # Restart the server (Windows hands over to the installer instead: above)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
         except Exception as e:
             _update_running = False
             logger.error(f"Update to {tag} failed: {e}")
@@ -2597,8 +2680,19 @@ async def _dispatch(client: Client, msg: dict) -> None:
 
 # ── handlers: (client, msg); msg["data"] unless the protocol puts fields at the top ──
 
+def _soundpad_sounds() -> list[dict]:
+    """Soundpad's list for the pad editor, as local sounds are listed: [] when it is not running."""
+    try:
+        return [{"id": str(s["index"]), "name": s["title"], "path": s["path"],
+                 "sub": f'{s["index"]} · {os.path.basename(s["path"].replace(chr(92), "/")) or "Soundpad"}'}
+                for s in soundpad_rc.sounds()]
+    except (OSError, ValueError) as e:      # not running; a list it could not parse
+        logger.info("Soundpad's sound list: %s", e)
+        return []
+
+
 async def _ws_req_local_sounds(client: Client, msg: dict) -> None:
-    sounds = await asyncio.to_thread(get_local_sounds)
+    sounds = await asyncio.to_thread(_soundpad_sounds if soundpad_rc is not None else get_local_sounds)
     await client.ws.send_text(_dumps({"type": "local_sounds_list", "data": sounds}))
 
 
@@ -2770,11 +2864,17 @@ async def _ws_disc_voice(client: Client, msg: dict) -> None:
 
 
 async def _ws_set_sb_volume(client: Client, msg: dict) -> None:
-    vol = max(0, min(200, int(msg["data"].get("val", 100))))
+    # Soundpad's volume ends at 100: no boost past it on Windows
+    vol = max(0, min(200 if soundpad_rc is None else 100, int(msg["data"].get("val", 100))))
     with CONFIG_LOCK:
         config["soundboard_volume"] = vol
     await asyncio.to_thread(save_config)
-    if get_os_target() == "linux":
+    if soundpad_rc is not None:
+        try:
+            await asyncio.to_thread(soundpad_rc.set_volume, vol)
+        except (OSError, _soundpad_mod.SoundpadError) as e:
+            logger.info("Soundpad volume: %s", e)
+    elif get_os_target() == "linux":
         await asyncio.to_thread(
             subprocess.run,
             ["pactl", "set-sink-volume", "Dashboard-Soundboard", f"{vol}%"],
@@ -2815,13 +2915,14 @@ def _asked_on(msg: dict) -> bool | None:
 
 async def _ws_toggle_sb_feedback(client: Client, msg: dict) -> None:
     on = _asked_on(msg)
-    if get_os_target() != "linux":
+    if get_os_target() != "linux" and soundpad_rc is None:
         return
     with CONFIG_LOCK:
         new_val = on if on is not None else not config.get("soundboard_feedback", True)
         config["soundboard_feedback"] = new_val
     await asyncio.to_thread(save_config)
-    await asyncio.to_thread(_toggle_feedback, new_val)
+    if soundpad_rc is None:                  # Soundpad takes it with each sound played
+        await asyncio.to_thread(_toggle_feedback, new_val)
     # Send a targeted update instead of a full config_sync to avoid UI resets
     await ws_manager.broadcast({"type": "sb_feedback_state", "data": new_val})
 
@@ -2829,7 +2930,7 @@ async def _ws_toggle_sb_feedback(client: Client, msg: dict) -> None:
 async def _ws_toggle_sb_mic(client: Client, msg: dict) -> None:
     """Mute the soundboard to the mic: it still plays here, the call stops hearing it."""
     on = _asked_on(msg)
-    if get_os_target() != "linux":
+    if get_os_target() != "linux" and soundpad_rc is None:
         return
     with CONFIG_LOCK:
         new_val = on if on is not None else not config.get("soundboard_to_mic", True)
@@ -2853,6 +2954,55 @@ async def _ws_set_theme(client: Client, msg: dict) -> None:
                 config["theme_ground"] = ground
         await asyncio.to_thread(save_config)
         await ws_manager.broadcast({"type": "theme_state", "data": theme_id})
+
+
+# Start with Windows: a Run value, the same one install.ps1 sets.
+AUTOSTART_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+AUTOSTART_VALUE = "TouchDashboard"
+
+
+def _autostart_command() -> str:
+    """What Windows runs at sign-in: the frozen app, else the installer's
+    silent launcher, else pythonw on server.py."""
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
+    vbs = os.path.join(BASE_DIR, "TouchDashboard.vbs")
+    if os.path.isfile(vbs):
+        return f'wscript.exe "{vbs}"'
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    return f'"{pyw if os.path.isfile(pyw) else sys.executable}" "{os.path.join(BASE_DIR, "server.py")}"'
+
+
+def _autostart(on: bool | None = None) -> bool | None:
+    """Whether Touch Dashboard starts with Windows, after setting it when `on`
+    is given. None off Windows."""
+    if get_os_target() != "windows":
+        return None
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY, 0,
+                        winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE) as key:
+        if on is True:
+            winreg.SetValueEx(key, AUTOSTART_VALUE, 0, winreg.REG_SZ, _autostart_command())
+        elif on is False:
+            with contextlib.suppress(FileNotFoundError):
+                winreg.DeleteValue(key, AUTOSTART_VALUE)
+        try:
+            winreg.QueryValueEx(key, AUTOSTART_VALUE)
+            return True
+        except FileNotFoundError:
+            return False
+
+
+async def _ws_set_autostart(client: Client, msg: dict) -> None:
+    on = msg["data"]["on"]
+    if not isinstance(on, bool):
+        raise TypeError("on must be a boolean")
+    try:
+        state = await asyncio.to_thread(_autostart, on)
+    except OSError as e:
+        logger.warning("Start with Windows: %s", e)
+        state = await asyncio.to_thread(_autostart)
+    await ws_manager.broadcast(admin_only=True, msg={"type": "autostart_state", "data": state})
 
 
 async def _ws_set_play_key(client: Client, msg: dict) -> None:
@@ -3283,6 +3433,7 @@ WS_HANDLERS = {
     "toggle_sb_mic":      _ws_toggle_sb_mic,
     "set_theme":          _ws_set_theme,
     "set_play_key":       _ws_set_play_key,
+    "set_autostart":      _ws_set_autostart,
     "media_seek":         _ws_media_seek,
     "media_source":       _ws_media_source,
     "media_like":         _ws_media_like,
@@ -3317,7 +3468,7 @@ KNOWN_ACTIONS = frozenset(WS_HANDLERS.keys() - {"action"}) | {f"action:{a}" for 
 
 # Settings, macros and pads, pairing, updates: the PC only.
 ADMIN_ACTIONS = frozenset({
-    "save_config", "save_macros", "set_theme", "set_play_key", "req_local_sounds", "req_apps_list",
+    "save_config", "save_macros", "set_theme", "set_play_key", "set_autostart", "req_local_sounds", "req_apps_list",
     "check_update", "run_update", "pair_decision", "rename_device", "revoke_device",
     "action:spot_clear_auth", "action:disc_auth", "action:disc_clear_auth", "wow_settings_save",
     "wow_companion_install", "bnet_lookup", "bnet_use_character", "bnet_remove_character", "bnet_add_character", "bnet_sign_out",
@@ -3438,20 +3589,23 @@ async def _play_clip(pad: dict, source: str) -> None:
             asyncio.create_task(_delayed_route(), name="sb_route_trigger")
         return
 
-    index = str(pad.get("id", ""))
-    if not SOUNDPAD_INDEX_RE.fullmatch(index):
+    if not SOUNDPAD_INDEX_RE.fullmatch(str(pad.get("id", ""))):
         raise ValueError("Soundpad index must be a number")
-    if sys.platform.startswith("win"):
-        for sp_path in (
-            r"C:\Program Files\Soundpad\Soundpad.exe",
-            r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe",
-        ):
-            if os.path.exists(sp_path):
-                await asyncio.to_thread(
-                    subprocess.run, [sp_path, "-rc", f"DoPlaySound({int(index)})"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
-                break
+    if soundpad_rc is None:
+        raise ValueError("Soundpad runs on Windows")
+    with CONFIG_LOCK:
+        # The soundboard's own keys: hear it here (speakers), send it to the call (mic)
+        speakers = config.get("soundboard_feedback", True) is not False
+        mic = config.get("soundboard_to_mic", True) is not False
+
+    def play():
+        if not _soundpad_mod.start(soundpad_rc):
+            raise ValueError("Soundpad is not running and could not be started")
+        try:
+            soundpad_rc.play(soundpad_rc.index_of(pad), speakers, mic)
+        except (OSError, _soundpad_mod.SoundpadError) as e:
+            raise ValueError(f"Soundpad did not play it: {e}") from e
+    await asyncio.to_thread(play)
 
 
 # ── Media keys ───────────────────────────────────────────────────────────────
@@ -3593,10 +3747,11 @@ async def _handle_action(ws: WebSocket, action: str):
     # ── system actions ────────────────────────────────────────────────────────
     if action == "sys_power_off":
         if sys.platform.startswith("win"):
-            try:
+            def _shutdown_prompt():
                 import comtypes.client
-                shell = comtypes.client.CreateObject("Shell.Application")
-                shell.ShutdownWindows()
+                comtypes.client.CreateObject("Shell.Application").ShutdownWindows()
+            try:
+                await asyncio.to_thread(_shutdown_prompt)      # a COM call: not on the event loop
             except Exception as e:
                 logger.error(f"Failed to show Windows shutdown prompt: {e}")
         elif sys.platform.startswith("linux"):
@@ -3619,18 +3774,13 @@ async def _handle_action(ws: WebSocket, action: str):
         return
 
     if action == "stop_local_audio":
-        await asyncio.to_thread(AudioSystem.stop_local_sound)
-        if sys.platform.startswith("win"):
-            for sp_path in (
-                r"C:\Program Files\Soundpad\Soundpad.exe",
-                r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe",
-            ):
-                if os.path.exists(sp_path):
-                    await asyncio.to_thread(
-                        subprocess.run, [sp_path, "-rc", "DoStopSound()"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    break
+        if soundpad_rc is None:
+            await asyncio.to_thread(AudioSystem.stop_local_sound)
+        else:
+            try:
+                await asyncio.to_thread(soundpad_rc.stop)
+            except (OSError, _soundpad_mod.SoundpadError) as e:
+                logger.info("Soundpad stop: %s", e)
         return
 
     # ── Spotify / media ───────────────────────────────────────────────────────
@@ -3750,14 +3900,8 @@ async def _handle_action(ws: WebSocket, action: str):
         return
 
     if action == "app_soundpad":
-        if sys.platform.startswith("win"):
-            for sp_path in (
-                r"C:\Program Files\Soundpad\Soundpad.exe",
-                r"C:\Program Files (x86)\Steam\steamapps\common\Soundpad\Soundpad.exe",
-            ):
-                if os.path.exists(sp_path):
-                    subprocess.Popen([sp_path])
-                    break
+        if soundpad_rc is not None:        # the soundboard opens: Soundpad should be there to play
+            await asyncio.to_thread(_soundpad_mod.start, soundpad_rc)
         return
 
     # ── audio ─────────────────────────────────────────────────────────────────
@@ -3817,6 +3961,10 @@ def _popen(cmd: list[str], **kwargs):
     kwargs.setdefault("stderr", subprocess.DEVNULL)
     if sys.platform != "win32":
         kwargs.setdefault("start_new_session", True)
+    else:
+        # The app runs under pythonw: a console program it starts would flash
+        # a console window up (a GUI program ignores the flag).
+        kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
     
     popen_cls: typing.Any = subprocess.Popen
     popen_cls(cmd, **kwargs)
@@ -3872,9 +4020,26 @@ def _launch_terminal():
             return _popen([t])
 
 
+def _windows_default_browser() -> str | None:
+    """The default browser's program, from the https link handler the user chose."""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\Shell\Associations"
+                            r"\UrlAssociations\https\UserChoice") as key:
+            prog_id = winreg.QueryValueEx(key, "ProgId")[0]
+        command = winreg.QueryValue(winreg.HKEY_CLASSES_ROOT, rf"{prog_id}\shell\open\command")
+    except OSError:
+        return None
+    exe = re.match(r'\s*(?:"([^"]+)"|(\S+))', command)     # '"C:\...\firefox.exe" -osint -url "%1"'
+    return exe and (exe.group(1) or exe.group(2))
+
+
 def _launch_browser():
     if sys.platform.startswith("win"):
-        return _popen(["cmd.exe", "/c", "start", "http://"])
+        # The browser itself with no address: it opens as it would from its own
+        # icon. Up to v0.16.4 this opened "http://", an address of nothing.
+        exe = _windows_default_browser()
+        return _popen([exe]) if exe else _popen(["cmd.exe", "/c", "start", "", "msedge"])
     de = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
     if os.environ.get("BROWSER") and shutil.which(os.environ["BROWSER"]):
         return _popen([os.environ["BROWSER"]])
@@ -3925,7 +4090,9 @@ def _launch_file_manager():
 
 def _launch_task_manager():
     if sys.platform.startswith("win"):
-        return _popen(["taskmgr.exe"])
+        # Through the shell: Task Manager asks for the highest rights the user
+        # has, which CreateProcess refuses (WinError 740) and the shell prompts for.
+        return os.startfile("taskmgr.exe")
     de = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
     candidates: list[str] = []
     if "kde"      in de: candidates = ["plasma-systemmonitor", "ksysguard"]
@@ -3945,8 +4112,7 @@ def _launch_task_manager():
                 return _popen([term, "-e", cli])
 
 
-# (Windows desktop helpers — configure_windows_app_identity, set_windows_window_icon,
-#  _int_handle, _get_window_hwnd — are now in desktop.py)
+# (Windows desktop helpers — the app id, the window's icon — are in desktop.py)
 
 
 

@@ -14,6 +14,7 @@ import pytest
 
 import wow_addons
 from wow_addons import CommandError, WowAddons, adler32, link, screen
+from wow_addons.screen_win import WinScreen
 from wow_addons.lua import parse_saved_variables
 
 LUA = shutil.which("lua5.1") or shutil.which("luajit")
@@ -118,16 +119,101 @@ class Window:
     def front(self):
         return self.in_front
 
+    def keys_blocked(self):
+        return False
+
     def beacon(self):
         return screen.find_beacon(self.top(link_frame=False), self.width) is not None
+
+
+TITLE_BAR, BORDER = 31, 1           # a window with a frame, as Windows draws one
+
+
+class WinApi:
+    """That window as Windows reports it (screen_win's api): its client area
+    under a title bar and inside borders, at (100, 50) on the screen."""
+
+    HWND, OTHER = 0x1234, 0x9999
+
+    def __init__(self, win):
+        self.win = win
+
+    def foreground(self):
+        return self.HWND if self.win.in_front else self.OTHER
+
+    def is_wow(self, hwnd):
+        return hwnd == self.HWND
+
+    def find(self):
+        return self.HWND
+
+    def iconic(self, hwnd):
+        return False
+
+    def client(self, hwnd):
+        w, h = self.win.size()
+        return 100 + BORDER, 50 + TITLE_BAR, w, h
+
+    def bounds(self, hwnd):
+        w, h = self.win.size()
+        return 100, 50, 100 + w + 2 * BORDER, 50 + TITLE_BAR + h + BORDER
+
+    def running(self):
+        return True
+
+    def keys_blocked(self, hwnd):
+        return False
+
+
+class WinCapture:
+    """Windows.Graphics.Capture of that window: frame rows as B G R X, a
+    row pitch with padding, the title bar above the client area painted with
+    beacons all along (read by mistake, it would always show the box open)."""
+
+    broken = False
+
+    def __init__(self, win):
+        self.win = win
+
+    def read(self, x, y, w, rows, max_age):
+        width = self.win.width
+        top = self.win.top(link_frame=rows == link.ROWS)
+        decoy = bytearray(width * 3)
+        cells = [bytes(v * 255 for v in c) for c in screen.BEACON]
+        for i in range(width // screen.CELL_PX):
+            paint(decoy, i * screen.CELL_PX, screen.CELL_PX, cells[i % len(cells)], width)
+        pitch = w * 4 + 64
+        out = bytearray()
+        for fy in range(y, y + rows):
+            for fx in range(x, x + w):
+                cx = fx - BORDER
+                if not 0 <= cx < width:
+                    rgb = b"\x40\x40\x40"                       # the border
+                elif fy < TITLE_BAR:
+                    rgb = decoy[cx * 3:cx * 3 + 3]
+                elif fy - TITLE_BAR < ROWS:
+                    o = ((fy - TITLE_BAR) * width + cx) * 3
+                    rgb = top[o:o + 3]
+                else:
+                    rgb = b"\x00\x00\x00"
+                out += bytes((rgb[2], rgb[1], rgb[0], 255))
+            out += b"\xee" * (pitch - w * 4)
+        return bytes(out), pitch
+
+    def close(self):
+        pass
 
 
 MODS = {"KEY_LEFTCTRL": "CTRL", "KEY_LEFTALT": "ALT", "KEY_LEFTSHIFT": "SHIFT"}
 
 
-@pytest.fixture
-def game():
+@pytest.fixture(params=["x11", "win"])
+def game(request):
+    """The harness, and how the PC sees WoW's window: as X11 does (the window's
+    own pixels), or through screen_win's WinScreen as on Windows."""
     g = Game()
+    g.backend = request.param
+    g.win = None
     yield g
     g.close()
 
@@ -153,12 +239,15 @@ def make(game, tmp_path, settings=None, *, loaded=True, window=True):
         game.cmd("unload")
     root = tmp_path / "World of Warcraft" / "_retail_"
     (root / "Interface" / "AddOns").mkdir(parents=True)
-    win = Window(game) if window else None
+    win = game.win = Window(game) if window else None
+    seen = win
+    if win is not None and game.backend == "win":
+        seen = WinScreen(api=WinApi(win), capture=lambda hwnd, api: WinCapture(win))
     # Our clock runs with the strip's frames, 4000 s ahead of WoW's GetTime().
     core = WowAddons(wow_addons.discover(), send_keys=keys, clipboard=clip, sleep=lambda s: None,
-                     screen=win, clock=lambda: 5000 + (win.frames / 60 if win else 0))
+                     screen=seen, clock=lambda: 5000 + (win.frames / 60 if win else 0))
     core.configure({"wow_path": str(root), **(settings or {})})
-    assert core.install_companion() == wow_addons.bundled_version() == "2.7.1"
+    assert core.install_companion() == wow_addons.bundled_version() == "2.7.2"
     return core, pressed, clip
 
 
@@ -297,19 +386,34 @@ def test_the_beacon_is_four_pixels_a_cell_beside_the_strip(game, tmp_path):
     assert b["shown"] is True
     assert [c["rgb"] for c in b["cells"]] == [list(c) for c in screen.BEACON]
     start = 2560 // 5 - 8 - len(screen.BEACON) * screen.CELL_PX     # 8 pixels left of the strip, out of the corner
-    for i, c in enumerate(b["cells"]):                # under a 0.71 UI scale on a 1440-pixel window
+    for i, c in enumerate(b["cells"]):                # in physical pixels, whatever the UI scale
         assert c["x"] == pytest.approx(start + i * screen.CELL_PX) and c["w"] == pytest.approx(screen.CELL_PX)
         assert c["h"] == pytest.approx(screen.CELL_PX)
-    assert screen.find_beacon(core.screen.top(), core.screen.width) == start
+    assert screen.find_beacon(game.win.top(), game.win.width) == start
     game.cmd("timers 2")                              # the box closes by itself, and the beacon with it
     assert json.loads(game.cmd("beacon"))["shown"] is False
     assert core.screen.beacon() is False
 
 
+def test_the_box_and_its_beacon_work_with_the_interface_hidden(game, tmp_path):
+    """Alt+Z hides UIParent and every frame under it, and a hidden edit box
+    takes no focus: the box and the beacon hang off nothing, like the strip."""
+    core, pressed, clip = make(game, tmp_path)
+    game.cmd("ui 0")
+    assert core.run("bw_pull", {"seconds": 10}) == "bigwigs"
+    assert calls(game) == [{"cmd": "/pull", "msg": "10"}]
+    assert said(game) == [] and actions(game) == []
+    assert core.snapshot()["data"]["gold"] == 123456789012
+    assert clip.text == "the player's own text"
+    game.cmd("press CTRL ALT SHIFT HOME")
+    assert json.loads(game.cmd("beacon"))["shown"] is True
+    assert core.screen.beacon() is True
+
+
 @pytest.mark.parametrize("overlay", [0, 52, 400])     # none, Steam's FPS counter, a MangoHud box
 def test_an_overlay_in_the_corner_hides_neither_the_box_nor_the_strip(game, tmp_path, overlay):
     core, pressed, _ = make(game, tmp_path)
-    core.screen.overlay = overlay
+    game.win.overlay = overlay
     assert frames(core, 2) == {"game"} and core.snapshot()["link"] is True
     core.sync(full=True)                              # the box opened, and was seen to
     assert core.snapshot()["data"]["items"]
@@ -318,7 +422,7 @@ def test_an_overlay_in_the_corner_hides_neither_the_box_nor_the_strip(game, tmp_
 
 def test_nothing_is_pressed_while_wow_is_not_in_front(game, tmp_path):
     core, pressed, _ = make(game, tmp_path)
-    core.screen.in_front = False
+    game.win.in_front = False
     for run in (lambda: core.run("bw_pull", {"seconds": 10}), core.sync, lambda: core.run("wow_reload")):
         with pytest.raises(CommandError) as e:
             run()
@@ -446,27 +550,44 @@ def test_short_buffs_stay_off_the_strip(game, tmp_path):
     assert [b["id"] for b in core.snapshot()["data"]["buffs"]] == [1459, 2, 2825]
 
 
+def test_the_python_frames_are_the_addons_cell_for_cell(game, tmp_path):
+    # link_frames.py paints the fake WoW window on Windows, where no Lua runs.
+    from link_frames import frame_symbols
+    core, _, _ = make(game, tmp_path)
+    game.cmd("screen 800 600")                        # small enough for pages
+    for i in range(6):
+        game.cmd(f"bigwigs Phase {i} adds and a long label {i} {30 + i}")
+    seen = set()
+    for _ in range(12):
+        d = json.loads(game.cmd("link"))
+        drawn = [s for s in d["syms"] if s >= 0]
+        p = link.read_row(paint_strip(d, 800), 800, link.locate(paint_strip(d, 800), 800)[0])
+        assert drawn == frame_symbols(p.payload, seq=p.seq, page=p.page, pages=p.pages, tick=p.tick)
+        seen.add(p.page)
+    assert len(seen) >= 3                              # every page, not only the first
+
+
 def test_the_strip_is_a_hairline(game, tmp_path):
     core, _, _ = make(game, tmp_path)
     d = json.loads(game.cmd("link 2"))
     heights = {round(h, 3) for h, sym in zip(d["hs"], d["syms"]) if sym >= 0}
     assert heights == {1.0}                            # one physical pixel tall, three wide
     assert {round(w, 3) for w, sym in zip(d["ws"], d["syms"]) if sym >= 0} == {3.0}
-    rows = core.screen.top()
-    assert rows[core.screen.width * 3:core.screen.width * 3 * 2] == bytes(core.screen.width * 3)   # under it: the game's
+    rows = game.win.top()
+    assert rows[game.win.width * 3:game.win.width * 3 * 2] == bytes(game.win.width * 3)   # under it: the game's
     assert frames(core, 2) == {"game"}
 
 
 def test_the_strip_reads_through_the_games_gamma(game, tmp_path):
     core, _, _ = make(game, tmp_path)
-    core.screen.tweak = lambda rgb: bytes(int(28 + v * 0.7) for v in rgb)     # brightness up, contrast down
+    game.win.tweak = lambda rgb: bytes(int(28 + v * 0.7) for v in rgb)     # brightness up, contrast down
     assert frames(core, 2) == {"game"}
     assert core.snapshot()["data"]["gold"] == 123456789012
 
 
 def test_a_damaged_frame_is_refused_not_misread(game, tmp_path):
     core, _, _ = make(game, tmp_path)
-    width = core.screen.width
+    width = game.win.width
     rgb = core.screen.grab(0, 0, width, link.ROWS)
     (start,) = link.locate(rgb, width)
     assert start == width // 5 and link.read_row(rgb, width, start) is not None
@@ -485,7 +606,7 @@ def test_a_damaged_frame_is_refused_not_misread(game, tmp_path):
 def test_a_long_state_comes_in_pages(game, tmp_path):
     core, _, _ = make(game, tmp_path)
     game.cmd("screen 800 600")
-    core.screen.width = 800                           # 160 cells: 42 bytes a page
+    game.win.width = 800                              # 160 cells: 42 bytes a page
     frames(core, 20)
     labels = [f"Phase {i} adds and a long label" for i in range(6)]
     for i, label in enumerate(labels):

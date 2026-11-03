@@ -14,6 +14,7 @@ import os
 import socket
 import struct
 import sys
+import threading
 import time
 import uuid
 import urllib.parse
@@ -52,6 +53,8 @@ class DiscordIPC:
 
         self._sock: socket.socket | None = None
         self._win_pipe = None              # open() file handle on Windows
+        self._timeout = 2.0                # a message must start within this (the pipe's; sockets have their own)
+        self._send_lock = threading.Lock()
 
         self.connected      = False
         self.running        = False
@@ -105,17 +108,53 @@ class DiscordIPC:
     # ── low-level I/O ──────────────────────────────────────────────────────────
 
     def _sock_send(self, data: bytes) -> None:
-        if sys.platform.startswith("win") and self._win_pipe:
-            self._win_pipe.write(data)
-            self._win_pipe.flush()
-        elif self._sock:
-            self._sock.sendall(data)
+        with self._send_lock:
+            if sys.platform.startswith("win") and self._win_pipe:
+                self._win_pipe.write(data)
+                self._win_pipe.flush()
+            elif self._sock:
+                self._sock.sendall(data)
 
-    def _sock_recv(self, length: int) -> bytes:
+    def _set_timeout(self, seconds: float) -> None:
+        self._timeout = seconds
+        if self._sock:
+            self._sock.settimeout(seconds)
+
+    @staticmethod
+    def _pipe_waiting(pipe) -> int | None:
+        """Bytes waiting in the pipe, None when it broke (Discord went away)."""
+        import ctypes
+        import msvcrt
+        avail = ctypes.c_ulong()
+        ok = ctypes.windll.kernel32.PeekNamedPipe(msvcrt.get_osfhandle(pipe.fileno()), None, 0, None,
+                                                  ctypes.byref(avail), None)
+        return avail.value if ok else None
+
+    def _pipe_read(self, length: int, first: bool) -> bytes:
+        """Up to `length` bytes, read only once some are waiting. The pipe is a
+        synchronous handle, on which Windows runs one call at a time: a read
+        left blocking held every write (mute, deafen from a tablet) until
+        Discord next said something, which out of a call may be never. A
+        message that does not start within the timeout is socket.timeout, as
+        on a socket; one that stops halfway is a broken connection."""
+        deadline = time.monotonic() + self._timeout
+        while True:
+            waiting = self._pipe_waiting(self._win_pipe)
+            if waiting is None:
+                return b""
+            if waiting:
+                return self._win_pipe.read(min(length, waiting))
+            if time.monotonic() >= deadline:
+                if first:
+                    raise socket.timeout
+                return b""
+            time.sleep(0.05)
+
+    def _sock_recv(self, length: int, first: bool = False) -> bytes:
         buf = b""
         while len(buf) < length:
             if sys.platform.startswith("win") and self._win_pipe:
-                chunk = self._win_pipe.read(length - len(buf))
+                chunk = self._pipe_read(length - len(buf), first=first and not buf)
             elif self._sock:
                 chunk = self._sock.recv(length - len(buf))
             else:
@@ -135,7 +174,7 @@ class DiscordIPC:
 
     def recv(self) -> dict | None:
         try:
-            header = self._sock_recv(8)
+            header = self._sock_recv(8, first=True)     # a message's start may time out
             if not header or len(header) < 8:
                 return None
             _opcode, length = struct.unpack("<II", header)
@@ -174,6 +213,7 @@ class DiscordIPC:
                     # Use binary mode with no buffering for reliable pipe I/O
                     self._win_pipe = open(path, "r+b", buffering=0)
                     self._sock = None
+                    self._timeout = 2.0
                 else:
                     self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     self._sock.connect(path)
@@ -300,8 +340,7 @@ class DiscordIPC:
                     continue
 
             try:
-                if self._sock:
-                    self._sock.settimeout(5.0)
+                self._set_timeout(5.0)
                 res = self.recv()
                 if res is None:
                     self.close(); continue

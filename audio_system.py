@@ -4,7 +4,7 @@ audio_system.py — Cross-platform audio management for Touch Dashboard.
 Linux:   PipeWire / WirePlumber via wpctl + pactl + pw-play
 Windows: Windows Core Audio (MMDevice / WASAPI) via pycaw
          Default-device cycling via IPolicyConfig raw-COM vtable call
-         Soundboard via sounddevice + soundfile
+         (the soundboard is Soundpad's there: soundpad.py)
 """
 from __future__ import annotations
 
@@ -179,12 +179,14 @@ def _windows_set_default_audio_device(device_id: str) -> bool:
             )(vtable[13])
 
             this = iface_ptr.value
+            failed = 0
             for role in range(3):
                 _hr = _SetDefaultEndpoint(this, device_id, role)
                 if _hr not in (0, 1):  # S_OK or S_FALSE
+                    failed += 1
                     logger.debug(f"SetDefaultEndpoint role={role} hr=0x{_hr & 0xFFFFFFFF:08x}")
 
-            result = True
+            result = failed < 3     # one role switched is a switch; none is a failure
         finally:
             # Always Release the COM object, even on error
             try:
@@ -213,26 +215,29 @@ def _pycaw_endpoint(is_mic: bool):
     return AudioUtilities.GetMicrophone() if is_mic else AudioUtilities.GetSpeakers()
 
 
+def _windows_endpoint_volume(is_mic: bool):
+    """The default speaker's or mic's IAudioEndpointVolume, or None."""
+    from pycaw.pycaw import IAudioEndpointVolume  # type: ignore[import]
+    from ctypes import cast, POINTER
+    from comtypes import CLSCTX_ALL  # type: ignore[import]
+
+    device = _pycaw_endpoint(is_mic)
+    if not device:
+        return None
+    if not is_mic:
+        return device.EndpointVolume
+    interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+    return cast(interface, POINTER(IAudioEndpointVolume))
+
+
 @_com_cleanup
 def _windows_get_volume(target: str) -> dict:
     """Return {vol: int 0-100, muted: bool} for the given Windows endpoint."""
     try:
         _ensure_com()
-        from pycaw.pycaw import IAudioEndpointVolume  # type: ignore[import]
-        from ctypes import cast, POINTER
-        from comtypes import CLSCTX_ALL  # type: ignore[import]
-
-        is_mic = (target == "@DEFAULT_AUDIO_SOURCE@")
-        device = _pycaw_endpoint(is_mic)
-        if not device:
+        volume = _windows_endpoint_volume(target == "@DEFAULT_AUDIO_SOURCE@")
+        if volume is None:
             return {"vol": 0, "muted": False}
-
-        if is_mic:
-            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
-        else:
-            volume = device.EndpointVolume
-            
         vol = round(volume.GetMasterVolumeLevelScalar() * 100)
         muted = bool(volume.GetMute())
         return {"vol": vol, "muted": muted}
@@ -246,21 +251,9 @@ def _windows_set_volume(target: str, val: int) -> None:
     """Set volume (0–100) for the given Windows endpoint."""
     try:
         _ensure_com()
-        from pycaw.pycaw import IAudioEndpointVolume  # type: ignore[import]
-        from ctypes import cast, POINTER
-        from comtypes import CLSCTX_ALL  # type: ignore[import]
-
-        is_mic = (target == "@DEFAULT_AUDIO_SOURCE@")
-        device = _pycaw_endpoint(is_mic)
-        if not device:
+        volume = _windows_endpoint_volume(target == "@DEFAULT_AUDIO_SOURCE@")
+        if volume is None:
             return
-
-        if is_mic:
-            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
-        else:
-            volume = device.EndpointVolume
-            
         volume.SetMasterVolumeLevelScalar(max(0.0, min(1.0, val / 100.0)), None)
         volume.SetMute(0, None)
     except Exception as e:
@@ -269,26 +262,18 @@ def _windows_set_volume(target: str, val: int) -> None:
 
 @_com_cleanup
 def _windows_toggle_mute(target: str, macro_send_keys_fn=None) -> None:
-    """Toggle mute for the given Windows endpoint."""
+    """Toggle mute for the given Windows endpoint. The speaker through the
+    keyboard's Mute key (Windows shows its volume flyout, as for the key
+    itself); the mic has no such key: its endpoint is muted directly. Up to
+    v0.16.4 the mic's path named classes it never imported, and did nothing."""
     try:
         _ensure_com()
-        if target == "@DEFAULT_AUDIO_SINK@":
-            # Speaker: use media key (avoids COM re-entrancy on the same object)
-            if macro_send_keys_fn:
-                macro_send_keys_fn("KEY_MUTE")
+        if target == "@DEFAULT_AUDIO_SINK@" and macro_send_keys_fn:
+            macro_send_keys_fn("KEY_MUTE")
             return
-        is_mic = (target == "@DEFAULT_AUDIO_SOURCE@")
-        device = _pycaw_endpoint(is_mic)
-        if not device:
-            return
-
-        if is_mic:
-            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
-        else:
-            volume = device.EndpointVolume
-            
-        volume.SetMute(not bool(volume.GetMute()), None)
+        volume = _windows_endpoint_volume(target == "@DEFAULT_AUDIO_SOURCE@")
+        if volume is not None:
+            volume.SetMute(not bool(volume.GetMute()), None)
     except Exception as e:
         logger.debug(f"Windows toggle_mute {target}: {e}")
 
@@ -364,42 +349,6 @@ def _windows_enumerate_endpoints(audio_names: dict) -> dict:
             "spk": {"vol": 50, "muted": False},
             "mic": {"vol": 50, "muted": False},
         }
-
-
-# ─── Windows soundboard ────────────────────────────────────────────────────────
-
-_win_sound_thread: threading.Thread | None = None
-
-
-def _windows_play_sound(filepath: str) -> None:
-    """Play an audio file on Windows using sounddevice + soundfile (non-blocking)."""
-    global _win_sound_thread
-    _windows_stop_sound()
-
-    def _play() -> None:
-        try:
-            import sounddevice as sd    # type: ignore[import]
-            import soundfile as sf      # type: ignore[import]
-            data, fs = sf.read(filepath, dtype="float32", always_2d=True)
-            sd.play(data, fs)
-            sd.wait()
-        except Exception as e:
-            logger.debug(f"Windows soundboard play '{filepath}': {e}")
-
-    _win_sound_thread = threading.Thread(target=_play, daemon=True, name="win-sound")
-    _win_sound_thread.start()
-
-
-def _windows_stop_sound() -> None:
-    global _win_sound_thread
-    try:
-        import sounddevice as sd   # type: ignore[import]
-        sd.stop()
-    except Exception:
-        pass
-    if _win_sound_thread and _win_sound_thread.is_alive():
-        _win_sound_thread.join(timeout=0.5)
-    _win_sound_thread = None
 
 
 # ─── Main AudioSystem ──────────────────────────────────────────────────────────
@@ -811,32 +760,21 @@ class AudioSystem:
 
     @staticmethod
     def play_local_sound(filepath: str) -> None:
-        if sys.platform.startswith("win"):
-            _windows_play_sound(filepath)
-        else:
-            # Terminate any playing sound first
-            proc = AudioSystem._linux_proc
-            if proc is not None and proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    proc.kill(); proc.wait()
-            AudioSystem._linux_proc = subprocess.Popen(
-                ["pw-play", "--volume=1.0", "--target", "Dashboard-Soundboard", filepath],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
+        """Linux: the sound into the Dashboard-Soundboard sink (Windows plays through Soundpad)."""
+        # Terminate any playing sound first
+        AudioSystem.stop_local_sound()
+        AudioSystem._linux_proc = subprocess.Popen(
+            ["pw-play", "--volume=1.0", "--target", "Dashboard-Soundboard", filepath],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
 
     @staticmethod
     def stop_local_sound() -> None:
-        if sys.platform.startswith("win"):
-            _windows_stop_sound()
-        else:
-            proc = AudioSystem._linux_proc
-            if proc is not None and proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    proc.kill(); proc.wait()
-                AudioSystem._linux_proc = None
+        proc = AudioSystem._linux_proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill(); proc.wait()
+            AudioSystem._linux_proc = None

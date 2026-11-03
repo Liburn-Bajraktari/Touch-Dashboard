@@ -13,7 +13,7 @@ A page of the dashboard for playing WoW: your raid's note and its alerts as they
 ## Getting started
 
 1. **Add the page's key to the dashboard.** On the PC, add a key (or hold one to edit it), choose **Plugin → World of Warcraft**. Tapping it opens the page; the arrow at the top left goes back.
-2. **Tell it where the game is.** On the PC, open the page's settings (the gear) → **General** → the game folder (the one with `_retail_` in it; `_retail_` itself, or a `SavedVariables` folder under it, works too, and `~` stands for your home folder). Nothing is assumed about where WoW is installed.
+2. **Tell it where the game is.** On the PC, open the page's settings (the gear) → **General** → the game folder (the one with `_retail_` in it; `_retail_` itself, or a `SavedVariables` folder under it, works too, and `~` stands for your home folder). On Windows the page offers the folder Battle.net installed WoW in; nothing is saved until you take it.
 3. **Install the companion addon.** Same place: **Install**. It copies the addon into the game's `Interface/AddOns`. In WoW, `/reload` (or log in) and check it is on in the AddOns list. `/tdc` in game says it is running.
 4. **Optionally, Battle.net.** Main settings → **Battle.net**: sign in for your characters, or add a client key for the character plate, spell names and the WoW Token's price. Raider.IO needs nothing.
 
@@ -49,7 +49,7 @@ Every macro is limited to 255 characters, as WoW's own are.
 
 The **Touch Dashboard** addon (`addon/TouchDashboard`) is what lets the page run commands without chat and see the game. It never runs anything on its own, and no key is ever pressed because of what it shows.
 
-**The live link.** The addon draws a one-pixel line of coloured dots along the top edge of the game window, from a fifth of the way across to four fifths (the corners are where overlays such as Steam's FPS counter draw). The PC reads that line from the game's window ten times a second, so the page follows the game as it changes, with no keys pressed and in combat too. It carries your character, gold, bags, durability, weapon oil, keystone and group; your buffs of ten minutes or more and your consumables; boss mod bars and the pull countdown; the last ready check's answers; NSRT's alerts for the phase; and your Mythic+ run. Only what the game lets addons see: in combat, encounters and Mythic+ the game hides buffs from addons, and the addon leaves them out; in a dungeon or raid it also hides who started a pull countdown or a ready check and how long it runs. The line works on Linux (WoW through Wine or Proton under X11 or XWayland); elsewhere the page reads the game when a command goes through the box, or with the buff check's **Read** key.
+**The live link.** The addon draws a one-pixel line of coloured dots along the top edge of the game window, from a fifth of the way across to four fifths (the corners are where overlays such as Steam's FPS counter draw). The PC reads that line from the game's window ten times a second, so the page follows the game as it changes, with no keys pressed and in combat too. It carries your character, gold, bags, durability, weapon oil, keystone and group; your buffs of ten minutes or more and your consumables; boss mod bars and the pull countdown; the last ready check's answers; NSRT's alerts for the phase; and your Mythic+ run. Only what the game lets addons see: in combat, encounters and Mythic+ the game hides buffs from addons, and the addon leaves them out; in a dungeon or raid it also hides who started a pull countdown or a ready check and how long it runs. The line is read on Linux (WoW through Wine or Proton under X11 or XWayland) and on Windows 11 (through Windows' own window capture, which sees WoW's window even under another one, but not while it is minimised).
 
 **In game:**
 
@@ -166,7 +166,10 @@ Themes apply here too:
 - **Nothing secret.** In combat, encounters and Mythic+ the game hides buffs and cooldowns from addons (Midnight's rules), so the buff check is for before the pull, and nothing the game hides reaches the page. In a dungeon or raid the game also hides the numbers of anyone's pull countdown and who started a ready check: the page shows that a pull started, not its length, and finds the ready check's asker from who the game already counts as ready.
 - **No automation.** The PC presses a key only when you tap one; nothing is ever pressed because of what the page shows.
 - **WoW in front.** Keys go to the window in front, so WoW must be it. The page checks, and presses nothing otherwise.
-- **The live link is Linux-only** (WoW through Wine or Proton under X11 or XWayland). On Windows the page reads the game through the addon's box when a command runs, or with **Read**.
+- **WoW's window must be seen.** On Linux under X11 or XWayland, and on Windows 11. A Wayland-native Wine is not; there keys are typed into chat and the live plates stay empty. On Windows a minimised WoW cannot be seen, and if Windows' window capture cannot start, the PC reads the screen instead, which only works while WoW's top edge is visible.
+- **WoW as administrator (Windows).** Windows drops the keys a normal program sends to a window running as administrator; the page says so instead of pressing them. Start WoW normally.
+- **Clipboard history (Windows).** The PC keeps what it puts on the clipboard out of Win+V's history and the cloud clipboard. What WoW copies back (the addon's answers) WoW writes itself, so those can appear in the history.
+- **Not yet tried on a real Windows PC.** The Windows side is tested against stand-ins and a fake WoW window only.
 - **Not yet tried in a real raid:** NSRT's alerts during an encounter, the ready check's answers, and a pull countdown started by someone else.
 
 ---

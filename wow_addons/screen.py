@@ -20,8 +20,9 @@ GTK owns in the desktop window, and which ends the process.
 The same read carries the companion's live link (link.py): `size()` and
 `grab()` give link.py the strip along the window's top edge.
 
-Elsewhere (Windows, a Wayland-native Wine) nothing is checked: front(),
-beacon(), size() and grab() answer None.
+Windows: screen_win.py (Windows.Graphics.Capture), the same contract.
+Elsewhere (a Wayland-native Wine) nothing is checked: front(), beacon(),
+size() and grab() answer None.
 """
 from __future__ import annotations
 
@@ -76,6 +77,13 @@ def find_beacon(rgb: bytes, width: int) -> int | None:
     return None
 
 
+def bgra_to_rgb(raw: bytes) -> bytes:
+    """Pixels stored B G R X (X11 on little-endian, Windows' 32-bit images) as R G B."""
+    out = bytearray(len(raw) // 4 * 3)
+    out[0::3], out[1::3], out[2::3] = raw[2::4], raw[1::4], raw[0::4]
+    return bytes(out)
+
+
 def wow_running() -> bool:
     """A WoW client among this user's processes (Wine names them after the .exe)."""
     try:
@@ -106,6 +114,9 @@ class NoScreen:
 
     def grab(self, x: int, y: int, width: int, height: int) -> bytes | None:
         return None
+
+    def keys_blocked(self) -> bool:
+        return False
 
 
 class _Cookie(ctypes.Structure):
@@ -282,11 +293,10 @@ class X11Screen:
             raw = ctypes.string_at(self._xcb.xcb_get_image_data(r), n)
         finally:
             self._free(r)
-        out = bytearray(width * height * 3)
         if self._lsb:                       # B G R X
-            out[0::3], out[1::3], out[2::3] = raw[2::4], raw[1::4], raw[0::4]
-        else:                               # X R G B
-            out[0::3], out[1::3], out[2::3] = raw[1::4], raw[2::4], raw[3::4]
+            return bgra_to_rgb(raw)
+        out = bytearray(width * height * 3)  # X R G B
+        out[0::3], out[1::3], out[2::3] = raw[1::4], raw[2::4], raw[3::4]
         return bytes(out)
 
     def _size(self, window: int) -> tuple[int, int] | None:
@@ -361,8 +371,15 @@ class X11Screen:
                 self._drop()
                 return None
 
+    def keys_blocked(self) -> bool:
+        """Wine runs WoW as this user: nothing stands between our keys and it."""
+        return False
 
-def for_platform() -> X11Screen | NoScreen:
+
+def for_platform():
     if sys.platform.startswith("linux") and ctypes.util.find_library("xcb"):
         return X11Screen()
+    if sys.platform == "win32":
+        from .screen_win import WinScreen
+        return WinScreen()
     return NoScreen()

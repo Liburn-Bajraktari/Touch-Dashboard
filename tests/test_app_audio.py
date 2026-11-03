@@ -240,6 +240,9 @@ class _Proc:
     def name(self):
         return self._name
 
+    def exe(self):
+        return "C:\\Program Files\\" + self._name
+
 
 class _Volume:
     def __init__(self, vol, muted):
@@ -288,3 +291,27 @@ def test_windows_level_and_mute_reach_every_session_of_the_app():
         assert sessions[0].SimpleAudioVolume.muted is False   # a level unmutes
         app_audio._win_apply(OUT, "firefox", muted=True)
         assert [s.SimpleAudioVolume.muted for s in sessions] == [True, True, False]
+
+
+def test_a_windows_app_shows_its_programs_icon_extracted_once(tmp_path, monkeypatch):
+    sessions = [_Session("firefox.exe"), _Session("firefox.exe"), _Session(None, pid=0)]
+    with patch("app_audio._win_sessions", return_value=sessions):
+        groups = app_audio._win_read_kind(OUT)
+    assert groups["firefox"]["icons"] == ["C:\\Program Files\\firefox.exe"]      # once, though two sessions
+    assert groups["system"]["icons"] == []
+    made = []
+
+    def extract(exe, out, size=48):
+        made.append(exe)
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_bytes(app_audio.PNG_MAGIC + b"\0" * 32)
+        return True
+    monkeypatch.setattr(app_audio, "_win_icon_png", extract)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(app_audio, "_icons", {})
+    with patch.object(sys, "platform", "win32"):
+        path = app_audio.icon_path("firefox", groups["firefox"]["icons"])
+        assert path == str(tmp_path / "touch-dashboard-icons" / "firefox.png")
+        assert app_audio.icon_path("firefox") == path                       # the route: from the cache
+        assert app_audio.icon_path("system", []) is None                     # no program, no icon
+    assert made == ["C:\\Program Files\\firefox.exe"]

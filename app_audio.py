@@ -4,7 +4,8 @@ app_audio.py — Per-application audio for the full-screen mixer.
 Linux:   PipeWire through its PulseAudio interface (`pactl -f json`): playback
          streams (sink-inputs) and recording streams (source-outputs).
 Windows: WASAPI audio sessions through pycaw: render sessions on the default
-         output, capture sessions on the default input. Untested on real Windows.
+         output, capture sessions on the default input; each app's icon from
+         its program. Untested on real Windows.
 
 Streams are grouped per application, one strip per app however many streams
 it opens (a browser opens one per tab); a level or mute set on a strip goes
@@ -255,6 +256,14 @@ def _win_session_app(session) -> tuple[str, str] | None:
     return aid, (label or _pretty(aid))[:NAME_MAX]
 
 
+def _win_session_exe(session) -> str:
+    """The session's program, whose icon the mixer shows ("" when unknown)."""
+    try:
+        return session.Process.exe() if getattr(session, "Process", None) is not None else ""
+    except Exception:   # psutil: gone, or not ours to read
+        return ""
+
+
 def _win_read_kind(kind: str) -> dict[str, dict]:
     groups: dict[str, dict] = {}
     for session in _win_sessions(kind):
@@ -271,6 +280,9 @@ def _win_read_kind(kind: str) -> dict[str, dict]:
             continue
         g = groups.setdefault(aid, {"id": aid, "name": name, "vol": vol, "muted": muted,
                                     "active": live, "streams": [], "icons": []})
+        exe = _win_session_exe(session)
+        if exe and exe not in g["icons"]:
+            g["icons"].append(exe)           # Windows: its program, for icon_path
         g["vol"], g["muted"], g["active"] = max(g["vol"], vol), g["muted"] and muted, g["active"] or live
     return groups
 
@@ -407,16 +419,78 @@ def find_icon(names, roots=ICON_ROOTS, pixmaps=PIXMAP_DIRS) -> str | None:
     return None
 
 
-def icon_path(aid: str, names=None) -> str | None:
-    """The icon file for an app id, looked up once (names: what its streams call their icon)."""
-    if sys.platform.startswith("win"):
+def _win_icon_png(exe: str, out: str, size: int = 48) -> bool:
+    """The program's own icon at `size` pixels, saved as a PNG at `out`."""
+    import ctypes
+    from ctypes import wintypes as wt
+    from PIL import Image
+    shell32, user32, gdi32 = ctypes.WinDLL("shell32"), ctypes.WinDLL("user32"), ctypes.WinDLL("gdi32")
+    shell32.SHDefExtractIconW.argtypes = [wt.LPCWSTR, ctypes.c_int, wt.UINT, ctypes.POINTER(wt.HICON),
+                                          ctypes.POINTER(wt.HICON), wt.UINT]
+    shell32.SHDefExtractIconW.restype = ctypes.c_long
+    user32.GetIconInfo.argtypes = [wt.HICON, ctypes.c_void_p]
+    user32.GetDC.argtypes, user32.GetDC.restype = [wt.HWND], wt.HDC
+    user32.ReleaseDC.argtypes = [wt.HWND, wt.HDC]
+    user32.DestroyIcon.argtypes = [wt.HICON]
+    gdi32.GetDIBits.argtypes = [wt.HDC, wt.HBITMAP, wt.UINT, wt.UINT, ctypes.c_void_p, ctypes.c_void_p, wt.UINT]
+    gdi32.DeleteObject.argtypes = [wt.HGDIOBJ]
+    large = wt.HICON()
+    # SHDefExtractIconW: the icon at this size, resampled from the best the file has
+    if shell32.SHDefExtractIconW(exe, 0, 0, ctypes.byref(large), None, size) != 0 or not large:
+        return False
+
+    class IconInfo(ctypes.Structure):
+        _fields_ = [("fIcon", wt.BOOL), ("xHotspot", wt.DWORD), ("yHotspot", wt.DWORD),
+                    ("hbmMask", wt.HBITMAP), ("hbmColor", wt.HBITMAP)]
+    info = IconInfo()
+    try:
+        if not user32.GetIconInfo(large, ctypes.byref(info)) or not info.hbmColor:
+            return False
+        header = (ctypes.c_uint32 * 10)(40, size, ctypes.c_uint32(-size).value, 1 | 32 << 16, 0, 0, 0, 0, 0, 0)
+        bits = ctypes.create_string_buffer(size * size * 4)
+        dc = user32.GetDC(None)
+        try:
+            ok = gdi32.GetDIBits(dc, info.hbmColor, 0, size, bits, header, 0)
+        finally:
+            user32.ReleaseDC(None, dc)
+        if not ok:
+            return False
+        img = Image.frombuffer("RGBA", (size, size), bits.raw, "raw", "BGRA", 0, 1)
+        if not img.getchannel("A").getbbox():      # an icon with no alpha: all of it shows
+            img.putalpha(255)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        img.save(out, "PNG")
+        return True
+    finally:
+        for bm in (info.hbmColor, info.hbmMask):
+            if bm:
+                gdi32.DeleteObject(bm)
+        user32.DestroyIcon(large)
+
+
+def _win_icon(aid: str, exes) -> str | None:
+    """The icon of the app's program, extracted once into this user's temp folder."""
+    import tempfile
+    exe = next((e for e in exes or () if isinstance(e, str) and e.lower().endswith(".exe")), None)
+    if not exe:
         return None
+    out = os.path.join(tempfile.gettempdir(), "touch-dashboard-icons", aid + ".png")
+    try:
+        return out if _is_png(out) or _win_icon_png(exe, out) else None
+    except (OSError, ValueError, AttributeError) as e:   # ctypes, Pillow: no icon is not an error
+        logger.debug("app icon for %s: %s", aid, e)
+        return None
+
+
+def icon_path(aid: str, names=None) -> str | None:
+    """The icon file for an app id, looked up once (names: what its streams
+    call their icon; on Windows its program's path)."""
     with _icons_lock:
         if aid in _icons:
             return _icons[aid]
     if names is None:
         return None   # the route serves only icons a reading has already found
-    path = find_icon([*names, aid])
+    path = _win_icon(aid, names) if sys.platform.startswith("win") else find_icon([*names, aid])
     with _icons_lock:
         if len(_icons) >= _ICON_CACHE_MAX:
             _icons.pop(next(iter(_icons)))

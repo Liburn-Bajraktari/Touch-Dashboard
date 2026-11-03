@@ -49,6 +49,7 @@ import pkgutil
 import re
 import secrets
 import shutil
+import sys
 import threading
 import time
 import unicodedata
@@ -404,6 +405,39 @@ def latest_companion(releases: Any) -> str | None:
     return max(found, key=_version, default=None)
 
 
+_CASELESS = sys.platform == "win32"      # Windows' file systems ignore a name's case
+
+
+class _Folders(frozenset):
+    """Interface/AddOns folder names. On Windows a name matches whatever its
+    case, as the game finds it: "Bigwigs" there is BigWigs."""
+
+    def __new__(cls, names=()):
+        return super().__new__(cls, (n.lower() for n in names) if _CASELESS else names)
+
+    def __contains__(self, name) -> bool:
+        return frozenset.__contains__(self, name.lower() if _CASELESS and isinstance(name, str) else name)
+
+
+def game_folder_hint() -> str | None:
+    """Where WoW is installed, as Battle.net's installer recorded it (Windows:
+    its registry key, else the default folder), to suggest in WoW settings.
+    Never saved unless the player takes it."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft") as key:
+            path = str(winreg.QueryValueEx(key, "InstallPath")[0]).rstrip("\\/")
+        if os.path.isdir(path):
+            return path
+    except OSError:
+        pass
+    path = os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "World of Warcraft")
+    return path if os.path.isdir(path) else None
+
+
 def bundled_version() -> str | None:
     """The companion addon's version in this install (addon/TouchDashboard)."""
     try:
@@ -589,6 +623,7 @@ class WowAddons:
         self._link_told = False                # the link's state the screens were last given
         self._addons_dir: str | None = None
         self._installed: frozenset[str] | None = None
+        self._hint: tuple[str | None] | None = None    # game_folder_hint(), once looked up
         self._update_failed: str | None = None   # a bundled version that could not be copied in
         self._released: str | None = None        # the newest companion on GitHub (set_latest_companion)
         self._companion_version: str | None = None
@@ -1044,6 +1079,8 @@ class WowAddons:
             raise CommandError("no_keyboard")
         if self.screen.front() is False:
             raise CommandError("not_front")
+        if self.screen.keys_blocked():
+            raise CommandError("elevated")
         lines = self.lines(cmd, args)
         if not lines:
             raise CommandError("empty")
@@ -1090,6 +1127,8 @@ class WowAddons:
             raise CommandError("no_keyboard")
         if self.screen.front() is False:
             raise CommandError("not_front")
+        if self.screen.keys_blocked():
+            raise CommandError("elevated")
         full = full or self._link_up()          # the live link has the rest: only bags and vault are left to read
         if self._companion(["/tdc full"] if full else [], want_result=full) is None:
             raise CommandError(self._why)
@@ -1355,20 +1394,20 @@ class WowAddons:
         addons_dir = None
         if base:
             # The game folder, its _retail_, or a SavedVariables folder 4 levels under _retail_.
-            up = os.path.expanduser(base).rstrip("/\\")
+            up = os.path.normpath(os.path.expanduser(base))    # no trailing separator; C:\\ stays C:\\
             roots = [up, os.path.join(up, "_retail_")]
             for _ in range(4):
                 up = os.path.dirname(up)
                 roots.append(up)
             addons_dir = next((os.path.join(r, "Interface", "AddOns") for r in roots
                                if os.path.isdir(os.path.join(r, "Interface", "AddOns"))), None)
-        names: frozenset[str] = frozenset()
+        names = _Folders()
         version = None
         if addons_dir:
             try:
-                names = frozenset(n for n in os.listdir(addons_dir) if os.path.isdir(os.path.join(addons_dir, n)))
+                names = _Folders(n for n in os.listdir(addons_dir) if os.path.isdir(os.path.join(addons_dir, n)))
             except OSError:
-                names = frozenset()
+                names = _Folders()
             if COMPANION in names:
                 try:
                     with open(os.path.join(addons_dir, COMPANION, f"{COMPANION}.toc"), encoding="utf-8",
@@ -1383,6 +1422,12 @@ class WowAddons:
             self._companion_version = version
 
     # ── watched files ─────────────────────────────────────────────────────
+
+    def _folder_hint(self) -> str | None:
+        """game_folder_hint(), looked up once: Settings gets it with every wow_state."""
+        if self._hint is None:
+            self._hint = (game_folder_hint(),)
+        return self._hint[0]
 
     def has_addon(self, folder: str) -> bool | None:
         with self._lock:
@@ -1517,6 +1562,8 @@ class WowAddons:
                                     "companion": self.companion_status(admin), "templates": self._templates(settings)}
             if admin:
                 data["files"] = {mid: self._files.get(mid) for mid, m in self.modules.items() if m.watch}
+                if not settings["wow_path"]:
+                    data["folder_hint"] = self._folder_hint()
                 data["slot_text"] = {}
                 for slot, kb in settings["keybinds"].items():
                     entry = self._lookup(kb["cmd"])

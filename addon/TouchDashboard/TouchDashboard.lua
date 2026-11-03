@@ -963,12 +963,14 @@ end
 local owner = CreateFrame("Frame")
 local buttons, pendingSlots = {}, nil
 
-local focusButton = CreateFrame("Button", "TouchDashboardFocus", UIParent)
+-- Nothing the PC presses hangs off UIParent: Alt+Z hides it and every frame
+-- under it. The box, its beacon and these buttons have no parent, like the strip.
+local focusButton = CreateFrame("Button", "TouchDashboardFocus")
 
 -- The run button: whatever the box loaded into it last (one command, its
 -- lines), clicked by the PC's next chord, then emptied so a stray press runs
 -- nothing. A real key press clicks it, so it may run what an addon may not.
-local runButton = CreateFrame("Button", "TouchDashboardRun", UIParent, "SecureActionButtonTemplate")
+local runButton = CreateFrame("Button", "TouchDashboardRun", nil, "SecureActionButtonTemplate")
 runButton:SetAttribute("type", "macro")
 runButton:RegisterForClicks(GetCVarBool("ActionButtonUseKeyDown") and "AnyDown" or "AnyUp")
 runButton:HookScript("PostClick", function(self)
@@ -988,7 +990,7 @@ end
 local function slotButton(n)
     local b = buttons[n]
     if not b then
-        b = CreateFrame("Button", "TouchDashboardSlot" .. n, UIParent, "SecureActionButtonTemplate")
+        b = CreateFrame("Button", "TouchDashboardSlot" .. n, nil, "SecureActionButtonTemplate")
         b:SetAttribute("type", "macro")
         b:RegisterForClicks(GetCVarBool("ActionButtonUseKeyDown") and "AnyDown" or "AnyUp")
         buttons[n] = b
@@ -1030,7 +1032,8 @@ end
 
 -- ── the input box ────────────────────────────────────────────────────────
 
-local box = CreateFrame("EditBox", "TouchDashboardBox", UIParent)
+-- No parent: a hidden edit box takes no focus, and Alt+Z hides UIParent.
+local box = CreateFrame("EditBox", "TouchDashboardBox")
 box:SetSize(240, 20)
 box:SetPoint("BOTTOMLEFT", UIParent, "TOPLEFT", 0, 200)   -- above the screen
 box:SetFontObject(ChatFontNormal)
@@ -1042,11 +1045,12 @@ if box.SetMaxLetters then box:SetMaxLetters(0) end
 -- ── the beacon ───────────────────────────────────────────────────────────
 -- One row of solid cells, CELL_PX physical pixels each, on the window's top
 -- edge just left of the live link's strip (not in the corner, where overlays
--- draw), above everything. wow_addons/screen.py looks for the same colours
--- (BEACON) along the edge.
+-- draw), above everything. No parent, like the strip: Alt+Z and the UI
+-- scale leave it be. wow_addons/screen.py looks for the same colours (BEACON)
+-- along the edge.
 local BEACON = { { 1, 0, 1 }, { 0, 1, 0 }, { 1, 1, 1 }, { 0, 0, 0 }, { 0, 1, 1 }, { 1, 1, 0 } }
 local CELL_PX, BEACON_GAP = 4, 8
-local beacon = CreateFrame("Frame", "TouchDashboardBeacon", UIParent)
+local beacon = CreateFrame("Frame", "TouchDashboardBeacon")
 beacon:SetFrameStrata("TOOLTIP")
 beacon:SetFrameLevel(9999)
 beacon:Hide()

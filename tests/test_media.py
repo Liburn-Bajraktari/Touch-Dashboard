@@ -604,3 +604,61 @@ def test_stopping_while_held_and_resuming_after():
     _status(m, "Playing")                                 # a real resume shows at once
     p = m.players()[0]
     assert p["status"] == "Playing" and p["started"] > 1.0
+
+
+# ── Windows media covers (SMTC) ───────────────────────────────────────────────
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
+
+
+def test_a_cover_is_a_data_uri_only_when_it_is_an_image():
+    assert media.cover_data_uri(PNG) == "data:image/png;base64," + base64.b64encode(PNG).decode()
+    assert media.cover_data_uri(b"<svg onload=alert(1)>") == ""
+    assert media.cover_data_uri(b"\xff\xd8\xff" + b"\0" * (media.COVER_MAX_BYTES + 1)) == ""
+
+
+def test_a_windows_cover_is_read_once_per_track_and_tried_again_while_missing(monkeypatch):
+    import asyncio
+    import types
+    reads = []
+
+    class Got(bytes):                       # a winrt Buffer: the buffer protocol and .length
+        @property
+        def length(self):
+            return len(self)
+
+    class Stream:
+        def __init__(self, data):
+            self.data, self.size = data, len(data)
+
+        async def read_async(self, buf, size, opts):
+            reads.append(size)
+            return Got(self.data)
+
+    class Ref:
+        def __init__(self):
+            self.data = b""
+
+        async def open_read_async(self):
+            return Stream(self.data)
+
+    streams = types.ModuleType("winrt.windows.storage.streams")
+    streams.Buffer = lambda size: None
+    streams.InputStreamOptions = types.SimpleNamespace(READ_AHEAD=1)
+    monkeypatch.setitem(sys.modules, "winrt.windows.storage.streams", streams)
+    monkeypatch.setattr(media, "_smtc_art", {})
+    ref = Ref()
+    props = types.SimpleNamespace(title="Song", artist="Band", album_title="", thumbnail=ref)
+
+    async def cover():
+        return await media._smtc_cover("Spotify.exe", props)
+    assert asyncio.run(cover()) == ""                       # the app has not set it yet
+    ref.data = PNG
+    first = asyncio.run(cover())
+    assert first.startswith("data:image/png;base64,")
+    assert asyncio.run(cover()) == first and len(reads) == 1  # read once for this track
+    props.title = "Next song"
+    ref.data = b""
+    for _ in range(media.SMTC_COVER_TRIES + 2):
+        asyncio.run(cover())
+    assert len(reads) == 1                                  # an empty stream reads nothing; tries stop

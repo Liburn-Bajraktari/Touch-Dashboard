@@ -1366,6 +1366,17 @@
             transform: scaleX(calc(max(var(--v) - 0.5, 0) * 2));
         }
 
+        /* Soundpad (Windows): 0–100 %, no boost: the fill is the whole slot. */
+        #sb-vol-slider[data-max="100"] #sb-vol-fill {
+            width: 100%;
+            border-radius: var(--radius-pill);
+            transform: scaleX(var(--v));
+        }
+
+        #sb-vol-slider[data-max="100"] #sb-vol-hot {
+            visibility: hidden;
+        }
+
         /* Printed scale above and below the slot: every 25 %, longer at 0, 100
            and 200; 100 % is printed in full ink. */
         .sb-vol-scale {
@@ -6327,6 +6338,14 @@
                         <span class="slider"></span>
                     </label>
                 </div>
+                <div class="setting-row" id="win-autostart-row" hidden>
+                    <label class="title" for="win-autostart">Start with Windows</label>
+                    <label class="switch">
+                        <input type="checkbox" id="win-autostart"
+                            onchange="sendMessage({ type: 'set_autostart', data: { on: this.checked } })">
+                        <span class="slider"></span>
+                    </label>
+                </div>
             </div>
         </div>
     </div>
@@ -7050,7 +7069,7 @@
                     onclick="powerOff()"><i data-lucide="power"></i></button>
             </div>
             <div id="top-right-soundboard" class="bar-cluster">
-                <!-- Volume bar — Linux only, hidden on Windows -->
+                <!-- Volume bar and routes: PipeWire's (Linux) or Soundpad's (Windows) -->
                 <div id="sb-vol-row" class="sb-vol-row" style="display: none;">
                     <div class="sb-routes" role="group" aria-label="Who hears the soundboard">
                         <button id="btn-toggle-sb-feedback" class="sb-route" type="button" onclick="sbRouteTap('feedback')"
@@ -10103,6 +10122,7 @@
                         }
                     }
 
+                    if ('autostart' in d) setAutostart(d.autostart);   // Windows, the PC only
                     // The server says which pad list plays (a device never sees sounds_path).
                     clipSource = d.clip_source || ((osTarget === 'linux' || c.sounds_path) ? 'local' : 'soundpad');
                     spBtns = (clipSource === 'local' ? c.local_buttons : c.soundpad_buttons) || [];
@@ -10117,10 +10137,18 @@
                         setSbRoute('feedback', c.soundboard_feedback !== false);
                         dom.sbMic.hidden = !serverFeatures.has('sb_mic');
                         setSbRoute('mic', c.soundboard_to_mic !== false);
-                    } else if (clipSource === 'local') {
-                        // Windows local soundboard: show tab when a sounds path is configured
-                        document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
+                    } else if (soundpadList()) {
+                        // Windows: Soundpad plays the pads, to the speakers and the mic as the
+                        // route keys say; its volume ends at 100 %.
+                        document.getElementById('tab-btn-sb').style.display = 'none';
                         if (isAdmin()) sendSocket('req_local_sounds');
+                        const volRow = document.getElementById('sb-vol-row');
+                        if (volRow) volRow.style.display = 'flex';
+                        setSbVolMax(100);
+                        if (!sbVolDragging) updateSbVolVisuals(c.soundboard_volume ?? 100);
+                        setSbRoute('feedback', c.soundboard_feedback !== false);
+                        dom.sbMic.hidden = false;
+                        setSbRoute('mic', c.soundboard_to_mic !== false);
                     } else {
                         document.getElementById('tab-btn-sb').style.display = sbEnabled ? 'block' : 'none';
                     }
@@ -10191,6 +10219,9 @@
                 else if (msg.type === 'media_result') {
                     onMediaResult(d);
                 }
+                else if (msg.type === 'autostart_state') {
+                    setAutostart(d);
+                }
                 else if (msg.type === 'play_key_state') {
                     if (globalCfg) globalCfg.play_key_cover = d;
                     setPlayKeyCover(d !== false);
@@ -10222,7 +10253,8 @@
                     requestAnimationFrame(() => onSpeedLive(d));
                 }
                 else if (msg.type === 'local_sounds_list') {
-                    spSounds = Array.isArray(d) ? d.map(x => ({ id: String(x.id), name: String(x.name || x.id) })) : [];
+                    spSounds = Array.isArray(d) ? d.map(x => ({ id: String(x.id), name: String(x.name || x.id),
+                        sub: x.sub ? String(x.sub) : '', path: x.path ? String(x.path) : '' })) : [];
                     spSoundsLoaded = true;
                     renderSpFiles();
                 }
@@ -12930,11 +12962,19 @@
             }
         }
 
+        // Start with Windows (the window's menu): a bool from a Windows server, else hidden.
+        function setAutostart(on) {
+            const row = document.getElementById('win-autostart-row');
+            row.hidden = typeof on !== 'boolean';
+            if (!row.hidden) document.getElementById('win-autostart').checked = on;
+        }
+
         function stopSoundboardAudio() {
             sendSocket('action', 'stop_local_audio');
         }
 
         let currentSbVol = 100;
+        let sbVolMax = 200;             // Soundpad's volume ends at 100 % (setSbVolMax)
         let sbVolDragging = false;
         let _sbVolTimer = null;
         const SB_VOL_TICK = 25;         // printed every 25 %; a haptic detent at each
@@ -12942,10 +12982,10 @@
 
         function updateSbVolVisuals(val) {
             const prev = currentSbVol;
-            currentSbVol = Math.max(0, Math.min(200, Math.round(val)));
+            currentSbVol = Math.max(0, Math.min(sbVolMax, Math.round(val)));
             if (currentSbVol === prev && dom.sbVolSlider.style.getPropertyValue('--v')) return;
             setText(dom.sbVolValue, currentSbVol + '%');
-            dom.sbVolSlider.style.setProperty('--v', String(currentSbVol / 200));
+            dom.sbVolSlider.style.setProperty('--v', String(currentSbVol / sbVolMax));
             dom.sbVolSlider.setAttribute('aria-valuenow', String(currentSbVol));
             dom.sbVolSlider.setAttribute('aria-valuetext', currentSbVol + '%');
         }
@@ -12982,15 +13022,34 @@
         }
 
         // The printed scale: ticks above and below the slot.
-        (() => {
+        function renderSbVolScale() {
             const scale = dom.sbVolSlider.querySelector('.sb-vol-scale');
             let html = '';
-            for (let p = 0; p <= 200; p += SB_VOL_TICK) {
+            for (let p = 0; p <= sbVolMax; p += SB_VOL_TICK) {
                 const cls = (p % 100 === 0 ? ' major' : '') + (p === 100 ? ' unity' : '');
-                html += `<i class="${cls.trim()}" style="--t:${p / 200}"></i><i class="b${cls}" style="--t:${p / 200}"></i>`;
+                html += `<i class="${cls.trim()}" style="--t:${p / sbVolMax}"></i><i class="b${cls}" style="--t:${p / sbVolMax}"></i>`;
             }
             scale.innerHTML = html;
-        })();
+        }
+        renderSbVolScale();
+
+        // 200: PipeWire's sink boosts past 100 % (the upper half in --warning);
+        // 100: Soundpad's volume, the whole slot in the accent.
+        function setSbVolMax(max) {
+            if (max === sbVolMax) return;
+            sbVolMax = max;
+            dom.sbVolSlider.dataset.max = String(max);
+            dom.sbVolSlider.setAttribute('aria-valuemax', String(max));
+            renderSbVolScale();
+            const v = currentSbVol;
+            currentSbVol = -1;              // redrawn at the new scale
+            updateSbVolVisuals(v);
+        }
+
+        // Windows: the server drives Soundpad (feature soundpad): pads pick from its list.
+        function soundpadList() {
+            return clipSource === 'soundpad' && serverFeatures.has('soundpad');
+        }
 
         // Drag anywhere on the strip; Pointer Events only (touch + mouse ran twice).
         // Grabbing the cap keeps the finger's offset from its index line (no jump);
@@ -13002,8 +13061,8 @@
             let grab = 0;
             const fromX = (x) => {
                 const r = slot.getBoundingClientRect();
-                const v = Math.round(Math.max(0, Math.min(1, (x - grab - r.left) / r.width)) * 100) * 2;
-                return Math.abs(v - 100) <= SB_VOL_UNITY_SNAP ? 100 : v;
+                const v = Math.round(Math.max(0, Math.min(1, (x - grab - r.left) / r.width)) * 100) * (sbVolMax / 100);
+                return sbVolMax > 100 && Math.abs(v - 100) <= SB_VOL_UNITY_SNAP ? 100 : v;
             };
             track.addEventListener('pointerdown', (e) => {
                 if (!e.isPrimary) return;
@@ -13028,15 +13087,17 @@
                     sbVolStep(step);
                 } else if (e.key === 'Home' || e.key === 'End') {
                     e.preventDefault();
-                    sbVolSet(e.key === 'Home' ? 0 : 200);
+                    sbVolSet(e.key === 'Home' ? 0 : sbVolMax);
                 }
             });
         })();
 
         // --- Pad editor (soundboard) ---
-        // Local pads play a file from the sounds folder; Soundpad pads play a
-        // sound by its number in Soundpad's list.
-        let spSounds = [];             // [{id: file, name}] from local_sounds_list
+        // Local pads play a file from the sounds folder; Soundpad pads a sound
+        // from Soundpad's list (its number, and its file, by which the server
+        // finds it again after the list is reordered). A server without the
+        // soundpad feature takes the number typed in.
+        let spSounds = [];             // [{id, name, sub?, path?}] from local_sounds_list
         let spSoundsLoaded = false;
         let spChoice = '';             // the chosen file
         let spAutoName = true;         // the name follows the chosen file until typed
@@ -13052,15 +13113,17 @@
                 rows.unshift({ id: spChoice, name: spChoice, missing: true });
             }
             if (!rows.length) {
-                list.innerHTML = `<p class="picker-empty">${!spSoundsLoaded ? 'Reading the sounds folder…'
-                    : spSounds.length ? 'No sound matches.' : 'There are no audio files in the sounds folder yet.'}</p>`;
+                const sp = clipSource === 'soundpad';
+                list.innerHTML = `<p class="picker-empty">${!spSoundsLoaded ? (sp ? 'Asking Soundpad for its sounds…' : 'Reading the sounds folder…')
+                    : spSounds.length ? 'No sound matches.'
+                        : sp ? 'Soundpad is not running, or its list is empty.' : 'There are no audio files in the sounds folder yet.'}</p>`;
                 return;
             }
             list.innerHTML = rows.map(x => `
                 <button class="pick" role="radio" aria-checked="${x.id === spChoice}" data-id="${escapeHtml(x.id)}"
                     data-name="${escapeHtml(x.missing ? '' : x.name)}">
                     <i data-lucide="${x.missing ? 'file-x' : 'file-audio'}"></i><span class="pick-text">${escapeHtml(x.name)}</span>
-                    <span class="pick-sub">${x.missing ? 'Not in the folder' : escapeHtml(x.id)}</span>
+                    <span class="pick-sub">${x.missing ? (clipSource === 'soundpad' ? 'Not in Soundpad’s list' : 'Not in the folder') : escapeHtml(x.sub || x.id)}</span>
                 </button>`).join('');
             renderIcons(list);
             scrollToChoice(list);
@@ -13080,7 +13143,7 @@
         });
 
         function spInputId() {
-            return clipSource === 'local' ? spChoice : document.getElementById('sp-id-input').value.trim();
+            return clipSource === 'local' || soundpadList() ? spChoice : document.getElementById('sp-id-input').value.trim();
         }
 
         // Live: the preview follows the name, and a pad that repeats another is
@@ -13119,18 +13182,25 @@
                 }
                 return;
             }
-            if (local) sendSocket('req_local_sounds');
+            const picked = local || soundpadList();       // a list to pick from, not a number to type
+            if (picked) sendSocket('req_local_sounds');
             editingSpIdx = idx;
             const pad = idx >= 0 && idx < spBtns.length ? spBtns[idx] : null;
             document.getElementById('sp-modal-title').textContent = pad ? 'Edit pad' : 'New pad';
-            document.getElementById('sp-file-group').hidden = !local;
-            document.getElementById('sp-index-group').hidden = local;
-            spChoice = local && pad ? String(pad.id) : '';
-            document.getElementById('sp-id-input').value = !local && pad ? pad.id : '';
+            document.getElementById('sp-file-group').hidden = !picked;
+            document.getElementById('sp-index-group').hidden = picked;
+            spChoice = picked && pad ? String(pad.id) : '';
+            if (soundpadList() && pad && pad.path) {
+                // The sound it plays now: found by its file after a reorder in Soundpad
+                const now = spSounds.find(x => x.path && x.path.toLowerCase() === pad.path.toLowerCase());
+                if (now) spChoice = now.id;
+            }
+            document.getElementById('sp-id-input').value = !picked && pad ? pad.id : '';
             document.getElementById('sp-name-input').value = pad ? pad.name : '';
             spAutoName = !pad;
             document.getElementById('sp-search').value = '';
-            setText(document.getElementById('sp-folder-hint'), local ? `Files in ${globalCfg.sounds_path}` : '');
+            setText(document.getElementById('sp-folder-hint'), local ? `Files in ${globalCfg.sounds_path}`
+                : picked ? 'The sounds in Soundpad’s list. Add more in Soundpad.' : '');
             document.getElementById('sp-del-btn').hidden = !pad;
             renderSpFiles();
             checkSpInput();
@@ -13143,13 +13213,16 @@
             const local = clipSource === 'local';
             const id = spInputId();
             const name = document.getElementById('sp-name-input').value.trim();
-            if (!id) return setSpError(local ? 'Choose a sound first.' : 'Enter the sound’s number in Soundpad.');
+            const picked = local || soundpadList();
+            if (!id) return setSpError(picked ? 'Choose a sound first.' : 'Enter the sound’s number in Soundpad.');
             if (!local && !/^\d+$/.test(id)) return setSpError('Use the sound’s number, like 12.');
             if (!name) return setSpError('Give the pad a name.');
 
+            // Soundpad pads keep their sound's file too: the server finds it by that after a reorder.
+            const extra = soundpadList() ? { path: (spSounds.find(x => x.id === id) || {}).path || '' } : {};
             // Keep the pad's uid: devices play it by that id.
-            if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = { ...spBtns[editingSpIdx], id, name };
-            else spBtns.push({ id, name });
+            if (editingSpIdx >= 0 && editingSpIdx < spBtns.length) spBtns[editingSpIdx] = { ...spBtns[editingSpIdx], id, name, ...extra };
+            else spBtns.push({ id, name, ...extra });
 
             closeSpModal(); renderSpGrid(); saveConfig();
         }

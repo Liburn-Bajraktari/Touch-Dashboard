@@ -257,7 +257,7 @@ def test_pairing_approved_on_the_pc_issues_a_working_token(app, tmp_path):
             assert _receive_until(tablet, "config_sync")["data"]["cfg"]
             assert _receive_until(admin, "pair_resolved")["data"]["status"] == "approved"
 
-    stored = (tmp_path / "paired_devices.json").read_text()
+    stored = (tmp_path / "paired_devices.json").read_text(encoding="utf-8")
     assert token not in stored and security.hash_token(token) in stored
     (entry,) = json.loads(stored)
     assert set(entry) == {"id", "name", "token_hash", "created", "last_seen"}
@@ -467,7 +467,8 @@ def test_spotify_token_file_is_written_whole_and_private(tmp_path):
     path = tmp_path / "spotify_token.json"
     handler = server._SpotifyTokenFile(cache_path=str(path))
     handler.save_token_to_cache({"access_token": "a", "scope": "user-library-modify"})
-    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    if sys.platform != "win32":
+        assert oct(path.stat().st_mode & 0o777) == "0o600"
     assert handler.get_cached_token()["access_token"] == "a"
     assert not (tmp_path / "spotify_token.json.tmp").exists()
 
@@ -857,6 +858,75 @@ def test_update_runs_the_installer_without_a_shell(monkeypatch, tmp_path):
     assert calls["env"]["TD_RELEASE_TAG"] == "v0.11.0" and calls["env"]["AUTO_UPDATE"] == "1"
     assert not installer.exists()                     # removed after the failed run
     assert server._update_running is False
+
+
+def test_on_windows_the_app_exits_for_the_installer_to_finish(monkeypatch, tmp_path):
+    # Windows keeps a running app's packages locked: install.ps1 checks the
+    # release, starts a hidden copy of itself that installs once the app is
+    # gone, and says TD-HANDOFF; the app exits, leaving the file to that copy.
+    installer = tmp_path / "install.ps1"
+    installer.write_text("")
+    seen = {}
+
+    class Proc:
+        returncode = 0
+
+        def __init__(self, lines):
+            self.stdout = asyncio.StreamReader()
+            self.stdout.feed_data(b"".join(line + b"\r\n" for line in lines))
+            self.stdout.feed_eof()
+
+        async def wait(self):
+            return 0
+
+    async def fake_exec(*argv, **kwargs):
+        seen["argv"], seen["env"], seen["flags"] = argv, kwargs["env"], kwargs.get("creationflags")
+        return Proc([b"[*] Downloaded and checked against SHA256SUMS (40.0%)", b"TD-HANDOFF"])
+
+    class Exited(Exception):
+        pass
+
+    def fake_exit(code):
+        seen["exit"] = code
+        raise Exited
+
+    sent = []
+
+    async def broadcast(admin_only=False, msg=None):
+        sent.append(msg["data"])
+
+    monkeypatch.setattr(server, "_fetch_verified_installer", lambda tag: str(installer))
+    monkeypatch.setattr(server.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(server, "get_os_target", lambda: "windows")
+    monkeypatch.setattr(server.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(server, "_update_running", False)
+    monkeypatch.setattr(server, "restart_discord_ipc", lambda: None)
+    monkeypatch.setattr(server.os, "_exit", fake_exit)
+    monkeypatch.setattr(server.ws_manager, "broadcast", broadcast)
+
+    async def scenario():
+        assert server._start_update("v0.17.0")
+        for _ in range(300):
+            await asyncio.sleep(0.01)
+            if "exit" in seen:
+                break
+    asyncio.run(scenario())
+    assert seen["argv"][0] == "powershell" and seen["argv"][-1] == str(installer)
+    assert seen["env"]["TD_WAIT_PID"] == str(os.getpid()) and seen["flags"] == 0x08000000   # no console window
+    assert seen["exit"] == 0
+    assert installer.exists()                         # the hidden copy runs from it, and removes it
+    assert sent[0]["progress"] == 40.0 and "TD-HANDOFF" not in str(sent)
+
+
+def test_a_frozen_windows_app_updates_through_its_own_silent_installer(monkeypatch):
+    monkeypatch.setattr(server, "FROZEN", True)
+    assert server._installer_name("v0.17.0") == "TouchDashboard-Setup-v0.17.0.exe"   # the release workflow's asset
+    argv = server._installer_argv("C:\\Temp\\setup.exe")
+    assert argv[0] == "C:\\Temp\\setup.exe" and "/VERYSILENT" in argv
+    assert f"/TDWAIT={os.getpid()}" in argv                         # it waits for this app to exit
+    monkeypatch.setattr(server, "FROZEN", False)
+    monkeypatch.setattr(server, "get_os_target", lambda: "windows")
+    assert server._installer_name("v0.17.0") == "install.ps1"
 
 
 def test_run_update_needs_a_published_update(app, monkeypatch):

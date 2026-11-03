@@ -271,6 +271,7 @@
                     no_answer: 'the addon opened its box but gave nothing back',
                     no_box: 'the addon did not open its box: is it on in game? (/tdc)',
                     not_front: 'WoW is not the window in front on the PC',
+                    elevated: 'WoW runs as administrator: start it normally',
                     no_check: 'the PC cannot see WoW’s window to check the addon',
                     no_companion: 'the Touch Dashboard addon is not installed',
                 }[d.reason] || 'the PC could not do it'}`;

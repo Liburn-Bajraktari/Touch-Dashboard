@@ -63,9 +63,10 @@ def test_signing_in_lists_the_accounts_characters_and_keeps_no_token(tmp_path):
         ("Magicbane", "eu", "account"), ("Steelhide", "eu", "account")]
     trade = next(c for c in session.calls if c[0] == "POST")
     assert trade[2]["grant_type"] == "authorization_code" and trade[2]["code"] == "the-code"
-    saved = (tmp_path / "chars.json").read_text()
+    saved = (tmp_path / "chars.json").read_text(encoding="utf-8")
     assert "user-token" not in saved and "Magicbane" in saved
-    assert stat.S_IMODE(os.stat(tmp_path / "chars.json").st_mode) == 0o600
+    if sys.platform != "win32":       # Windows keeps only a read-only bit; %APPDATA%'s ACL guards it
+        assert stat.S_IMODE(os.stat(tmp_path / "chars.json").st_mode) == 0o600
 
 
 def test_added_characters_outlive_a_sign_out_and_a_new_sign_in(tmp_path):

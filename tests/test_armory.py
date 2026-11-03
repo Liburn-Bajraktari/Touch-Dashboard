@@ -202,7 +202,7 @@ def test_spells_are_fetched_once_and_kept(tmp_path):
     assert a.fetch_spells("eu") is True
     assert a.spell(45438) == {"name": "Ice Block", "icon": "https://render.worldofwarcraft.com/eu/icons/56/ice.jpg"}
     assert a.spell(999) is None and not a.wanted()      # unknown to Battle.net: not asked again soon
-    saved = json.loads((tmp_path / "spells.json").read_text())
+    saved = json.loads((tmp_path / "spells.json").read_text(encoding="utf-8"))
     assert saved["spells"]["45438"]["name"] == "Ice Block"
     again = Armory(cache_file=str(tmp_path / "spells.json"), session=FakeSession(), clock=lambda: NOW)
     assert again.spell(45438)["name"] == "Ice Block"

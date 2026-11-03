@@ -18,6 +18,7 @@
 --                (its schedule below), its test run, a boss's cast moving the phase, the encounter's end
 --   combat 0|1 | secret 0|1 | proc 0|1 | rune 0|1 | bigwigs <label> <seconds> | timers | db | calls
 --   restrict 0|1: the game hides auras out of combat too (a key, an encounter: C_Secrets)
+--   ui 0|1: Alt+Z hides the interface (UIParent and every frame under it) or shows it again
 --   rcstatus <unit> <ready|notready|waiting>: what GetReadyCheckStatus says of a unit
 --   an event argument SECRET is a secret value (the game's numbers in a dungeon or raid)
 --   timeline add|stop|pause|resume <event id> [seconds]: a bar from BigWigs' Timeline plugin (Blizzard's
@@ -231,7 +232,7 @@ local function newFrame(kind, name, parent)
     function f:SetText(t) self.text = t or ""; self.highlighted = false end
     function f:GetText() return self.text end
     function f:SetFocus()
-        if focused == self then return end
+        if focused == self or not self:IsVisible() then return end   -- a hidden edit box takes no focus
         local was = focused
         focused = self
         if was and was.scripts.OnEditFocusLost then was.scripts.OnEditFocusLost(was) end
@@ -246,6 +247,7 @@ local function newFrame(kind, name, parent)
     function f:Show() self.shown = true end
     function f:Hide() self.shown = false end
     function f:IsShown() return self.shown end
+    function f:IsVisible() return self.shown and (self.parent == nil or self.parent:IsVisible()) end
     function f:SetShown(on) self.shown = on and true or false end
     function f:GetEffectiveScale() return (self.parent or self == UIParent) and UI_SCALE or 1 end
     function f:RegisterUnitEvent(e) self:RegisterEvent(e) end
@@ -456,25 +458,26 @@ for line in io.lines() do
     elseif cmd == "printed" then                        -- what the addon printed to your chat frame
         out = json(printed)
     elseif cmd == "beacon" then   -- the beacon's cells in physical pixels, as WoW would draw them
-        local b, px = frames.TouchDashboardBeacon, screenH / 768 * UI_SCALE
+        local b = frames.TouchDashboardBeacon
+        local px = screenH / 768 * b:GetEffectiveScale()
         local cells = {}
         for i, t in ipairs(b.textures) do
             cells[i] = { rgb = t.rgb, x = (b.x + t.x) * px, w = t.w * px, h = t.h * px }
         end
-        out = json({ shown = b.shown, cells = cells })
+        out = json({ shown = b:IsVisible(), cells = cells })
     elseif cmd == "link" then
         local f = frames.TouchDashboardLink
         for _ = 1, tonumber(rest) or 1 do
             clock = clock + 1 / 60
             runTimers(clock)
-            if f.shown and f.scripts.OnUpdate then f.scripts.OnUpdate(f, 1 / 60) end
+            if f:IsVisible() and f.scripts.OnUpdate then f.scripts.OnUpdate(f, 1 / 60) end
         end
         local px, syms, xs, ws, hs = screenH / 768, {}, {}, {}, {}
         for i, t in ipairs(f.textures) do
             syms[i] = t.shown and t.rgb and (t.rgb[1] * 4 + t.rgb[2] * 2 + t.rgb[3]) or -1
             xs[i], ws[i], hs[i] = (f.x + t.x) * px, t.w * px, t.h * px
         end
-        out = json({ shown = f.shown, syms = syms, xs = xs, ws = ws, hs = hs })
+        out = json({ shown = f:IsVisible(), syms = syms, xs = xs, ws = ws, hs = hs })
     elseif cmd == "bench" then                          -- the strip's own cost, in ms a frame
         local f = frames.TouchDashboardLink
         local function run(n, change)
@@ -488,6 +491,9 @@ for line in io.lines() do
         end
         run(5, true)
         out = json({ idle = run(2000, false), rebuild = run(300, true) })
+    elseif cmd == "ui" then
+        if rest == "0" then UIParent:Hide() else UIParent:Show() end
+        if focused and not focused:IsVisible() then focused:ClearFocus() end   -- hidden, it loses the keyboard
     elseif cmd == "focused" then
         out = tostring(focused ~= nil)
     end
