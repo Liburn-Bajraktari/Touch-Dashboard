@@ -81,12 +81,9 @@ jobs:
             -o faulthandler_timeout=60  # a test stuck for a minute prints every thread's stack
 
       # WoW's window read for real: a stand-in window through WGC and GDI. A
-      # hosted runner may not offer WGC: those tests skip and say so above.
+      # runner without WGC would skip those tests and say so in the summary.
       - name: Windows capture against a stand-in WoW window
-        continue-on-error: true       # until it has passed once: a runner's desktop is not a PC's
         run: APPDATA="$(cygpath -w "$RUNNER_TEMP/appdata")" python -m pytest tests/test_wow_windows_live.py -v -rs
 
-      # Required once it has passed here for the first time.
       - name: Everything else
-        continue-on-error: true
         run: APPDATA="$(cygpath -w "$RUNNER_TEMP/appdata")" python -m pytest tests -q
