@@ -3,6 +3,7 @@
 pactl's JSON is given as data and every process call is patched, so nothing
 touches the PipeWire session.
 """
+import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -206,7 +207,8 @@ def test_find_icon_tries_each_name_then_pixmaps(tmp_path):
     (pixmaps / "discord.png").write_bytes(PNG)
     found = app_audio.find_icon([None, "WEBRTC VoiceEngine", "Discord"], roots=[str(tmp_path)],
                                 pixmaps=[str(pixmaps)])
-    assert found == str(pixmaps / "discord.png")   # "Discord" also looked up in lower case
+    # "Discord" also looked up in lower case (Windows finds either spelling)
+    assert os.path.normcase(found) == os.path.normcase(str(pixmaps / "discord.png"))
 
 
 def test_find_icon_takes_names_not_paths_and_only_pngs(tmp_path):

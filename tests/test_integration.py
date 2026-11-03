@@ -139,7 +139,9 @@ def test_stopped_players_are_not_offered_as_sources(client):
                              name="Chromium", status="Stopped"),
                media._record(id="mpris:firefox.instance_1_2", via="mpris", raw="firefox.instance_1_2",
                              name="Firefox", status="Paused", title="Video")]
-    with patch("server.media_module.poll_mpris_players", return_value=players), _admin_ws(client) as websocket:
+    async def local_media(forced):
+        return players
+    with patch("server._fetch_local_media", local_media), _admin_ws(client) as websocket:
         for _ in range(5):
             now = _receive_until(websocket, "sys_data")["data"]["spotify"]
             if now:
@@ -194,7 +196,7 @@ def test_sb_routes_ask_for_a_state_and_every_screen_follows(client):
     import server
     original = dict(server.config)
     with patch("server.save_config") as save, patch("server.get_os_target", return_value="linux"), \
-            patch("server._toggle_feedback") as loopback:
+            patch("server.soundpad_rc", None), patch("server._toggle_feedback") as loopback:
         with _admin_ws(client) as websocket:
             sync = websocket.receive_json()
             assert sync["data"]["cfg"]["soundboard_to_mic"] is True

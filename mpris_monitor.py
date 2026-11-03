@@ -22,6 +22,7 @@ returns False and the server falls back to polling playerctl (media.py).
 """
 from __future__ import annotations
 
+import itertools
 import logging
 import threading
 import time
@@ -103,6 +104,7 @@ class MprisMonitor:
         self._context = None                  # GLib.MainContext
         self._thread: threading.Thread | None = None
         self._ready   = threading.Event()
+        self._holds   = itertools.count(1)    # each hold's own number: two within one clock tick stay two
 
     # ── Public API ───────────────────────────────────────────────────────────
 
@@ -320,6 +322,7 @@ class MprisMonitor:
             "pid": self._pid_of(owner),
             "held": None,     # a status that left Playing, not shown yet (PAUSE_SETTLE_S)
             "held_at": 0.0,
+            "hold": 0,        # which hold _settle's timer belongs to
         }
         with self._lock:
             self._owners[owner] = bus
@@ -375,8 +378,8 @@ class MprisMonitor:
                 if p["status"] == "Playing" and status != "Playing":
                     # Shown as still playing until it lasts (_settle).
                     if p["held"] is None:
-                        p["held_at"] = now
-                        self._later(PAUSE_SETTLE_S, self._settle, bus, now)
+                        p["held_at"], p["hold"] = now, next(self._holds)
+                        self._later(PAUSE_SETTLE_S, self._settle, bus, p["hold"])
                     p["held"] = status
                 elif status == "Playing" and p["held"] is not None:
                     p["held"] = None        # a blip: it never stopped, nor started again
@@ -408,12 +411,13 @@ class MprisMonitor:
         src.set_callback(lambda *_: (fn(*args), False)[1])
         src.attach(self._context)
 
-    def _settle(self, bus: str, held_at: float) -> None:
-        """A status that left Playing at held_at and has lasted: show it."""
+    def _settle(self, bus: str, hold: int) -> None:
+        """A status that left Playing (hold number `hold`) and has lasted: show it."""
         with self._lock:
             p = self._players.get(bus)
-            if p is None or p["held"] is None or p["held_at"] != held_at:
+            if p is None or p["held"] is None or p["hold"] != hold:
                 return   # gone, back to playing, or a later pause holds its own timer
+            held_at = p["held_at"]
             if p["position"] is not None:
                 # Freeze the extrapolated position where playback stopped.
                 p["position"] += (held_at - p["position_at"]) * p["rate"]

@@ -378,7 +378,8 @@ def test_config_sent_to_a_device_has_no_secrets(app):
         {"id": "m1", "type": "app", "action_data": "/usr/bin/secret-tool --flag", "display_name": "T", "icon_url": ""},
         {"id": "m2", "type": "plugin", "action_data": "app_soundpad", "display_name": "SB", "icon_url": ""},
     ]
-    server.config["local_buttons"] = [{"id": "private-clip-name.wav", "name": "Laugh", "uid": "p1"}]
+    pads = "local_buttons" if server._clip_source(server.config) == "local" else "soundpad_buttons"
+    server.config[pads] = [{"id": "private-clip-name.wav", "name": "Laugh", "uid": "p1"}]
     with _device(app, _paired_token()) as ws:
         sync = ws.receive_json()
     assert sync["type"] == "config_sync"
@@ -390,7 +391,7 @@ def test_config_sent_to_a_device_has_no_secrets(app):
     cfg = sync["data"]["cfg"]
     assert cfg["macros"][0] == {"id": "m1", "type": "app", "display_name": "T", "icon_url": ""}
     assert cfg["macros"][1]["action_data"] == "app_soundpad"
-    assert cfg["local_buttons"] == [{"uid": "p1", "name": "Laugh"}]
+    assert cfg[pads] == [{"uid": "p1", "name": "Laugh"}]            # the list this PC plays
 
     with _admin(app) as admin:   # the PC's settings still see everything
         assert admin.receive_json()["data"]["cfg"]["spot_secret"] == SECRETS["spot_secret"]

@@ -536,7 +536,7 @@ def _monitor(status="Playing"):
         "identity": "Firefox", "status": status, "meta": mpris_monitor.parse_metadata({}),
         "position": 10.0, "position_at": time.monotonic(), "rate": 1.0,
         "caps": {"prev": True, "next": True, "seek": True}, "started": 1.0, "pid": None,
-        "held": None, "held_at": 0.0,
+        "held": None, "held_at": 0.0, "hold": 0,
     }
     timers, notified = [], []
     m._later = lambda seconds, fn, *args: timers.append((seconds, fn, args))

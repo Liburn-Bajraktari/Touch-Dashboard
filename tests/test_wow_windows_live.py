@@ -15,6 +15,9 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
 
 HERE = Path(__file__).resolve().parent
 PAYLOAD = "Touch Dashboard probe"
+# Inside the hosted runner's 1024 x 768 screen: Windows shrinks a wider window
+# to fit (1280 came out 1028).
+W, H = 800, 450
 
 
 def summary(line: str) -> None:
@@ -47,7 +50,7 @@ class Window:
 
 @pytest.fixture
 def wow():
-    w = Window("--width", "1280", "--height", "720", "--payload", PAYLOAD)
+    w = Window("--width", str(W), "--height", str(H), "--payload", PAYLOAD)
     yield w
     w.close()
 
@@ -107,7 +110,7 @@ def test_the_strip_and_the_beacon_are_read_from_the_window(wow, monkeypatch, via
         def no_fallback(hwnd, api):
             raise RuntimeError("the WGC test takes no fallback")
     s = WinScreen() if via == "gdi" else WinScreen(capture=wgc_only, fallback=no_fallback)
-    assert until(lambda: s.size() == (1280, 720)), s.size()
+    assert until(lambda: s.size() == (W, H)), s.size()
     page = until(lambda: read_link(s))
     if page is None and via == "wgc":
         summary("WGC: the capture started but no frame was read")
@@ -127,7 +130,7 @@ def test_wgc_reads_the_window_under_another_one(wow):
     except ImportError as e:
         pytest.skip(f"pywinrt is not installed: {e}")
     cover = Window("--title", "Cover", "--cls", "TDCoverWindow", "--topmost", "--at", "100", "100",
-                   "--width", "1280", "--height", "200")
+                   "--width", str(W), "--height", "200")
     try:
         s = WinScreen(capture=lambda h, api: _wgc_capture(h, api),
                       fallback=lambda h, api: (_ for _ in ()).throw(RuntimeError("no fallback")))
