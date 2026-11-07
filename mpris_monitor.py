@@ -48,6 +48,11 @@ POSITION_RESYNC_S = 10
 # whole Linux window both times, and its resume re-stamped "started", so the
 # player could take the card from another one that was playing.
 PAUSE_SETTLE_S = 0.6
+# A player that does not answer its first read in time (busy) was kept as
+# Stopped with no title until it next changed: seen 2026-11-04 with Spotify,
+# paused at the server's start, and the card stayed empty. It is asked again.
+READ_TRIES   = 5
+READ_RETRY_S = 2.0
 
 
 def _text(value) -> str:
@@ -255,9 +260,10 @@ class MprisMonitor:
         except Exception:
             return None
 
-    def _get_all(self, bus: str, iface: str) -> dict:
+    def _get_all(self, bus: str, iface: str) -> dict | None:
+        """GetAll, or None when the player did not answer."""
         if self._conn is None:
-            return {}
+            return None
         try:
             from gi.repository import Gio, GLib  # type: ignore[import-untyped]
             reply = self._conn.call_sync(
@@ -266,7 +272,7 @@ class MprisMonitor:
             return reply.unpack()[0]
         except Exception as exc:
             logger.debug("mpris GetAll %s failed: %s", bus, exc)
-            return {}
+            return None
 
     def _pid_of(self, owner: str) -> int | None:
         """The process behind a bus connection."""
@@ -290,7 +296,7 @@ class MprisMonitor:
             except Exception as exc:
                 logger.error("MPRIS on_change callback error: %s", exc)
 
-    def _add_player(self, bus: str, owner: str | None) -> None:
+    def _add_player(self, bus: str, owner: str | None, tries: int = 0) -> None:
         if owner is None:
             try:
                 from gi.repository import Gio, GLib  # type: ignore[import-untyped]
@@ -301,7 +307,16 @@ class MprisMonitor:
             except Exception:
                 return
         props = self._get_all(bus, PLAYER_IFACE)
-        root  = self._get_all(bus, ROOT_IFACE)
+        unread = props is None
+        if unread:
+            if tries < READ_TRIES:
+                if tries == 0:
+                    logger.info("MPRIS: %s did not answer; asking again", bus)
+                self._later(READ_RETRY_S, self._reread, bus, owner, tries + 1)
+            else:
+                logger.info("MPRIS: %s never answered; it shows once it changes", bus)
+            props = {}
+        root  = self._get_all(bus, ROOT_IFACE) or {}
         now   = time.monotonic()
         status = str(props.get("PlaybackStatus") or "Stopped")
         position = _number(props.get("Position"))
@@ -323,11 +338,20 @@ class MprisMonitor:
             "held": None,     # a status that left Playing, not shown yet (PAUSE_SETTLE_S)
             "held_at": 0.0,
             "hold": 0,        # which hold _settle's timer belongs to
+            "unread": unread, # its first read went unanswered: _reread asks again
         }
         with self._lock:
             self._owners[owner] = bus
             self._players[bus] = state
         self._notify()
+
+    def _reread(self, bus: str, owner: str, tries: int) -> None:
+        """Read a player again whose read went unanswered (READ_TRIES)."""
+        with self._lock:
+            p = self._players.get(bus)
+            if p is None or not p["unread"] or self._owners.get(owner) != bus:
+                return   # gone, owned by another connection now, or read since
+        self._add_player(bus, owner, tries)
 
     def _remove_player(self, bus: str) -> None:
         with self._lock:

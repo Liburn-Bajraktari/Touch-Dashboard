@@ -19,6 +19,7 @@ import base64
 import binascii
 import hashlib
 import logging
+import math
 import os
 import re
 import shutil
@@ -141,20 +142,36 @@ BROWSER_BRIDGE = "plasma-browser-integration"
 # name last (" - YouTube", " | Twitch").
 _TAB_COUNT = re.compile(r"^\s*(?:[(\[]\d+\+?[)\]]|[▶►])\s*")
 _TAB_SITE = re.compile(r"\s+[-–—|·]\s+([^-–—|·]{1,40})$")
+# Marks no one sees: YouTube's tab title wraps an @handle in bidi embedding
+# marks ("(ft. ‪@Emirichu‬)"), the page's media metadata does not,
+# and the two never matched.
+_INVISIBLE = re.compile("[​-‏‪-‮⁠-⁩﻿]")
 SAME_LENGTH_S = 2.0
 
 
+def _plain(title: str) -> str:
+    return _INVISIBLE.sub("", title).strip()
+
+
 def _bare_title(title: str) -> str:
-    return _TAB_COUNT.sub("", title).strip().casefold()
+    return _TAB_COUNT.sub("", _plain(title)).strip().casefold()
+
+
+def _host_of(url: str) -> str:
+    return (urllib.parse.urlsplit(url).hostname or "") if url else ""
+
+
+def _names_host(text: str, host: str) -> bool:
+    """Every word of text is in the host: "YouTube" on www.youtube.com."""
+    words = re.findall(r"\w+", text.casefold())
+    return bool(host and words) and all(w in host for w in words)
 
 
 def _without_site(bare: str, url: str) -> str | None:
     """A bare tab title without the site's name at its end, when the page's
     host carries that name ("YouTube" on www.youtube.com); else None."""
     site = _TAB_SITE.search(bare)
-    host = (urllib.parse.urlsplit(url).hostname or "") if url else ""
-    words = re.findall(r"\w+", site.group(1)) if site else []
-    return bare[:site.start()] if host and words and all(w in host for w in words) else None
+    return bare[:site.start()] if site and _names_host(site.group(1), _host_of(url)) else None
 
 
 def _title_forms(title: str, url: str) -> set[str]:
@@ -162,8 +179,28 @@ def _title_forms(title: str, url: str) -> set[str]:
     without the site's name, but only a name the page's host carries
     ("YouTube" on www.youtube.com), so "Song - Remix" stays itself."""
     bare = _bare_title(title)
-    forms = {title.strip().casefold(), bare, _without_site(bare, url) or ""}
+    forms = {_plain(title).casefold(), bare, _without_site(bare, url) or ""}
     return forms - {""}
+
+
+def _tab_name(title: str, url: str) -> str | None:
+    """What a tab's title names, without what the tab adds: "(3) Song -
+    YouTube" on youtube.com is "Song", "(3) YouTube" (one of the site's own
+    pages) "YouTube". None when nothing in it is the tab's."""
+    plain = _plain(title)
+    bare = _TAB_COUNT.sub("", plain).strip()
+    host = _host_of(url)
+    site = _TAB_SITE.search(bare)
+    if site and _names_host(site.group(1), host):
+        return bare[:site.start()]
+    return bare if bare != plain or _names_host(bare, host) else None
+
+
+def _tab_only(p: dict) -> bool:
+    """A browser's own player that has only its tab's title: Firefox, while
+    KDE's extension keeps the page's media metadata from it."""
+    return (p["app"] in BROWSERS and p["app"] != BROWSER_BRIDGE and not p["artist"]
+            and _tab_name(p["title"], p["url"]) is not None)
 
 
 def _same_title(a: dict, b: dict, url: str) -> bool:
@@ -194,12 +231,13 @@ def _copy_of(copy: dict, own: dict) -> bool:
 
 def _is_page_title(p: dict, other: dict, url: str) -> bool:
     """p's title is other's with a tab's dressing around it."""
-    return (p["title"].casefold() != other["title"].casefold()
+    return (_plain(p["title"]).casefold() != _plain(other["title"]).casefold()
             and _bare_title(other["title"]) in _title_forms(p["title"], url))
 
 
-def _lend(own: dict, copy: dict) -> dict:
-    """own, with what the copy knows about the same item that own does not."""
+def _lend(own: dict, copy: dict) -> tuple[dict, bool]:
+    """own, with what the copy knows about the same item that own does not,
+    and whether the copy was on own's item."""
     merged = dict(own)
     merged["started"] = max(own["started"], copy["started"])
     # The bridge's name is the browser's (Chrome, Brave), where own's bus name says Chromium.
@@ -212,11 +250,16 @@ def _lend(own: dict, copy: dict) -> dict:
                   and _without_site(_bare_title(own["title"]), url) is not None
                   and _without_site(_bare_title(copy["title"]), url) is None)
     if not (page_title or _same_title(own, copy, url)):
-        return merged          # the copy is on another track for now: nothing of it fits
+        return merged, False   # the copy is on another track for now: nothing of it fits
     if page_title or _is_page_title(own, copy, url):
-        # own has only the tab's title; the copy read the page's metadata.
+        # own has only the tab's title; the copy read the page's metadata, and
+        # its numbers too: on YouTube Firefox's Position stayed 0 for a whole
+        # video (Firefox 159, 2026-11-03) while the bridge's moved with it.
         for field in ("title", "artist", "album", "art"):
             merged[field] = copy[field] or own[field]
+        for field in ("length", "position"):
+            if copy[field] is not None:
+                merged[field] = copy[field]
     # Not the track id: MPRIS SetPosition needs own's.
     for field in ("url", "art", "album"):
         if not merged[field] and copy[field]:
@@ -224,7 +267,7 @@ def _lend(own: dict, copy: dict) -> dict:
     for field in ("length", "position"):
         if merged[field] is None and copy[field] is not None:
             merged[field] = copy[field]
-    return merged
+    return merged, True
 
 
 def dedupe(players: list[dict]) -> list[dict]:
@@ -234,20 +277,29 @@ def dedupe(players: list[dict]) -> list[dict]:
     that it does not: the page url, a cover, the album, a length, and the
     page's metadata when it only has the tab's title. A bridge with no
     browser player behind it (one that publishes none) stays a source."""
+    return _dedupe(players)[0]
+
+
+def _dedupe(players: list[dict]) -> tuple[list[dict], dict[str, tuple[dict, bool]]]:
+    """dedupe(), and for each browser player with only its tab's title that
+    took a copy in: (that player as it came, whether a copy was on its item)."""
     copies = [p for p in players if p["app"] == BROWSER_BRIDGE or p.get("media_pid")]
     if not copies:
-        return players
+        return players, {}
     replace: dict[str, dict] = {}
     drop: set[str] = set()
+    tabs: dict[str, tuple[dict, bool]] = {}
     for c in copies:
         # A browser player that stopped does not stand in for a copy still playing or paused.
         own = next((p for p in players if p["id"] not in drop and _copy_of(c, p)
                     and (p["status"] in LIVE or c["status"] not in LIVE)), None)
         if own is None:
             continue
-        replace[own["id"]] = _lend(replace.get(own["id"], own), c)
+        replace[own["id"]], agreed = _lend(replace.get(own["id"], own), c)
         drop.add(c["id"])
-    return [replace.get(p["id"], p) for p in players if p["id"] not in drop]
+        if _tab_only(own):
+            tabs[own["id"]] = (own, agreed or tabs.get(own["id"], (own, False))[1])
+    return [replace.get(p["id"], p) for p in players if p["id"] not in drop], tabs
 
 
 # KDE's bridge can miss a tab closing (closing its window): its player then
@@ -305,13 +357,89 @@ class _Copies:
 _copies = _Copies()
 
 
+# A tab whose browser player has only its title takes the card's title, cover
+# and progress from the copy, and only while the two agree on the item. Seen
+# on YouTube (Firefox 159, Plasma 6.8, 2026-11-03): on a switch they disagree
+# for 0.06-1.5 s, each a step behind in turn (the bridge's title first, then
+# Firefox's url, the bridge's url, Firefox's title), and the card showed the
+# raw tab title ("(1212) Video - YouTube") meanwhile. When the tab leaves the
+# video (the channel's page, the home page) Firefox's player stays Paused with
+# the page's title ("(1212) YouTube") while the bridge stops reporting, still
+# Playing the video, or takes the home page's muted previews: the card showed
+# "(1212) YouTube" with no cover until the page was reloaded.
+SWITCH_S = 1.0          # a playing tab and its copy may disagree this long while the item changes
+
+
+def _as_item(p: dict, item: dict, playing_for: float) -> dict:
+    """p (its status, keys and track id) showing item's media."""
+    out = dict(p)
+    for field in ("title", "artist", "album", "art", "url", "length", "position"):
+        out[field] = item[field]
+    if p["status"] == item["status"] == "Playing" and out["position"] is not None:
+        out["position"] = round(min(out["position"] + playing_for, out["length"] or math.inf), 1)
+    return out
+
+
+class _Agreed:
+    """The item a tab and its copy last agreed on (local_sources), shown in
+    their place while the browser is paused and has not played since (the
+    tab left the video), and for SWITCH_S once it plays (a switch)."""
+
+    def __init__(self) -> None:
+        self._items: dict[str, tuple[dict, float, float]] = {}  # own id → (record, when, own's started)
+        self._since: dict[str, float] = {}                      # own id → playing and disagreeing since
+
+    def settle(self, kept: list[dict], tabs: dict[str, tuple[dict, bool]], now: float) -> list[dict]:
+        out = []
+        for p in kept:
+            own, agreed = tabs.get(p["id"], (None, False))
+            if own is None:
+                out.append(p)
+                continue
+            if agreed:
+                self._items[p["id"]] = (p, now, own["started"])
+                self._since.pop(p["id"], None)
+                out.append(p)
+                continue
+            item, at, started = self._items.get(p["id"], (None, 0.0, 0.0))
+            if own["status"] != "Playing":
+                self._since.pop(p["id"], None)
+                if item and started == own["started"]:
+                    out.append(_as_item(p, item, 0.0))
+                    continue
+            elif item and now - self._since.setdefault(p["id"], now) < SWITCH_S:
+                out.append(_as_item(p, item, now - at))
+                continue
+            self._items.pop(p["id"], None)   # the tab went on to something its copy does not show
+            out.append(p)
+        for known in (self._items, self._since):
+            for sid in [s for s in known if s not in tabs]:
+                del known[sid]
+        return out
+
+
+_agreed = _Agreed()
+
+
+def _named(p: dict) -> dict:
+    """A browser source known only by its tab's title, without what the tab
+    adds: "(1212) Video - YouTube" reads "Video"."""
+    name = _tab_name(p["title"], p["url"]) if p["app"] in BROWSERS and not p["artist"] else None
+    return {**p, "title": name} if name else p
+
+
 def local_sources(players: list[dict], now: float | None = None) -> list[dict]:
     """dedupe(), less the copies whose browser let their item go: the
     browser's own player carried it and no longer does, or it sits at its
     end. A copy no browser player ever carried stays, as in dedupe().
+    A tab named only by its copy keeps the item they last agreed on while
+    they disagree (_Agreed), and a browser source known only by its tab's
+    title reads without what the tab adds (_named).
     Live streams come out with live=True and no length (is_live)."""
-    kept = _copies.settle(players, dedupe(players), time.monotonic() if now is None else now)
-    return [{**p, "live": True, "length": None} if is_live(p) else p for p in kept]
+    now = time.monotonic() if now is None else now
+    kept, tabs = _dedupe(players)
+    kept = _agreed.settle(_copies.settle(players, kept, now), tabs, now)
+    return [_named({**p, "live": True, "length": None} if is_live(p) else p) for p in kept]
 
 
 def _paused_rank(p: dict) -> tuple:

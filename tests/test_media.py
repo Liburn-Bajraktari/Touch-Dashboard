@@ -172,6 +172,7 @@ def _ids(players):
 @pytest.fixture
 def copies(monkeypatch):
     monkeypatch.setattr(media, "_copies", media._Copies())
+    monkeypatch.setattr(media, "_agreed", media._Agreed())
 
 
 def test_a_copy_its_browser_let_go_leaves_the_card(copies):
@@ -364,9 +365,117 @@ def test_twitch_in_firefox_shows_the_stream_live(copies):
     assert shown["live"] and shown["length"] is None
     assert media.source_name(shown) == "Twitch"
     assert media.public_media(shown, "")["length"] is None            # older pages show no bar
-    # The tab title and the stream's title on another page are two things.
+    # The tab title and the stream's title on another page are two things:
+    # nothing is lent, and past a switch's hold the tab shows its own name.
     other = dict(bridge, url="https://www.twitch.tv/someone")
-    assert media.local_sources([own, other], now=0.0)[0]["title"] == "Emiru - Twitch"
+    assert media.dedupe([own, other])[0]["title"] == "Emiru - Twitch"
+    media.local_sources([own, other], now=0.5)
+    assert media.local_sources([own, other], now=2.0)[0]["title"] == "Emiru"
+
+
+# Seen on YouTube (Firefox 159, Plasma 6.8, 2026-11-03): Firefox's own player
+# has the tab's title, KDE's extension keeping the page's media metadata from
+# it, and a Position of 0; the bridge has the video's title, channel, cover
+# and position. Captured from the session bus while the user switched videos.
+FF_PID = 1213431
+WATCH_A = "https://www.youtube.com/watch?v=EOabSQePHCM"
+WATCH_B = "https://www.youtube.com/watch?v=SFdvmRWfckA"
+WATCH_C = "https://www.youtube.com/watch?v=S1JtlYv8V6o"
+YT_HOME = "https://www.youtube.com/"
+WORST_FOOD = "The Worst Food Takes EVER (ft. @Emirichu) | Trash Taste #141"
+JETPACK = "The Player Who Reinvented Jetpack Cat"
+
+
+def _tab(status, title, url, started=0.0, length=None):
+    return _p("mpris:firefox.instance_1_429", "firefox.instance_1_429", status, title=title, url=url,
+              started=started, length=length, position=0.0, pid=FF_PID)
+
+
+def _copy(status, title, url, artist, position=0.0, length=None, art="file:///tmp/a.jpg"):
+    return _p("mpris:plasma-browser-integration", "plasma-browser-integration", status, title=title,
+              url=url, artist=artist, art=art, length=length, position=position, media_pid=FF_PID)
+
+
+def test_a_tab_takes_its_copys_position_and_length(copies):
+    # Firefox's Position stayed 0: the card's bar ran 0-10 s and fell back at
+    # every re-read, and ↻30 would have sent the video to 0:35.
+    own = _tab("Playing", "(1212) Overwatch - EVERY NEW CHANGE for Mid-Season 5 - YouTube", WATCH_C,
+               length=528.0)
+    copy = _copy("Playing", "Overwatch - EVERY NEW CHANGE for Mid-Season 5", WATCH_C, "KarQ",
+                 position=292.9, length=528.8)
+    [shown] = media.local_sources([own, copy], now=0.0)
+    assert (shown["id"], shown["artist"], shown["position"], shown["length"]) == (own["id"], "KarQ", 292.9, 528.8)
+
+
+def test_a_tab_title_with_youtubes_hidden_marks_matches_its_copy():
+    # YouTube's tab title wraps the @handle in bidi marks; the bridge, a step
+    # behind on the url, has the title without them.
+    own = _tab("Playing", "(1212) The Worst Food Takes EVER (ft. ‪@Emirichu‬) | Trash Taste #141 - YouTube",
+               WATCH_A)
+    copy = _copy("Playing", WORST_FOOD, "https://www.youtube.com/watch?v=xoDT9CUv-SM", "Trash Taste")
+    [shown] = media.dedupe([own, copy])
+    assert (shown["title"], shown["artist"]) == (WORST_FOOD, "Trash Taste")
+
+
+def test_a_switch_keeps_the_card_on_a_video(copies):
+    # The order seen: the bridge's title, Firefox's restart, the bridge's url,
+    # then Firefox's tab title. The card showed "(1212) <old> - YouTube" between.
+    worst = _copy("Playing", WORST_FOOD, WATCH_A, "Trash Taste", position=900.0)
+    seen = [
+        (0.0, _tab("Playing", f"(1212) {WORST_FOOD} - YouTube", WATCH_A, started=1.0), worst),
+        (0.6, _tab("Playing", f"(1212) {WORST_FOOD} - YouTube", WATCH_A, started=1.0),
+         _copy("Paused", JETPACK, WATCH_A, "Ocie")),
+        (0.7, _tab("Playing", f"(1212) {WORST_FOOD} - YouTube", WATCH_A, started=9.0),
+         _copy("Playing", JETPACK, WATCH_B, "Ocie")),
+        (0.8, _tab("Playing", f"(1212) {JETPACK} - YouTube", WATCH_B, started=9.0),
+         _copy("Playing", JETPACK, WATCH_B, "Ocie")),
+    ]
+    shown = [media.local_sources([own, copy], now=t)[0] for t, own, copy in seen]
+    assert [(p["title"], p["artist"]) for p in shown] == [
+        (WORST_FOOD, "Trash Taste"), (JETPACK, "Ocie"), (JETPACK, "Ocie"), (JETPACK, "Ocie")]
+    # The other way round: Firefox's url first, with the old video's tab title.
+    paused = _tab("Paused", f"(1212) {JETPACK} - YouTube", WATCH_B, started=9.0)
+    media.local_sources([paused, _copy("Paused", JETPACK, WATCH_B, "Ocie")], now=5.0)
+    ahead = _tab("Paused", f"(1212) {JETPACK} - YouTube", WATCH_C, started=9.0)
+    behind = _copy("Playing", "Overwatch - EVERY NEW CHANGE for Mid-Season 5", YT_HOME, "KarQ")
+    assert media.local_sources([ahead, behind], now=6.0)[0]["title"] == JETPACK
+
+
+def test_a_tab_that_left_its_video_shows_it_paused(copies):
+    # The home page: Firefox's player Paused with the page's title, the bridge
+    # still Playing the video, then the home page's muted preview. The card
+    # showed "(1212) YouTube" with no cover until the page was reloaded.
+    playing = _tab("Playing", f"(1212) {JETPACK} - YouTube", WATCH_B, started=5.0)
+    media.local_sources([playing, _copy("Playing", JETPACK, WATCH_B, "Ocie", 100.0, 4607.7)], now=0.0)
+    home = _tab("Paused", "(1212) YouTube", YT_HOME, started=5.0)
+    for t, copy in ((1.0, _copy("Playing", JETPACK, WATCH_B, "Ocie", 101.0, 4607.7)),
+                    (60.0, _copy("Playing", "Overwatch - EVERY NEW CHANGE for Mid-Season 5", YT_HOME, "KarQ",
+                                 art="file:///tmp/b.jpg"))):
+        [shown] = media.local_sources([home, copy], now=t)
+        assert (shown["status"], shown["title"], shown["artist"]) == ("Paused", JETPACK, "Ocie")
+        assert (shown["art"], shown["position"], shown["url"]) == ("file:///tmp/a.jpg", 100.0, WATCH_B)
+    # A video the bridge does not follow: the switch's hold, then the tab's
+    # own title, as it is without what the tab adds. The change still shows.
+    stuck = _copy("Playing", "Overwatch - EVERY NEW CHANGE for Mid-Season 5", YT_HOME, "KarQ")
+    new = _tab("Playing", "(1212) Something New - YouTube", WATCH_A, started=70.0)
+    assert media.local_sources([new, stuck], now=70.0)[0]["title"] == JETPACK
+    assert media.local_sources([new, stuck], now=71.5)[0]["title"] == "Something New"
+    paused = dict(new, status="Paused")
+    assert media.local_sources([paused, stuck], now=72.0)[0]["title"] == "Something New"
+
+
+@pytest.mark.parametrize("app, title, url, artist, shown", [
+    ("firefox", "(1212) Video - YouTube", YT, "", "Video"),
+    ("firefox", "(1212) YouTube", YT_HOME, "", "YouTube"),
+    ("firefox", "Emiru - Twitch", TWITCH, "", "Emiru"),
+    ("plasma-browser-integration", "(3) Video - YouTube", YT, "", "Video"),
+    ("firefox", "Song - Remix", "https://example.com/x", "", "Song - Remix"),     # not the site's name
+    ("firefox", "(1212) Video - YouTube", YT, "Channel", "(1212) Video - YouTube"),  # the page's own metadata
+    ("vlc", "(3) Video - YouTube", YT, "", "(3) Video - YouTube"),                 # not a browser
+])
+def test_a_browser_tab_title_reads_without_what_the_tab_adds(copies, app, title, url, artist, shown):
+    p = _p("p", app, title=title, url=url, artist=artist)
+    assert media.local_sources([p], now=0.0)[0]["title"] == shown
 
 
 @pytest.mark.parametrize("app, url, length, live", [
@@ -605,6 +714,38 @@ def test_stopping_while_held_and_resuming_after():
     _status(m, "Playing")                                 # a real resume shows at once
     p = m.players()[0]
     assert p["status"] == "Playing" and p["started"] > 1.0
+
+
+SP_BUS = "org.mpris.MediaPlayer2.spotify"
+
+
+def test_a_player_that_does_not_answer_is_asked_again():
+    # Seen 2026-11-04: Spotify, paused, did not answer the read at the
+    # server's start and stayed Stopped with no title: the card showed nothing.
+    import mpris_monitor
+    m, timers, _ = _monitor()
+    answers = [None, None, {"PlaybackStatus": "Paused", "Metadata": {"xesam:title": "Song"}}]
+    m._get_all = lambda bus, iface: answers.pop(0) if iface == mpris_monitor.PLAYER_IFACE else {}
+    m._add_player(SP_BUS, ":1.9")
+    assert m._players[SP_BUS]["status"] == "Stopped"
+    for _ in range(2):
+        seconds, fn, args = timers.pop(0)
+        assert seconds == mpris_monitor.READ_RETRY_S
+        fn(*args)
+    p = next(p for p in m.players() if p["bus"] == SP_BUS)
+    assert (p["status"], p["title"]) == ("Paused", "Song") and timers == []
+    # One that never answers is asked READ_TRIES times; one that left, not again.
+    m._get_all = lambda bus, iface: None
+    m._add_player(SP_BUS, ":1.9")
+    for _ in range(mpris_monitor.READ_TRIES):
+        _, fn, args = timers.pop(0)
+        fn(*args)
+    assert timers == []
+    m._add_player(SP_BUS, ":1.9")
+    m._remove_player(SP_BUS)
+    _, fn, args = timers.pop(0)
+    fn(*args)
+    assert timers == [] and SP_BUS not in m._players
 
 
 # ── Windows media covers (SMTC) ───────────────────────────────────────────────
