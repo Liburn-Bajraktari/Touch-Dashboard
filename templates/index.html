@@ -7532,6 +7532,9 @@
 
         window.addEventListener('pywebviewready', () => {
             document.getElementById('desktop-titlebar').style.display = 'flex';
+            // WebView2 adds pywebview only once the page has loaded, which can be
+            // after the 500 ms check below: the window is not a browser.
+            document.getElementById('browser-warning').style.display = 'none';
             pywebview.api.get_local_ip().then(ip => {
                 document.getElementById('win-ip-label').textContent = 'IP: ' + ip;
             });
@@ -10133,6 +10136,7 @@
                         // Show volume row and sync value from config
                         const volRow = document.getElementById('sb-vol-row');
                         if (volRow) volRow.style.display = 'flex';
+                        setSbVolMax(200);   // the app may have shown a Windows PC's Soundpad (100 %) before
                         const sbVol = c.soundboard_volume ?? 100;
                         if (!sbVolDragging) updateSbVolVisuals(sbVol);
                         setSbRoute('feedback', c.soundboard_feedback !== false);
@@ -10257,6 +10261,7 @@
                     spSounds = Array.isArray(d) ? d.map(x => ({ id: String(x.id), name: String(x.name || x.id),
                         sub: x.sub ? String(x.sub) : '', path: x.path ? String(x.path) : '' })) : [];
                     spSoundsLoaded = true;
+                    spRefind();
                     renderSpFiles();
                 }
                 else if (msg.type === 'update_progress') {
@@ -13107,6 +13112,7 @@
         let spSoundsLoaded = false;
         let spChoice = '';             // the chosen file
         let spAutoName = true;         // the name follows the chosen file until typed
+        let spFindPath = '';           // Soundpad: the open pad's file, until another sound is picked
 
         function renderSpFiles() {
             const list = document.getElementById('sp-file-list');
@@ -13140,6 +13146,7 @@
             const row = e.target.closest('.pick');
             if (!row) return;
             spChoice = row.dataset.id;
+            spFindPath = '';
             for (const b of row.parentNode.children) b.setAttribute('aria-checked', String(b === row));
             if (spAutoName && row.dataset.name) document.getElementById('sp-name-input').value = row.dataset.name;
             checkSpInput();
@@ -13150,6 +13157,13 @@
 
         function spInputId() {
             return clipSource === 'local' || soundpadList() ? spChoice : document.getElementById('sp-id-input').value.trim();
+        }
+
+        // The sound the open pad plays now: found by its file, since a reorder in
+        // Soundpad renumbers its list (the list the editor opened with may be older).
+        function spRefind() {
+            const now = spFindPath && spSounds.find(x => x.path && x.path.toLowerCase() === spFindPath);
+            if (now) spChoice = now.id;
         }
 
         // Live: the preview follows the name, and a pad that repeats another is
@@ -13196,11 +13210,8 @@
             document.getElementById('sp-file-group').hidden = !picked;
             document.getElementById('sp-index-group').hidden = picked;
             spChoice = picked && pad ? String(pad.id) : '';
-            if (soundpadList() && pad && pad.path) {
-                // The sound it plays now: found by its file after a reorder in Soundpad
-                const now = spSounds.find(x => x.path && x.path.toLowerCase() === pad.path.toLowerCase());
-                if (now) spChoice = now.id;
-            }
+            spFindPath = soundpadList() && pad && pad.path ? pad.path.toLowerCase() : '';
+            spRefind();
             document.getElementById('sp-id-input').value = !picked && pad ? pad.id : '';
             document.getElementById('sp-name-input').value = pad ? pad.name : '';
             spAutoName = !pad;

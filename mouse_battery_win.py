@@ -203,7 +203,9 @@ def razer_mouse(io, model: str) -> dict | None:
             continue
         charging = _razer_ask(io, 0x07, 0x84, transaction)
         state = "charging" if charging and charging[1] else "discharging"
-        return _state(round(level[1] * 100 / 255, 1), state, model or "Razer mouse", "Razer", "usb")
+        # Not "usb": the page reads that as a cable and hides the level. On its
+        # cable the mouse charges, which the page shows first.
+        return _state(round(level[1] * 100 / 255, 1), state, model or "Razer mouse", "Razer", "wireless")
     return None
 
 

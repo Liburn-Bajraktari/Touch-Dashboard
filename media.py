@@ -41,11 +41,14 @@ _PLAYER_NAMES = {
     "kdeconnect": "KDE Connect",
 }
 PLAYER_LABEL_MAX = 20
+# Microsoft Store packages of apps we know by another name (Windows' AUMID)
+_STORE_APPS = {"spotifyab.spotifymusic": "spotify"}
 
 
 def app_of(raw: str) -> str:
     """'firefox.instance_1_23' / 'Spotify.exe' / 'Microsoft.ZuneMusic_8wek…!App' → 'firefox' …"""
     base = (raw or "").split("!")[0].split("_")[0].lower().removesuffix(".exe")
+    base = _STORE_APPS.get(base, base)
     return base if base in _PLAYER_NAMES else base.split(".")[0]
 
 
@@ -1042,6 +1045,7 @@ _win_media_ts: float   = float("-inf")
 _win_media_ttl: float  = 2.0   # seconds between Windows SMTCS queries
 WIN_MAX_SESSIONS = 6
 WIN_VIDEO = 2                  # Windows.Media.MediaPlaybackType.Video
+WIN_PLAYING = 4                # GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
 
 # Probe the actual winrt import once at module load so _WINRT_AVAILABLE is
 # only True when the packages are genuinely installed and importable.
@@ -1080,6 +1084,17 @@ def _winrt_int(value) -> int | None:
         except (TypeError, ValueError):
             continue
     return None
+
+
+def _winrt_enum(obj, name: str) -> int | None:
+    """obj.name as an int, or None when it cannot be read. PlaybackType is
+    Windows.Media's MediaPlaybackType, which pywinrt reads only with
+    winrt-Windows.Media installed (ModuleNotFoundError otherwise): raised in
+    the session loop, it emptied the whole list, not just the video flag."""
+    try:
+        return _winrt_int(getattr(obj, name, None))
+    except ImportError:
+        return None
 
 
 async def _smtc_manager():
@@ -1166,9 +1181,9 @@ async def _query_winrt_sessions() -> list[dict]:
                 "next": bool(getattr(controls, "is_next_enabled", True)),
                 "seek": bool(getattr(controls, "is_playback_position_enabled", True)),
             }
-            ptype = _winrt_int(getattr(pb, "playback_type", None))
+            ptype = _winrt_enum(pb, "playback_type")
             if ptype is None and props is not None:
-                ptype = _winrt_int(getattr(props, "playback_type", None))
+                ptype = _winrt_enum(props, "playback_type")
             sid = "smtc:" + aumid
             started = _starts.note(sid, status)
             out.append(_record(
@@ -1216,7 +1231,13 @@ async def smtc_position(aumid: str) -> float | None:
         return None
     try:
         session = _smtc_session(await _smtc_manager(), aumid)
-        return _winrt_timeline(session, True)[0] if session else None
+        if session is None:
+            return None
+        # Run on from last_updated_time only while playing: a paused app's
+        # timeline dates from the pause, and ↻30 or Previous counted the pause too.
+        pb = session.get_playback_info()
+        playing = _winrt_int(getattr(pb, "playback_status", None)) == WIN_PLAYING
+        return _winrt_timeline(session, playing)[0]
     except Exception as e:
         logger.debug(f"Windows SMTC position: {e}")
         return None

@@ -19,6 +19,7 @@ import media  # noqa: E402
     ("chromium.instance1234", "Chromium"),
     ("plasma-browser-integration", "Browser"),
     ("Spotify.exe", "Spotify"),
+    ("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", "Spotify"),   # the Microsoft Store's
     ("Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic", "Media Player"),
     ("308046B0AF4A39CB", ""),          # Firefox's Windows AUMID is a hash, not a name
     ("strawberry", "Strawberry"),
@@ -662,3 +663,16 @@ def test_a_windows_cover_is_read_once_per_track_and_tried_again_while_missing(mo
     for _ in range(media.SMTC_COVER_TRIES + 2):
         asyncio.run(cover())
     assert len(reads) == 1                                  # an empty stream reads nothing; tries stop
+
+
+def test_an_smtc_type_whose_package_is_not_installed_reads_as_unknown():
+    """PlaybackType is Windows.Media's: without winrt-Windows.Media pywinrt
+    raises on reading it, and that emptied the whole list of sessions."""
+    import types
+
+    class Info:
+        @property
+        def playback_type(self):
+            raise ModuleNotFoundError("No module named 'winrt.windows.media'")
+    assert media._winrt_enum(Info(), "playback_type") is None
+    assert media._winrt_enum(types.SimpleNamespace(playback_type=2), "playback_type") == 2

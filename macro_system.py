@@ -296,7 +296,7 @@ class AppEnumerator:
                     ["powershell", "-NoProfile", "-Command", ps],
                     stderr=subprocess.DEVNULL, timeout=12,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),   # no console flashing up
-                ).decode("utf-8", errors="replace").strip()
+                ).decode("utf-8-sig", errors="replace").strip()   # -sig: a byte order mark would stop json
                 if out:
                     raw = __import__("json").loads(out)
                     if isinstance(raw, dict):

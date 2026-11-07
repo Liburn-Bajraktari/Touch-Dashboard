@@ -54,12 +54,15 @@ Source: "..\..\dist\TouchDashboard\*"; DestDir: "{app}"; Flags: recursesubdirs c
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Icons]
-Name: "{autoprograms}\Touch Dashboard"; Filename: "{app}\TouchDashboard.exe"
-Name: "{autodesktop}\Touch Dashboard"; Filename: "{app}\TouchDashboard.exe"; Tasks: desktopicon
+; The window's own AppUserModelID (desktop.py), so a pinned shortcut and the running window are one taskbar button
+Name: "{autoprograms}\Touch Dashboard"; Filename: "{app}\TouchDashboard.exe"; AppUserModelID: "TouchDashboard.TouchDashboard"
+Name: "{autodesktop}\Touch Dashboard"; Filename: "{app}\TouchDashboard.exe"; AppUserModelID: "TouchDashboard.TouchDashboard"; Tasks: desktopicon
 
 [Registry]
-; The same value the app's own "Start with Windows" switch sets (server.py _autostart)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "TouchDashboard"; ValueData: """{app}\TouchDashboard.exe"""; Tasks: autostart; Flags: uninsdeletevalue
+; The same value the app's own "Start with Windows" switch sets (server.py _autostart).
+; Not on an update: a silent Setup reuses the first install's tasks and would turn
+; it back on after the switch turned it off.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "TouchDashboard"; ValueData: """{app}\TouchDashboard.exe"""; Tasks: autostart; Check: not WizardSilent; Flags: uninsdeletevalue
 
 [Run]
 ; Port 8888 on private networks only, and only from the local subnet (as install.ps1)

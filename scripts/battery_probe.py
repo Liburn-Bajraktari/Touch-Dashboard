@@ -63,6 +63,8 @@ def logitech_nodes():
 
 
 def main():
+    if not sys.platform.startswith("linux"):
+        sys.exit("Linux only (hidraw)")         # elsewhere no node is found: it would say no mouse answered
     verbose = "-v" in sys.argv[1:]
     found = False
     for path, name in logitech_nodes():

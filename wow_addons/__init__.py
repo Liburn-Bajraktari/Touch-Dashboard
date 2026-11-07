@@ -643,6 +643,8 @@ class WowAddons:
         out["realm"] = chat_text(raw.get("realm"), 64)
         path = raw.get("wow_path")
         out["wow_path"] = path.strip()[:PATH_MAX] if isinstance(path, str) and "\0" not in path else ""
+        if sys.platform == "win32":     # Explorer's "Copy as path" adds quotes, which no Windows path holds
+            out["wow_path"] = out["wow_path"].strip('"').strip()
         account = raw.get("account")
         out["account"] = (account.strip() if isinstance(account, str) and ACCOUNT_RE.fullmatch(account.strip())
                           and ".." not in account else "")
@@ -1521,6 +1523,10 @@ class WowAddons:
                     with open(path, "rb") as f:
                         data = m.watch.load(f.read().decode("latin-1"))
                 except OSError as e:
+                    if getattr(e, "winerror", None) in (32, 33):
+                        # Windows: another program (WoW writing it) holds it for a
+                        # moment. The last view stays; the next poll reads it.
+                        continue
                     logger.warning("Could not read %s: %s", path, e)
                 except Exception:   # a module's parser must not stop the others' watches
                     logger.exception("WoW addon %s could not read %s", mid, path)

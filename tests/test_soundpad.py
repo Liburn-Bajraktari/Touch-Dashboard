@@ -223,6 +223,23 @@ def test_a_list_without_xml_is_empty():
     assert parse_soundlist("R-404: nope") == []
 
 
+def test_a_list_that_is_not_well_formed_is_a_value_error():
+    # ElementTree's ParseError is a SyntaxError, which the server would not catch
+    with pytest.raises(ValueError):
+        parse_soundlist('<Soundlist><Sound index="1" title="Rock & roll"/></Soundlist>')
+
+
+def test_soundpad_windows_will_not_start_is_not_running(monkeypatch):
+    def gone():
+        raise FileNotFoundError("no pipe")
+
+    def elevated(*args, **kwargs):
+        raise OSError(740, "The requested operation requires elevation")
+    monkeypatch.setattr(soundpad, "find_exe", lambda: "C:\\Soundpad\\Soundpad.exe")
+    monkeypatch.setattr(soundpad.subprocess, "Popen", elevated)
+    assert soundpad.start(Soundpad(opener=gone)) is False
+
+
 # ── the server's pads ────────────────────────────────────────────────────────
 
 def test_a_pad_plays_through_soundpad_with_the_route_keys(monkeypatch):

@@ -218,16 +218,20 @@ def _pycaw_endpoint(is_mic: bool):
 def _windows_endpoint_volume(is_mic: bool):
     """The default speaker's or mic's IAudioEndpointVolume, or None."""
     from pycaw.pycaw import IAudioEndpointVolume  # type: ignore[import]
-    from ctypes import cast, POINTER
     from comtypes import CLSCTX_ALL  # type: ignore[import]
 
     device = _pycaw_endpoint(is_mic)
     if not device:
         return None
-    if not is_mic:
-        return device.EndpointVolume
-    interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    return cast(interface, POINTER(IAudioEndpointVolume))
+    # pycaw 2025+ wraps the device (AudioDevice, with EndpointVolume); older
+    # releases, and GetMicrophone in some, hand back the IMMDevice itself.
+    volume = getattr(device, "EndpointVolume", None)
+    if volume is not None:
+        return volume
+    # QueryInterface, not ctypes.cast: a cast is a second owner of the same
+    # reference, and comtypes releases both (a use after free, 0xC0000005).
+    interface = getattr(device, "_dev", device).Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+    return interface.QueryInterface(IAudioEndpointVolume)
 
 
 @_com_cleanup

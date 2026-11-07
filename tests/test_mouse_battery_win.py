@@ -157,7 +157,7 @@ class Razer:
 def test_a_razer_mouse_reports_its_level_out_of_255_and_whether_it_charges():
     got = mb.razer_mouse(Razer(level=191), "Razer Viper Ultimate")
     assert got == {"pct": 74.9, "state": "discharging", "model": "Razer Viper Ultimate", "vendor": "Razer",
-                   "connection_type": "usb"}
+                   "connection_type": "wireless"}
     assert mb.razer_mouse(Razer(level=255, charging=1), "")["state"] == "charging"
 
 

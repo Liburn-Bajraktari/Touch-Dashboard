@@ -12,7 +12,11 @@ Pillow
 # On Arch Linux install via pacman (preferred):
 #   sudo pacman -S python-pywebview python-pystray
 # On other distros / Windows, pip-install works:
-pywebview
+pywebview; sys_platform != "win32"
+# Windows: desktop.py sets webview.settings' drag region keys, which 6.1 added;
+# from 5.4 on settings refuses a key it does not know (KeyError at start), and an
+# install's existing venv keeps the version it has unless it is too old.
+pywebview>=6.1; sys_platform == "win32"
 pystray
 
 # ── Optional: fast JSON serialization (5–10× faster than stdlib json) ──────────
@@ -29,6 +33,9 @@ comtypes>=1.4.10,<1.5; sys_platform == "win32"
 pycaw==20260927; sys_platform == "win32"
 winrt-runtime>=4.1,<5; sys_platform == "win32"
 winrt-Windows.Media.Control>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
+# A session's PlaybackType (video or music) is Windows.Media's type: without this
+# package pywinrt raises reading it, and media.py takes it as unknown.
+winrt-Windows.Media>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
 winrt-Windows.Foundation>=4!10.0.28000.2957,<4!11; sys_platform == "win32"
 winrt-Windows.Storage.Streams>=4!10.0.28000.2957,<4!11; sys_platform == "win32"   # media covers
 # WoW's window (wow_addons/screen_win.py): Windows.Graphics.Capture and its Direct3D side

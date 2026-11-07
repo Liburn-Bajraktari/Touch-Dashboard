@@ -46,12 +46,22 @@ def wakeup() -> None:
         logger.debug("wakeup show: %s", exc)
     if _active_tray is not None:
         _active_tray.set_visible(True)
+
+
+def remove_tray() -> None:
+    """Windows: take the tray icon away before a forced exit (os._exit). The
+    notification area keeps a dead process's icon until the mouse passes over it."""
+    if sys.platform.startswith("win") and _active_tray is not None:
+        _active_tray.stop()                 # its own thread removes the icon as it ends
     if sys.platform.startswith("win"):
         try:
             import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            user32.SetForegroundWindow.argtypes = [wintypes.HWND]   # a handle, not a C int (64-bit)
             hwnd = _windows_hwnd(_window_title)
             if hwnd:
-                ctypes.windll.user32.SetForegroundWindow(hwnd)   # allowed: the second instance passed it on
+                user32.SetForegroundWindow(hwnd)   # allowed: the second instance passed it on
         except (OSError, AttributeError) as exc:
             logger.debug("wakeup focus: %s", exc)
 
@@ -268,6 +278,7 @@ def _wake_existing_instance(port: int, data_dir: str) -> None:
     """
     import urllib.request
     import security
+    open_url = urllib.request.urlopen
     if sys.platform.startswith("win"):
         # This process was just started by the user, so it may bring a window
         # to the front; the running one may not until it is handed that right.
@@ -276,6 +287,9 @@ def _wake_existing_instance(port: int, data_dir: str) -> None:
             ctypes.windll.user32.AllowSetForegroundWindow(-1)        # ASFW_ANY
         except (OSError, AttributeError):
             pass
+        # urllib takes Windows' system proxy from the registry and, unlike
+        # Windows itself, sends 127.0.0.1 through it: go straight to this PC.
+        open_url = urllib.request.build_opener(urllib.request.ProxyHandler({})).open
     for _ in range(10):
         try:
             req = urllib.request.Request(
@@ -283,7 +297,7 @@ def _wake_existing_instance(port: int, data_dir: str) -> None:
                 headers={"Content-Type": "application/json",
                          "Authorization": f"Bearer {security.read_local_token(data_dir)}"},
             )
-            urllib.request.urlopen(req, timeout=0.5)
+            open_url(req, timeout=0.5)
             return
         except Exception:
             time.sleep(0.5)

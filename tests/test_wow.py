@@ -161,6 +161,14 @@ def test_settings_are_cleaned_and_defaults_filled_in():
 
 # ── commands ──────────────────────────────────────────────────────────────────
 
+def test_a_game_folder_copied_as_a_path_on_windows_loses_its_quotes(monkeypatch):
+    core, _ = make()
+    quoted = '"C:\\Program Files (x86)\\World of Warcraft\\_retail_"'
+    assert core.clean_settings({"wow_path": quoted})["wow_path"] == quoted      # elsewhere as typed
+    monkeypatch.setattr(sys, "platform", "win32")                               # Explorer's "Copy as path"
+    assert core.clean_settings({"wow_path": quoted})["wow_path"] == quoted.strip('"')
+
+
 def test_a_command_is_typed_into_chat_and_the_clipboard_put_back():
     clip = FakeClip()
     core, keys = make({"raid": {"pull_s": 12}}, clip=clip)

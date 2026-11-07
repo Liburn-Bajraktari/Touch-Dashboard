@@ -53,7 +53,10 @@ def parse_soundlist(xml: str) -> list[dict]:
     start = xml.find("<")
     if start < 0:
         return []
-    root = ET.fromstring(xml[start:])
+    try:
+        root = ET.fromstring(xml[start:])
+    except ET.ParseError as e:              # a SyntaxError: callers take a list they cannot read as ValueError
+        raise ValueError(f"Soundpad's list is not XML: {e}") from e
     out = []
     for el in root.iter("Sound"):
         try:
@@ -276,7 +279,13 @@ def start(sp: Soundpad, wait: float = START_WAIT_S) -> bool:
     exe = find_exe()
     if not exe:
         return False
-    subprocess.Popen([exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+    try:
+        # In its own folder, as Explorer and Steam start it (Steam's copy reads its files there)
+        subprocess.Popen([exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                         cwd=os.path.dirname(exe) or None)
+    except OSError as e:                    # e.g. WinError 740: set to run as administrator
+        logger.warning("Soundpad could not be started: %s", e)
+        return False
     end = time.monotonic() + wait
     while time.monotonic() < end:
         time.sleep(0.25)

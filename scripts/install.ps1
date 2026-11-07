@@ -16,6 +16,8 @@ param (
 # and starts the new version.
 
 $ErrorActionPreference = "Stop"
+# GitHub takes TLS 1.2 or newer, which Windows PowerShell 5.1 may not offer unless asked.
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $RepoOwner = "Liburn-Bajraktari"
 $RepoName = "Touch-Dashboard"
 if ($env:TARGET_DIR) {
@@ -314,9 +316,13 @@ function Install-Update {
 
 # The hidden second half of an update from the app: no console, a log file.
 function Complete-Update {
+    $staged = $env:TD_STAGED
+    # The app started below inherits this environment: with TD_PHASE still set,
+    # its next update would skip straight to this half, with a folder long gone.
+    Remove-Item Env:TD_PHASE, Env:TD_STAGED -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
     $log = Join-Path $DataDir "update.log"
-    "`n=== $(Get-Date -Format s) updating $InstallDir from $env:TD_STAGED ===" | Out-File -FilePath $log -Append -Encoding utf8
+    "`n=== $(Get-Date -Format s) updating $InstallDir from $staged ===" | Out-File -FilePath $log -Append -Encoding utf8
     try {
         if ($env:TD_WAIT_PID) {
             # The app exits once it has read TD-HANDOFF; one that hangs is stopped.
@@ -324,14 +330,14 @@ function Complete-Update {
             Stop-Process -Id ([int]$env:TD_WAIT_PID) -Force -ErrorAction SilentlyContinue
         }
         Stop-App
-        Install-Files $env:TD_STAGED
+        Install-Files $staged
         Install-Environment $log
         Install-Shortcuts
         "Installed." | Out-File -FilePath $log -Append -Encoding utf8
     } catch {
         "FAILED: $($_.Exception.Message)" | Out-File -FilePath $log -Append -Encoding utf8
     } finally {
-        Remove-Item -Recurse -Force (Split-Path $env:TD_STAGED -Parent) -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force (Split-Path $staged -Parent) -ErrorAction SilentlyContinue
         # Whatever happened, the app comes back: the old version if the copy failed early.
         if (Test-Path "$InstallDir\.venv\Scripts\pythonw.exe") { Start-App }
         Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue

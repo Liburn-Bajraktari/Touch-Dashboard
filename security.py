@@ -88,7 +88,9 @@ def _utc_now() -> str:
 def write_private(path: str, text: str) -> None:
     """Atomically write a file only this user can read (0600 on POSIX)."""
     tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # O_BINARY (Windows only): os.open is in text mode there, and the C runtime
+    # turned each \r\n the text layer writes into \r\r\n.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
     os.replace(tmp, path)

@@ -31,8 +31,10 @@ if sys.platform.startswith("win"):
 # Pythonw.exe sets sys.stdout and sys.stderr to None.
 # Some third-party libraries like speedtest-cli expect them to have a 'fileno' attribute.
 # We patch them to os.devnull to prevent fatal crashes on startup.
-if sys.stdout is None: sys.stdout = open(os.devnull, 'w')
-if sys.stderr is None: sys.stderr = open(os.devnull, 'w')
+# UTF-8: in the locale's code page (cp1252) a stray non-Latin character
+# written there would raise instead of vanishing.
+if sys.stdout is None: sys.stdout = open(os.devnull, 'w', encoding='utf-8')
+if sys.stderr is None: sys.stderr = open(os.devnull, 'w', encoding='utf-8')
 if sys.stdin is None:  sys.stdin = open(os.devnull, 'r')
 import asyncio
 import contextlib
@@ -1892,6 +1894,7 @@ def wakeup_endpoint():
 @_app.post("/api/exit", dependencies=[Depends(_require_local_control)])
 def exit_endpoint():
     import threading
+    _desktop_module.remove_tray()
     threading.Timer(0.5, lambda: os._exit(0)).start()
     return {"status": "shutting down"}
 
@@ -1978,6 +1981,14 @@ _app.add_middleware(_HostGuard)
 _app.add_middleware(GZipMiddleware, minimum_size=1024)
 _app.add_middleware(_SecurityHeaders)
 
+
+if sys.platform.startswith("win"):
+    # Python takes a file type's MIME type from the registry over its own, and
+    # some programs set .js to text/plain there: with nosniff the window would
+    # then refuse every script of the page. Its two text types, named here.
+    import mimetypes
+    mimetypes.add_type("text/javascript", ".js")
+    mimetypes.add_type("text/css", ".css")
 
 _app.mount("/static", StaticFiles(directory=os.path.join(RESOURCE_DIR, "static")), name="static")
 
@@ -2291,6 +2302,7 @@ def _start_update(tag: str) -> bool:
                     "type": "update_progress",
                     "data": {"text": f"[*] {tag} downloaded and checked. Touch Dashboard closes now and opens "
                                      "again once it is installed.", "progress": 100, "error": False}})
+                _desktop_module.remove_tray()
                 await asyncio.sleep(1)
                 restart_discord_ipc()
                 os._exit(0)
@@ -2345,6 +2357,7 @@ def _start_update(tag: str) -> bool:
                     "type": "update_progress",
                     "data": {"text": "\n[*] Touch Dashboard closes now and opens again once the update is installed.",
                              "progress": 100, "error": False}})
+                _desktop_module.remove_tray()
                 await asyncio.sleep(1)       # the message out first
                 restart_discord_ipc()
                 logger.info("Update to %s: exiting so the installer can finish", tag)
@@ -3034,7 +3047,10 @@ async def _ws_set_autostart(client: Client, msg: dict) -> None:
         state = await asyncio.to_thread(_autostart, on)
     except OSError as e:
         logger.warning("Start with Windows: %s", e)
-        state = await asyncio.to_thread(_autostart)
+        try:
+            state = await asyncio.to_thread(_autostart)
+        except OSError:     # the Run key cannot be opened at all: the switch hides, as on connect
+            state = None
     await ws_manager.broadcast(admin_only=True, msg={"type": "autostart_state", "data": state})
 
 

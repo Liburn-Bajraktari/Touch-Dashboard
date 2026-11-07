@@ -9,10 +9,15 @@
 # (RESOURCE_DIR) and wow_addons through its own __file__. Then
 # packaging/windows/TouchDashboard.iss makes the installer from dist/.
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_submodules
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))   # noqa: F821 (PyInstaller defines SPECPATH)
+# collect_submodules imports in a child process that gets this sys.path, which
+# holds neither the spec's folder nor the current one (pathex comes later):
+# without the repo on it, wow_addons came back empty and the WoW page had no modules.
+sys.path.insert(0, ROOT)
 
 hidden = (
     collect_submodules("wow_addons")      # its modules are found by pkgutil at run time

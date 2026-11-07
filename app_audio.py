@@ -218,14 +218,15 @@ def _win_sessions(kind: str) -> list:
     if kind == OUT:
         return list(AudioUtilities.GetAllSessions())
     # pycaw only lists render sessions; capture ones are the same walk on the mic.
-    from ctypes import POINTER, cast
     from comtypes import CLSCTX_ALL  # type: ignore[import]
     from pycaw.pycaw import AudioSession, IAudioSessionControl2, IAudioSessionManager2  # type: ignore[import]
     mic = AudioUtilities.GetMicrophone()
     dev = getattr(mic, "_dev", mic)
     if dev is None:
         return []
-    mgr = cast(dev.Activate(IAudioSessionManager2._iid_, CLSCTX_ALL, None), POINTER(IAudioSessionManager2))
+    # QueryInterface as pycaw's own render walk does, not ctypes.cast: a cast
+    # pointer and its source both release the one reference comtypes holds.
+    mgr = dev.Activate(IAudioSessionManager2._iid_, CLSCTX_ALL, None).QueryInterface(IAudioSessionManager2)
     sessions = []
     enum = mgr.GetSessionEnumerator()
     for i in range(enum.GetCount()):
